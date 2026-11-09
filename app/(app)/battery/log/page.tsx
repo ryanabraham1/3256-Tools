@@ -29,7 +29,7 @@ export default async function LogPage(props: PageProps<"/battery/log">) {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow" style={{ color: "var(--muted)" }}>Activity</p>
-          <h1 className="display text-4xl sm:text-5xl">What&apos;s happened</h1>
+          <h1 className="display text-3xl sm:text-[34px]">What&apos;s happened</h1>
         </div>
         <a href={`/api/export/events?${qs.toString()}`} className="btn btn-ghost text-sm">Export CSV</a>
       </div>

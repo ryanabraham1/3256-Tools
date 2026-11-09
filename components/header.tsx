@@ -259,18 +259,19 @@ export function Header() {
     <button
       type="button"
       onClick={() => setCompMode(!compMode)}
-      className="pill max-w-[150px] overflow-hidden text-ellipsis"
+      className="pill max-w-[190px] overflow-hidden text-ellipsis"
       style={{
         minHeight: 44,
-        padding: "0 0.8rem",
+        padding: "0 0.9rem",
+        borderRadius: 10,
         ...(compMode
-          ? { background: "var(--purple)", color: "#fff" }
-          : { background: "var(--paper)", color: "var(--muted)", border: "1px solid var(--line)" }),
+          ? { background: "var(--warn-soft)", color: "var(--warn)", border: "1px solid color-mix(in srgb, var(--warn) 40%, transparent)" }
+          : { background: "var(--surface)", color: "var(--muted)", border: "1px solid var(--line)" }),
       }}
       title="Competition mode"
       aria-pressed={compMode}
     >
-      {compMode ? `Comp${matchLabel ? ` · ${matchLabel}` : ""}` : "Comp off"}
+      {compMode ? `Comp mode on${matchLabel ? ` · ${matchLabel}` : ""}` : "Comp mode off"}
     </button>
   );
 
@@ -281,17 +282,17 @@ export function Header() {
         className="sticky top-0 z-30 border-b pt-safe"
         style={{ background: "var(--surface)", borderColor: "var(--line)" }}
       >
-        <div className="mx-auto max-w-[1400px] px-4 py-2 grid grid-cols-[1fr_auto] sm:flex items-center gap-x-3 gap-y-1.5 min-h-[56px]">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-2.5 grid grid-cols-[1fr_auto] sm:flex items-center gap-x-3 gap-y-1.5 min-h-[56px]">
           <div className="contents sm:flex sm:items-center sm:gap-2 min-w-0 sm:min-h-[44px]">
             {/* Home: the 3256 Tools dashboard */}
             <Link href="/" prefetch={false} className="flex items-center gap-2 min-h-[44px]" aria-label="3256 Tools home" aria-current={home ? "page" : undefined}>
-              <span className="eyebrow px-2 py-1 rounded-md" style={{ background: "var(--plum)", color: "var(--plum-text)" }}>
+              <span className="px-2 py-1 rounded-[9px] text-sm font-bold" style={{ background: "var(--purple)", color: "#fff" }}>
                 3256
               </span>
-              <span className={`font-medium tracking-tight ${home ? "" : "sm:hidden lg:inline"}`}>Tools</span>
+              <span className={`text-[17px] font-bold tracking-tight ${home ? "" : "sm:hidden lg:inline"}`}>Tools</span>
             </Link>
             {/* App switcher: batteries ↔ fab stock */}
-            <nav className="col-span-full row-start-2 grid grid-cols-4 sm:inline-flex rounded-lg p-0.5 sm:overflow-x-auto min-w-0" style={{ background: "var(--paper)", border: "1px solid var(--line)" }} aria-label="App">
+            <nav className="col-span-full row-start-2 grid grid-cols-4 sm:inline-flex gap-1 rounded-xl p-1 sm:overflow-x-auto min-w-0" style={{ background: "var(--neutral-soft)" }} aria-label="App">
               {(
                 [
                   ["/battery", "Batteries", "Batteries", batteryApp],
@@ -304,8 +305,8 @@ export function Header() {
                   key={href}
                   href={href}
                   prefetch={false}
-                  className="rounded-md px-2 sm:px-2.5 flex items-center justify-center text-sm font-medium tracking-tight whitespace-nowrap min-h-11 sm:min-h-9"
-                  style={{ background: on ? "var(--plum)" : "transparent", color: on ? "#fff" : "var(--muted)" }}
+                  className={`rounded-[9px] px-2 sm:px-3.5 flex items-center justify-center text-[15px] whitespace-nowrap min-h-11 sm:min-h-10 ${on ? "font-semibold" : "font-medium"}`}
+                  style={{ background: on ? "var(--surface)" : "transparent", color: on ? "var(--ink)" : "var(--muted)", boxShadow: on ? "var(--shadow-sm)" : undefined }}
                   aria-current={on ? "page" : undefined}
                 >
                   <span className="hidden sm:inline">{label}</span>
@@ -323,7 +324,8 @@ export function Header() {
                 <Link
                   key={n.href}
                   href={n.href}
-                  className="eyebrow px-2.5 py-2 rounded-md whitespace-nowrap"
+                  className={`text-[15px] px-3 py-2 min-h-10 inline-flex items-center rounded-[9px] whitespace-nowrap ${active ? "font-semibold" : "font-medium"}`}
+                  aria-current={active ? "page" : undefined}
                   style={{
                     color: active ? "var(--purple-dark)" : "var(--muted)",
                     background: active ? "var(--purple-soft)" : "transparent",
@@ -339,8 +341,8 @@ export function Header() {
             {canSearch && (
               <form onSubmit={search} className="hidden xl:block">
                 <input
-                  className="input py-1.5 w-44"
-                  style={{ minHeight: 38 }}
+                  className="input py-1.5 w-52"
+                  style={{ minHeight: 40, fontSize: 15 }}
                   placeholder="Search…"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}

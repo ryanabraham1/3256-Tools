@@ -85,7 +85,7 @@ export function FabMaterialDetail({
             {m.material} · {SHAPE_LABEL[m.shape]}
             {m.archived && " · archived"}
           </p>
-          <h1 className="display text-4xl sm:text-5xl break-words">{sizeLabel(m)}</h1>
+          <h1 className="display text-3xl sm:text-[34px] break-words">{sizeLabel(m)}</h1>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {s.low && <span className="pill pill-bad">Low stock</span>}
             {openOrders.length > 0 && <span className="pill pill-warn">On order</span>}

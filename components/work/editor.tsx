@@ -229,7 +229,7 @@ function IssueComposer({
     );
   }
   return (
-    <Modal title="New issue" onClose={onClose} className="work-issue-composer">
+    <Modal title="New task" onClose={onClose} className="work-issue-composer">
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -389,7 +389,7 @@ function IssueComposer({
                 onChange={(v) => patch("milestone", v)}
               />
             </Field>
-            <Field label="Parent issue">
+            <Field label="Parent task">
               <EntitySelect
                 disabled={pending}
                 items={items}
@@ -445,7 +445,7 @@ function IssueComposer({
             Create more
           </label>
           <button type="submit" className="btn btn-primary" disabled={pending}>
-            {pending ? "Creating…" : "Create issue"}
+            {pending ? "Creating…" : "Create task"}
           </button>
         </div>
       </form>
@@ -536,7 +536,7 @@ export function ItemEditor({
                     setData({ ...template.data, targetKind: undefined });
                 }}
               >
-                <option value="">Blank issue</option>
+                <option value="">Blank task</option>
                 {items
                   .filter(
                     (i) =>
@@ -684,7 +684,7 @@ export function ItemEditor({
                       onChange={(v) => patch("milestone", v)}
                     />
                   </Field>
-                  <Field label="Parent issue">
+                  <Field label="Parent task">
                     <EntitySelect
                 disabled={pending}
                       items={items}
@@ -810,14 +810,14 @@ export function ItemEditor({
                       patch("targetKind", e.target.value as WorkKind)
                     }
                   >
-                    {["issue", "project", "document"].map((k) => (
+                    {(["issue", "project", "document"] as WorkKind[]).map((k) => (
                       <option key={k} value={k}>
-                        {k}
+                        {KIND_NAMES[k]}
                       </option>
                     ))}
                   </select>
                 </Field>
-                <Field label="Default issue status">
+                <Field label="Default task status">
                   <select
                     className="input"
                     value={data.status ?? "Backlog"}

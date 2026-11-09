@@ -14,7 +14,7 @@ export default async function BatteriesPage() {
           <p className="eyebrow" style={{ color: "var(--muted)" }}>
             Roster
           </p>
-          <h1 className="display text-4xl sm:text-5xl">Batteries</h1>
+          <h1 className="display text-3xl sm:text-[34px]">Batteries</h1>
         </div>
         <div className="grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
           <a href="/api/export/batteries" className="btn btn-ghost px-2 sm:px-4 text-xs sm:text-sm shrink-0">

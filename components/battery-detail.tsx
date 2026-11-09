@@ -157,7 +157,7 @@ export function BatteryDetail({
               </span>
             )}
           </div>
-          <h1 className="display text-4xl sm:text-6xl break-words">{battery.name}</h1>
+          <h1 className="display text-3xl sm:text-6xl break-words">{battery.name}</h1>
           <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
             {battery.brand_model || "Unknown model"} · {battery.capacity_ah} Ah
             {battery.manufacture_date && <> · made {fmtDate(battery.manufacture_date)}</>}

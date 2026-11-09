@@ -25,7 +25,7 @@ export const STATUSES = [
 ];
 export const PRIORITIES = ["No priority", "Urgent", "High", "Medium", "Low"];
 export const KIND_NAMES: Record<WorkKind, string> = {
-  issue: "Issue",
+  issue: "Task",
   project: "Project",
   initiative: "Initiative",
   cycle: "Cycle",
@@ -382,7 +382,7 @@ export function validateWorkInput(
     data.nextRepeat = d.nextRepeat;
   }
   if (("recurrence" in data || "due" in data) && merged().recurrence && !merged().due)
-    throw new Error("Set a due date for a recurring issue.");
+    throw new Error("Set a due date for a recurring task.");
   return {
     kind: kind as WorkKind,
     title: title.trim(),

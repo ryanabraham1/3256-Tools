@@ -150,7 +150,7 @@ export function ItemDetail({
           </div>
         </div>
         <InlineEdit label="Title" value={item.title} disabled={pending} onSave={title => milestoneActions.onSave(item, { title })}><h1>{item.title}</h1></InlineEdit>
-        {issue && item.data.parent && <button className="work-issue-parent" onClick={() => { const parent = items.find(i => i.id === item.data.parent); if (parent) onOpen(parent); }}><span>Sub-issue of</span><StatusIcon status={items.find(i => i.id === item.data.parent)?.data.status}/>{items.find(i => i.id === item.data.parent)?.title}</button>}
+        {issue && item.data.parent && <button className="work-issue-parent" onClick={() => { const parent = items.find(i => i.id === item.data.parent); if (parent) onOpen(parent); }}><span>Sub-task of</span><StatusIcon status={items.find(i => i.id === item.data.parent)?.data.status}/>{items.find(i => i.id === item.data.parent)?.title}</button>}
         {!issue && <LabelPicker item={item} items={items} disabled={pending} onChange={labels => onPatch({ labels })} />}
         <InlineEdit label="Description" multiline value={item.data.description ?? ""} disabled={pending} placeholder="Add a description…" onSave={description => onPatch({ description })}>
           {item.data.description ? <RichText text={item.data.description} /> : <span className="work-description-placeholder">Add a description…</span>}
@@ -207,7 +207,7 @@ export function ItemDetail({
           <section className="work-detail-section">
             <div className="work-section-title">
               <h2>
-                {issue ? "Sub-issues" : "Issues"}
+                {issue ? "Sub-tasks" : "Issues"}
                 <span>{children.filter((i) => i.kind === "issue").length}</span>
               </h2>
               <button
@@ -228,7 +228,7 @@ export function ItemDetail({
                 }
               >
                 <Icon name="plus" size={14} />
-                Add issue
+                Add task
               </button>
             </div>
             {children
@@ -251,7 +251,7 @@ export function ItemDetail({
               ))}
             {!children.some((i) => i.kind === "issue") && (
               <p className="work-muted">
-                Break the work into issues your team can pick up.
+                Break the work into smaller tasks your team can pick up.
               </p>
             )}
           </section>
@@ -448,7 +448,7 @@ export function ItemDetail({
                 <div className="work-relation" key={`${r.id}-${r.type}`}>
                   <span>{r.type}</span>
                   <button onClick={() => other && onOpen(other)}>
-                    {other?.title ?? "Unavailable issue"}
+                    {other?.title ?? "Unavailable task"}
                   </button>
                   <button
                     className="work-icon-button"
@@ -502,7 +502,7 @@ export function ItemDetail({
               value={relationId}
               onChange={setRelationId}
               exclude={item.id}
-              empty="Choose an issue"
+              empty="Choose a task"
             />
             <button
               className="work-text-button"

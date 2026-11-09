@@ -68,7 +68,7 @@ export function PartDetail({
             {design && ` · ${design.name}`}
             {p.part_number && ` · ${p.part_number}`}
           </p>
-          <h1 className="display text-4xl sm:text-5xl break-words">{p.name}</h1>
+          <h1 className="display text-3xl sm:text-[34px] break-words">{p.name}</h1>
           <p className="mono text-sm mt-1" style={{ color: "var(--muted)" }}>
             {p.priority !== null && `${priorityLabel(p.priority)} · `}
             ×{need}

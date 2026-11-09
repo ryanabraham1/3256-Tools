@@ -94,7 +94,7 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
     return milestones.map(m => {
       const status = milestoneProgress(m, issues);
       const overdue = !status.complete && !!m.data.due && m.data.due < today();
-      return <div key={m.id} className="work-milestone-entry" onContextMenu={e => milestoneMenu.show(m, e)}><button className="work-milestone-row" onClick={() => { if (preview) onOpen(m); else { setMilestone(m.id); setTab("Issues"); } }} title={`${m.title}: ${status.completed}/${status.total} completed. Click to view issues.`}>
+      return <div key={m.id} className="work-milestone-entry" onContextMenu={e => milestoneMenu.show(m, e)}><button className="work-milestone-row" onClick={() => { if (preview) onOpen(m); else { setMilestone(m.id); setTab("Issues"); } }} title={`${m.title}: ${status.completed}/${status.total} completed. Click to view tasks.`}>
         <MilestoneIcon percent={status.percent} complete={status.complete} overdue={overdue} />
         <span className="work-milestone-name"><b>{m.title}</b><small>{status.percent}%</small></span>
         <span className="work-milestone-date" data-overdue={overdue}>{dateLabel(m.data.due)}</span>
@@ -130,9 +130,9 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
           </section>
         </>}
         {tab === "Issues" && <>
-          <div className="work-section-title"><h2>Issues <span>{filtered.length}</span></h2><button className="work-text-button" disabled={pending} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/> Add issue</button></div>
+          <div className="work-section-title"><h2>Tasks <span>{filtered.length}</span></h2><button className="work-text-button" disabled={pending} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/> Add task</button></div>
           <div className="work-project-issue-tools">
-            <input className="input" aria-label="Search project issues" placeholder="Search issues…" value={filter.query ?? ""} onChange={e => setFilter(f => ({ ...f, query: e.target.value }))} />
+            <input className="input" aria-label="Search project tasks" placeholder="Search tasks…" value={filter.query ?? ""} onChange={e => setFilter(f => ({ ...f, query: e.target.value }))} />
             <button className="work-control" data-active={filtersOpen || activeCount > 0} aria-expanded={filtersOpen} onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={15} />Filter{activeCount > 0 && <span className="work-filter-count">{activeCount}</span>}</button>
             {(activeCount > 0 || filter.query) && <button className="work-text-button" onClick={() => { setFilter({}); setMilestone(""); }}>Clear</button>}
           </div>
@@ -140,7 +140,7 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
             <IssueFilterFields items={items} filter={filter} onChange={patch => setFilter(f => ({ ...f, ...patch }))} hide={["team", "project"]} />
             <Field label="Milestone"><PropertyPicker label="Milestone filter" value={milestone} onChange={setMilestone} icon={<Icon name="timeline" size={15} />} options={[{ value: "", label: "All milestones" }, ...milestones.map(m => ({ value: m.id, label: m.title }))]} /></Field>
           </div>}
-          {!filtered.length && <p className="work-muted">{issues.length ? "No issues match these filters." : "No issues in this project yet."}</p>}
+          {!filtered.length && <p className="work-muted">{issues.length ? "No tasks match these filters." : "No tasks in this project yet."}</p>}
           {statusGroups.map(([key, label, rows]) => {
             const closed = collapsed.includes(key);
             return <section className="work-project-issue-group" key={key}>
@@ -148,12 +148,12 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
                 <button className="work-project-issue-group-toggle" aria-expanded={!closed} onClick={() => setCollapsed(c => closed ? c.filter(k => k !== key) : [...c, key])}>
                   <span className="work-group-caret" data-closed={closed}>▾</span><StatusIcon status={label} /><b>{label}</b><span>{rows.length}</span>
                 </button>
-                <button className="work-icon-button" aria-label={`Add ${label} issue`} disabled={pending} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, status: label, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/></button>
+                <button className="work-icon-button" aria-label={`Add ${label} task`} disabled={pending} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, status: label, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/></button>
               </div>
               {!closed && rows.map(i => <button className="work-project-issue-row" key={i.id} onClick={() => onOpen(i)} onContextMenu={e => issueMenu.show(i, e)}><StatusIcon status={i.data.status} /><span className="work-code">{issueCode(i, items)}</span><span>{i.title}</span>{i.data.due && <time>{dateLabel(i.data.due)}</time>}<Avatar small name={items.find(m => m.id === i.data.assignee)?.title}/></button>)}
             </section>;
           })}
-          {!filtered.length && <Empty title="No issues here" description={milestone ? "Add an issue to this milestone or clear the filter." : "Create the first issue for this project."} />}
+          {!filtered.length && <Empty title="No tasks here" description={milestone ? "Add a task to this milestone or clear the filter." : "Create the first task for this project."} />}
         </>}
         {tab === "Updates" && <><div className="work-section-title"><h2>Project updates</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={pending}>Write update</button></div>{updates.map(updateCard)}{!updates.length && <Empty title="No updates yet" description="Share a progress update with your team." />}</>}
         {tab === "Activity" && <><div className="work-section-title"><h2>Activity</h2></div>{history.map(e => ["update", "comment"].includes(e.type) ? updateCard(e) : <div className="work-project-event" key={e.id}><Avatar small name={e.actor}/><span><b>{e.actor}</b> {e.type === "status" ? `changed status to ${e.body}` : `${e.type} this project`}</span><time>{dateLabel(e.created_at)}</time></div>)}{!history.length && <Empty title="No activity yet" description="Project changes will appear here." />}</>}

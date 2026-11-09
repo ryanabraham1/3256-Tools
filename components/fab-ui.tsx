@@ -211,7 +211,7 @@ export function PageHead({ eyebrow, title, children }: { eyebrow: string; title:
         <p className="eyebrow" style={{ color: "var(--muted)" }}>
           {eyebrow}
         </p>
-        <h1 className="display text-4xl sm:text-5xl break-words">{title}</h1>
+        <h1 className="display text-3xl sm:text-[34px] break-words">{title}</h1>
       </div>
       {children && <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">{children}</div>}
     </div>

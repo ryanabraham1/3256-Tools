@@ -41,13 +41,13 @@ const NAV = [
     heading: "Personal",
     links: [
       ["my-issues", "My work"],
-      ["inbox", "Inbox"],
+      ["inbox", "Notifications"],
     ],
   },
   {
     heading: "Workspace",
     links: [
-      ["issues", "Issues"],
+      ["issues", "Tasks"],
       ["projects", "Projects"],
       ["initiatives", "Initiatives"],
       ["updates", "Team"],
@@ -58,14 +58,14 @@ const PAGE_GROUPS = [
   {
     paths: ["my-issues", "inbox"],
     tabs: [
-      ["my-issues", "My issues"],
-      ["inbox", "Inbox"],
+      ["my-issues", "My tasks"],
+      ["inbox", "Notifications"],
     ],
   },
   {
     paths: ["issues", "views", "archive"],
     tabs: [
-      ["issues", "All issues"],
+      ["issues", "All tasks"],
       ["views", "Saved views"],
     ],
     more: [
@@ -83,19 +83,19 @@ const PAGE_GROUPS = [
 ];
 const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string }> = {
   issues: {
-    title: "Issues",
+    title: "Tasks",
     kind: "issue",
-    blurb: "Plan, prioritize, and move work forward.",
+    blurb: "Everything the team is working on. Click a task to see details or change its status.",
   },
   "my-issues": {
     title: "My work",
     kind: "issue",
-    blurb: "Issues assigned to you.",
+    blurb: "Tasks assigned to you, most urgent first.",
   },
   projects: {
     title: "Projects",
     kind: "project",
-    blurb: "Track the projects bringing this season together.",
+    blurb: "Big goals for the season. Each project groups the tasks that get it done.",
   },
   initiatives: {
     title: "Initiatives",
@@ -111,7 +111,7 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
     title: "Team",
     kind: "document",
   },
-  inbox: { title: "Inbox", blurb: "Mentions and changes on things you follow." },
+  inbox: { title: "Notifications", blurb: "Mentions and changes on things you follow." },
   updates: {
     title: "Team",
     blurb: "Progress updates posted by the team.",
@@ -364,7 +364,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
             ...(data ? { data } : {}),
             ...(archived !== undefined ? { archived } : {}),
           })),
-          `${chosen.length} issues updated`,
+          `${chosen.length} tasks updated`,
         )
       )
         setSelected([]);
@@ -405,7 +405,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         </button>
         <button className="work-new-button" onClick={() => create("issue")}>
           <Icon name="plus" size={16} />
-          Create issue<kbd>C</kbd>
+          New task<kbd>C</kbd>
         </button>
         <nav aria-label="Work navigation">
           {NAV.map((n) => (
@@ -563,7 +563,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 ))}
                 {pageGroup.more && (
                   <PropertyPicker
-                    label="More issue pages"
+                    label="More task pages"
                     value={pageGroup.more.some(([path]) => path === section) ? section : ""}
                     display="More"
                     onChange={navigate}
@@ -581,7 +581,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 <div className="work-heading-actions">
                   {info.kind === "issue" && (
                     <button className="btn btn-primary" disabled={pending || readOnly} onClick={() => create("issue")}>
-                      <Icon name="plus" size={16} /> New issue
+                      <Icon name="plus" size={16} /> New task
                     </button>
                   )}
                   {section === "issues" && (
@@ -646,8 +646,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     <Icon name="search" size={15} />
                   <input
                     className="work-inline-search"
-                    aria-label="Search issues"
-                    placeholder="Search issues…"
+                    aria-label="Search tasks"
+                    placeholder="Search tasks…"
                     value={filter.query ?? ""}
                     onChange={(e) => updateFilter({ query: e.target.value })}
                   />
@@ -664,7 +664,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     </button>
                   )}
                   <span className="work-toolbar-count">
-                    {issues.length} {issues.length === 1 ? "issue" : "issues"}
+                    {issues.length} {issues.length === 1 ? "task" : "tasks"}
                   </span>
                   <div className="work-toolbar-right">
                     <PropertyPicker label="Sort by" value={sort} onChange={setSort} icon={<Icon name="filter" size={14}/>} display={<>Sort: {({priority:"Priority",created:"Newest",due:"Due date",title:"Title"} as Record<string,string>)[sort]}</>} options={[{value:"priority",label:"Priority"},{value:"created",label:"Newest"},{value:"due",label:"Due date"},{value:"title",label:"Title"}]}/>
@@ -748,13 +748,13 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   <Empty
                     title={
                       filtersActive
-                        ? "No matching issues"
-                        : "No issues"
+                        ? "No matching tasks"
+                        : "No tasks"
                     }
                     description={
                       filtersActive
                         ? "Try adjusting your filters or search."
-                        : "Create an issue to get started."
+                        : "Create a task to get started."
                     }
                     onCreate={() => create("issue")}
                   />
@@ -1283,7 +1283,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
               className="input"
               autoFocus
               aria-label="Search workspace"
-              placeholder="Search issues, projects, documents…"
+              placeholder="Search tasks, projects, documents…"
               value={commandQuery}
               onChange={(e) => setCommandQuery(e.target.value)}
             />
@@ -1296,7 +1296,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   }}
                 >
                   <Icon name="plus" />
-                  Create issue<kbd>C</kbd>
+                  New task<kbd>C</kbd>
                 </button>
               )}
               {!commandQuery && (
@@ -1405,7 +1405,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         </Modal>
       )}
       {dialog === "import" && (
-        <Modal title="Import issues" onClose={() => setDialog(null)} wide>
+        <Modal title="Import tasks" onClose={() => setDialog(null)} wide>
           <form
             className="work-editor-body"
             onSubmit={(e) => {
@@ -1421,7 +1421,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   const issues = rows.filter(
                     (r: { kind?: string }) => !r.kind || r.kind === "issue",
                   );
-                  if (!issues.length) throw new Error("No issues found.");
+                  if (!issues.length) throw new Error("No tasks found.");
                   if (
                     await change(
                       issues.map((r: { title: string; data?: WorkData }) => ({
@@ -1429,7 +1429,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                         title: r.title,
                         data: r.data ?? {},
                       })),
-                      `${issues.length} issues imported`,
+                      `${issues.length} tasks imported`,
                     )
                   )
                     setDialog(null);
@@ -1503,7 +1503,7 @@ function Insights({
     <div className="work-insights">
       <div className="work-insight-stats">
         {[
-          ["Total issues", issues.length],
+          ["Total tasks", issues.length],
           ["Completed", finished.length],
           ["Overdue", overdue.length],
           ["Estimated points", totalPoints],
@@ -1540,7 +1540,7 @@ function Insights({
           )}
           {!issues.length && (
             <p className="work-muted mt-5">
-              Create issues to see the breakdown.
+              Create tasks to see the breakdown.
             </p>
           )}
         </section>

@@ -78,7 +78,7 @@ export function Empty({
   title,
   description,
   onCreate,
-  action = "Create issue",
+  action = "Create task",
   icon = "issues",
 }: {
   title: string;
@@ -145,7 +145,7 @@ export function IssueList({
             title: items.find((i) => i.id === id)?.title ?? "No project",
             rows: rows.filter((i) => (i.data.project ?? "") === id),
           }))
-        : [{ key: "all", title: "All issues", rows }];
+        : [{ key: "all", title: "All tasks", rows }];
   return (
     <div className="work-list">
       {issueMenu.element}
@@ -154,7 +154,7 @@ export function IssueList({
         .map((g) => (
           <section key={g.key}>
             <div className="work-group-heading">
-              <input type="checkbox" className="work-group-select" aria-label={`Select all ${g.title} issues`} checked={g.rows.every(i => selected.includes(i.id))} ref={input => { if(input) input.indeterminate = g.rows.some(i => selected.includes(i.id)) && !g.rows.every(i => selected.includes(i.id)); }} onChange={e => { const checked = e.target.checked; g.rows.filter(i => selected.includes(i.id) !== checked).forEach(i => onSelect(i.id)); }}/>
+              <input type="checkbox" className="work-group-select" aria-label={`Select all ${g.title} tasks`} checked={g.rows.every(i => selected.includes(i.id))} ref={input => { if(input) input.indeterminate = g.rows.some(i => selected.includes(i.id)) && !g.rows.every(i => selected.includes(i.id)); }} onChange={e => { const checked = e.target.checked; g.rows.filter(i => selected.includes(i.id) !== checked).forEach(i => onSelect(i.id)); }}/>
               {group === "status" && <StatusIcon status={g.title} />}
               <h3>{g.title}</h3>
               <span>{g.rows.length}</span>
@@ -242,7 +242,7 @@ export function IssueBoard({
               <span>{list.length}</span>
               <button
                 className="work-icon-button"
-                aria-label={`Add issue to ${status}`}
+                aria-label={`Add task to ${status}`}
                 onClick={() => onCreate(status)}
               >
                 <Icon name="plus" size={15} />
@@ -285,7 +285,7 @@ export function IssueBoard({
                 onClick={() => onCreate(status)}
               >
                 <Icon name="plus" size={14} />
-                Add issue
+                Add task
               </button>
             </div>
           </section>
@@ -379,7 +379,7 @@ export function Collection({
                 </div>
                 <div className="work-card-foot">
                   <span>
-                    {children.filter(done).length}/{children.length} issues
+                    {children.filter(done).length}/{children.length} tasks
                   </span>
                   <b>{pct}%</b>
                 </div>

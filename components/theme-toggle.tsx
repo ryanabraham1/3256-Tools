@@ -7,7 +7,7 @@ const CHANGE_EVENT = "tools-theme-change";
 
 function applyTheme(theme: "light" | "dark") {
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#101015" : "#f5f6fa");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0f1115" : "#f5f6f8");
 }
 
 function subscribe(onChange: () => void) {

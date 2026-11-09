@@ -67,7 +67,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
       <hr />
     </>;
     if (panel === "main") body = <>
-      <button role="menuitem" onClick={() => run(() => actions.onOpen(issue))}><Icon name="arrow" size={14} />Open issue</button>
+      <button role="menuitem" onClick={() => run(() => actions.onOpen(issue))}><Icon name="arrow" size={14} />Open task</button>
       <hr />
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("status")}><StatusIcon status={status} />Status…</button>
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("priority")}><Icon name="filter" size={14} />Priority…</button>

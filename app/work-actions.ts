@@ -75,7 +75,7 @@ async function references(
         );
   }
   if (id && (data.parent === id || data.relations?.some((r) => r.id === id)))
-    throw new Error("An issue cannot reference itself.");
+    throw new Error("A task cannot reference itself.");
   const parentKey =
     kind === "initiative"
       ? "parentInitiative"

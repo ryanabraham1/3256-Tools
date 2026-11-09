@@ -40,13 +40,13 @@ export function BatteryCard({
       onClick={onClick}
       onKeyDown={(e) => onClick && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onClick())}
       className="card p-3.5 flex flex-col gap-2.5 cursor-pointer select-none transition-colors hover:border-[var(--purple)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--purple)]"
-      style={grab ? { borderColor: "var(--good)", boxShadow: "inset 0 0 0 1px var(--good)" } : undefined}
+      style={grab ? { borderColor: "var(--purple)", boxShadow: "inset 0 0 0 1px var(--purple), var(--shadow-md)" } : undefined}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           {grab && (
-            <span className="eyebrow block mb-1" style={{ color: "var(--good)" }}>
-              ★ Grab this
+            <span className="pill pill-purple mb-1.5">
+              ★ Grab this one
             </span>
           )}
           {rest > 0 && !grab && (
@@ -54,7 +54,7 @@ export function BatteryCard({
               Resting
             </span>
           )}
-          <h3 className="display text-2xl truncate">{b.name}</h3>
+          <h3 className="display text-[22px] truncate">{b.name}</h3>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <HealthPill badge={h.badge} score={h.score} />

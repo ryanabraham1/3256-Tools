@@ -436,7 +436,7 @@ export function LoadTestForm({ battery, onDone, minV }: { battery: Battery; onDo
             border: `1px solid var(--${tone})`,
           }}
         >
-          <p className="display text-4xl" style={{ color: `var(--${tone})` }}>
+          <p className="display text-3xl" style={{ color: `var(--${tone})` }}>
             {done.pass ? "PASS" : "FAIL"}
           </p>
           <p className="text-sm mt-1">{done.pass ? "Held under load." : "Bad cell likely — health capped at Bad."}</p>

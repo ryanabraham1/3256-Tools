@@ -191,7 +191,7 @@ export default async function Home() {
             </p>
             {grab ? (
               <div className="flex items-end justify-between gap-3 flex-wrap mt-1">
-                <Link href={`/battery/batteries/${encodeURIComponent(grab.battery.name)}`} className="display text-4xl hover:underline break-all">
+                <Link href={`/battery/batteries/${encodeURIComponent(grab.battery.name)}`} className="display text-3xl hover:underline break-all">
                   {grab.battery.name}
                 </Link>
                 <div className="flex gap-1.5 flex-wrap">
@@ -249,7 +249,7 @@ export default async function Home() {
               On the rack
             </p>
             <div className="flex items-baseline gap-3 flex-wrap mt-1">
-              <span className="display text-4xl">{pieces.length}</span>
+              <span className="display text-3xl">{pieces.length}</span>
               <span className="text-sm" style={{ color: "var(--muted)" }}>
                 {pieces.length === 1 ? "piece" : "pieces"} across {materials.length} {materials.length === 1 ? "material" : "materials"}
               </span>
@@ -303,7 +303,7 @@ export default async function Home() {
               Finished
             </p>
             <div className="flex items-baseline gap-3 flex-wrap mt-1">
-              <span className="display text-4xl">
+              <span className="display text-3xl">
                 {jobsDone}/{jobList.length}
               </span>
               <span className="text-sm" style={{ color: "var(--muted)" }}>

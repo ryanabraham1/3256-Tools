@@ -13,7 +13,7 @@ export default async function BoardPage() {
           <p className="eyebrow" style={{ color: "var(--muted)" }}>
             Live board
           </p>
-          <h1 className="display text-4xl sm:text-5xl">Which one next?</h1>
+          <h1 className="display text-3xl sm:text-[34px]">Which battery next?</h1>
         </div>
       </div>
       <Suspense fallback={null}>

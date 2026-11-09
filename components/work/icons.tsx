@@ -51,6 +51,7 @@ const paths: Record<string, string> = {
   edit: "M4 20h4L19 9l-4-4L4 16zM13 7l4 4",
   trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
   bell: "M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4",
+  home: "M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
 };
 export function Icon({
   name,
@@ -88,6 +89,21 @@ export function StatusIcon({ status = "Backlog" }: { status?: string }) {
           : ""}
     </span>
   );
+}
+
+/** Pill color for a status, so state reads as a word, not just an icon. */
+export function statusTone(status = "Backlog") {
+  const s = status.toLowerCase();
+  if (s === "done" || s === "completed") return "good";
+  if (s === "in progress" || s === "in review") return "warn";
+  if (s === "todo") return "info";
+  return "muted";
+}
+export function statusLabel(status = "Backlog") {
+  return status === "Todo" ? "To do" : status;
+}
+export function StatusPill({ status = "Backlog" }: { status?: string }) {
+  return <span className={`pill pill-${statusTone(status)} work-status-pill`}>{statusLabel(status)}</span>;
 }
 
 /** Diamond that fills from the bottom up with milestone progress (Linear-style). */

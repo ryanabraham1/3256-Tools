@@ -276,6 +276,90 @@
 .work-shell .work-empty p { font-size: 15px; line-height: 1.6; color: var(--muted); }
 .work-toast { border-radius: 12px; font-size: 15px; }
 
+
+/* ---- Status tabs on task lists ---- */
+.work-status-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin: 0 32px 14px; background: var(--neutral-soft); border-radius: 12px; align-self: flex-start; width: fit-content; max-width: calc(100% - 64px); }
+.work-status-tabs > button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px; border-radius: 9px; font-size: 14px; font-weight: 500; color: var(--muted); }
+.work-status-tabs > button:hover { color: var(--ink); }
+.work-status-tabs > button[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm); }
+.work-status-tabs > button > span { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--ink); }
+.work-status-tabs > button[aria-selected="true"] > span { background: var(--purple-soft); color: var(--purple-dark); }
+.work-status-pill { flex: none; min-width: 92px; justify-content: center; }
+
+/* ---- Home ---- */
+.work-home { padding-bottom: 40px; }
+.work-home-grid { display: flex; flex-wrap: wrap; gap: 20px; padding: 0 32px; align-items: flex-start; }
+.work-home-mine { flex: 2 1 520px; min-width: 0; }
+.work-home-side { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.work-home-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); overflow: hidden; }
+.work-home-card-head { display: flex; align-items: baseline; gap: 10px; padding: 18px 20px 14px; }
+.work-home-card-head h2 { font-size: 18px; font-weight: 700; }
+.work-home-card-head > span { font-size: 14px; color: var(--muted); }
+.work-home-card-head > a { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--purple-dark); }
+.work-home-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 60px; padding: 8px 20px; border-top: 1px solid var(--work-row-line); text-align: left; }
+.work-home-row:hover { background: var(--work-hover); }
+.work-home-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.work-home-row-main b { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-home-row-main span { font-size: 13px; color: var(--muted); }
+.work-home-due { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.work-home-empty { padding: 4px 20px 20px; font-size: 15px; line-height: 1.55; color: var(--muted); }
+.work-home-empty a { color: var(--purple-dark); font-weight: 600; }
+.work-home-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 20px 20px; }
+.work-home-stat { display: flex; flex-direction: column; gap: 2px; padding: 14px; border-radius: 12px; }
+.work-home-stat b { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.work-home-stat span { font-size: 14px; font-weight: 500; }
+.work-home-stat:hover { filter: brightness(.97); }
+.work-home-activity { display: flex; flex-direction: column; gap: 14px; padding: 0 20px 20px; }
+.work-home-activity li { display: flex; gap: 12px; align-items: flex-start; }
+.work-home-activity p { font-size: 14px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.work-home-activity-body { color: var(--muted); }
+.work-home-activity .work-text-button { display: inline; padding: 0; min-height: 0; }
+.work-home-activity small { display: block; font-size: 13px; color: var(--muted); }
+@media (max-width: 767px) {
+  .work-status-tabs { margin: 0 12px 12px; max-width: calc(100% - 24px); }
+  .work-home-grid { padding: 0 12px; }
+  .work-home-row { flex-wrap: wrap; }
+  .work-home-row .work-status-pill { min-width: 0; }
+}
+
+
+/* ---- Project card progress ---- */
+.work-card-progress { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.work-card-progress-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.work-card-progress-head span { color: var(--muted); }
+.work-shell .work-progress-split { display: flex; overflow: hidden; }
+.work-shell .work-progress-split > span { border-radius: 0; }
+.work-shell .work-progress-split > span[data-doing] { background: var(--warn); opacity: .75; }
+.work-card-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
+.work-card-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.work-card-legend span::before { content: ""; width: 9px; height: 9px; border-radius: 5px; background: var(--line); }
+.work-card-legend [data-tone="good"]::before { background: var(--good); }
+.work-card-legend [data-tone="warn"]::before { background: var(--warn); }
+.work-card-meta { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); text-align: left; }
+.work-card-meta > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.work-card-meta b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Task detail: status buttons and checklist ---- */
+.work-status-choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 16px 0 8px; max-width: 640px; }
+.work-status-choice > button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 15px; font-weight: 500; color: var(--ink); }
+.work-status-choice > button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--purple) 45%, var(--line)); }
+.work-status-choice > button > span { width: 10px; height: 10px; border-radius: 5px; background: var(--muted); }
+.work-status-choice > button[data-tone="good"] > span { background: var(--good); }
+.work-status-choice > button[data-tone="warn"] > span { background: var(--warn); }
+.work-status-choice > button[data-tone="info"] > span { background: var(--info); }
+.work-status-choice > button[aria-checked="true"] { font-weight: 700; border-width: 2px; }
+.work-status-choice > button[aria-checked="true"][data-tone="good"] { background: var(--good-soft); color: var(--good); border-color: var(--good); }
+.work-status-choice > button[aria-checked="true"][data-tone="warn"] { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.work-status-choice > button[aria-checked="true"][data-tone="info"] { background: var(--info-soft); color: var(--info); border-color: var(--info); }
+.work-status-choice > button[aria-checked="true"][data-tone="muted"] { background: var(--neutral-soft); border-color: var(--muted); }
+.work-shell .work-section-title h2 > span { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 8px; }
+.work-shell .work-section-progress { flex: 1; max-width: 200px; height: 8px; margin: 0 12px; }
+.work-child-check { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--work-row-line); padding-left: 4px; }
+.work-child-check > input { width: 20px; height: 20px; flex: none; accent-color: var(--good); cursor: pointer; }
+.work-child-check > .work-child { flex: 1; min-width: 0; border-top: 0; display: flex; align-items: center; gap: 12px; min-height: 50px; text-align: left; }
+.work-child-check > .work-child > span:first-child { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; }
+.work-child-check[data-done="true"] > .work-child > span:first-child { color: var(--muted); text-decoration: line-through; font-weight: 400; }
+
 @media (max-width: 1100px) and (min-width: 768px) {
   .work-shell { --work-sidebar: 220px; }
   .work-toolbar-right { margin-left: 0; }

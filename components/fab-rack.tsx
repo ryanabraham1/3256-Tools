@@ -79,9 +79,12 @@ export function FabRack({
     { value: "low", label: `Low${lowCount ? ` · ${lowCount}` : ""}` },
   ];
 
+  const stocked = rows.filter((r) => r.pieces.length > 0);
+  const empty = rows.filter((r) => r.pieces.length === 0);
+
   return (
     <>
-      <div className="hscroll no-scrollbar mb-4 pb-1">
+      <div className="hscroll no-scrollbar mb-5 pb-1">
         {filters.map((f) => (
           <button key={f.value} type="button" className="tile tile-chip text-sm" data-selected={filter === f.value} onClick={() => setFilter(f.value)}>
             {f.label}
@@ -117,8 +120,14 @@ export function FabRack({
           )}
         </Empty>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map((r) => {
+        <>
+          {stocked.length > 0 && (
+            <section aria-labelledby="rack-in-stock" className="mb-8">
+              <h2 id="rack-in-stock" className="text-lg font-bold mb-3">
+                In stock <span className="text-sm font-medium" style={{ color: "var(--muted)" }}>{stocked.length} {stocked.length === 1 ? "material" : "materials"}</span>
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {stocked.map((r) => {
             const m = r.material;
             const byLoc = new Map<string, number>();
             for (const p of r.pieces) {
@@ -132,7 +141,7 @@ export function FabRack({
                     <p className="eyebrow" style={{ color: "var(--muted)" }}>
                       {m.material} · {SHAPE_LABEL[m.shape]}
                     </p>
-                    <p className="text-xl font-medium tracking-tight leading-tight mt-0.5">{sizeLabel(m)}</p>
+                    <p className="text-xl font-bold tracking-tight leading-tight mt-0.5">{sizeLabel(m)}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {r.low && <span className="pill pill-bad">Low</span>}
@@ -162,8 +171,34 @@ export function FabRack({
                 )}
               </Link>
             );
-          })}
-        </div>
+                })}
+              </div>
+            </section>
+          )}
+          {empty.length > 0 && (
+            <section aria-labelledby="rack-out">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
+                <h2 id="rack-out" className="text-lg font-bold">Out of stock</h2>
+                <span className="text-sm" style={{ color: "var(--muted)" }}>
+                  {empty.length} {empty.length === 1 ? "material" : "materials"} with no pieces — tap one to add pieces
+                </span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {empty.map((r) => (
+                  <Link key={r.material.id} href={`/stock/${r.material.id}`} className="card flex items-center gap-3 px-4 min-h-[52px] hover:border-[var(--purple)] transition-colors" style={{ boxShadow: "none" }}>
+                    <span className="pill pill-muted shrink-0">{SHAPE_LABEL[r.material.shape]}</span>
+                    <span className="min-w-0 truncate text-[15px] font-medium">
+                      {r.material.material} {sizeLabel(r.material)}
+                    </span>
+                    <span className="ml-auto shrink-0">
+                      {r.openOrders > 0 ? <span className="pill pill-warn">On order</span> : r.low ? <span className="pill pill-bad">Low</span> : <span className="text-sm" style={{ color: "var(--muted)" }}>0 pieces</span>}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       )}
     </>
   );

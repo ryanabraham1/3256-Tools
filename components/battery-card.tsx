@@ -44,11 +44,6 @@ export function BatteryCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          {grab && (
-            <span className="pill pill-purple mb-1.5">
-              ★ Grab this one
-            </span>
-          )}
           {rest > 0 && !grab && (
             <span className="eyebrow block mb-1" style={{ color: "var(--warn)" }}>
               Resting

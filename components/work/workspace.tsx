@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
 import { addWorkComment, markWorkRead, mutateWork } from "@/app/work-actions";
 import {
@@ -27,9 +27,10 @@ import {
 import { ProjectDetail } from "./project-detail";
 import { ItemDetail, RichText } from "./detail";
 import { Field, ItemEditor, Modal } from "./editor";
-import { Icon } from "./icons";
+import { Icon, statusLabel } from "./icons";
 import { AccessPanel } from "./access";
-import { GettingStarted, HelpGuide } from "./help";
+import { HelpGuide } from "./help";
+import { WorkHome } from "./home";
 import { IssueFilterFields } from "./filter-fields";
 
 import "./work.css";
@@ -37,6 +38,7 @@ import "./work-refresh.css";
 import { PropertyPicker } from "./property-picker";
 import { useWork } from "./work-provider";
 const NAV = [
+  { heading: "", links: [["home", "Home"]] },
   {
     heading: "Personal",
     links: [
@@ -54,6 +56,7 @@ const NAV = [
     ],
   },
 ];
+const STATUS_TABS = ["In progress", "Todo", "Backlog", "Done"];
 const PAGE_GROUPS = [
   {
     paths: ["my-issues", "inbox"],
@@ -82,6 +85,7 @@ const PAGE_GROUPS = [
   },
 ];
 const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string }> = {
+  home: { title: "Home" },
   issues: {
     title: "Tasks",
     kind: "issue",
@@ -138,7 +142,11 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
   const actor = user.memberId;
   const readOnly = user.role === "viewer";
   const savedView = snapshot.items.find(i => i.id === entityId && i.kind === "view" && !i.deleted_at);
-  const [filter, setFilter] = useState<WorkFilter>({});
+  const params = useSearchParams();
+  const [filter, setFilter] = useState<WorkFilter>(() => {
+    const status = params.get("status");
+    return status ? { status } : {};
+  });
   const [layout, setLayout] = useState(savedView?.data.layout || "list");
   const [group, setGroup] = useState(savedView?.data.group || "status");
   const [sort, setSort] = useState("priority");
@@ -320,8 +328,11 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
   const activeFilter =
     current?.kind === "view" ? { ...current.data.filter, ...filter } : filter;
   let issues = filterIssues(items, activeFilter);
-  if (section === "my-issues")
+  let statusBase = filterIssues(items, { ...activeFilter, status: undefined });
+  if (section === "my-issues") {
     issues = member ? issues.filter((i) => i.data.assignee === actor) : [];
+    statusBase = member ? statusBase.filter((i) => i.data.assignee === actor) : [];
+  }
   issues = [...issues].sort((a, b) =>
     sort === "priority"
       ? (a.data.priority || 5) - (b.data.priority || 5)
@@ -424,7 +435,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     setSidebarOpen(false);
                   }}
                 >
-                  <Icon name={path === "updates" ? "team" : path} size={17} />
+                  <Icon name={path === "updates" ? "team" : path === "inbox" ? "bell" : path} size={17} />
                   <span>{title}</span>
                   {path === "issues" && (
                     <span className="work-nav-count">
@@ -572,7 +583,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 )}
               </nav>
             )}
-            {!current && (
+            {!current && section !== "home" && (
               <div className="work-page-heading">
                 <div>
                   <h1>{info.title}</h1>
@@ -625,8 +636,33 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 </button>
               </div>
             )}
-            {issueView ? (
+            {!current && section === "home" ? (
+              <WorkHome
+                items={items}
+                live={live}
+                actor={actor}
+                name={member?.title ?? user.name}
+                events={snapshot.events}
+                onOpen={open}
+                onCreate={() => create("issue")}
+                onHelp={() => setDialog("help")}
+                readOnly={readOnly}
+              />
+            ) : issueView ? (
               <>
+                <div className="work-status-tabs" role="tablist" aria-label="Show tasks by status">
+                  {[{ value: "", label: "All", count: statusBase.length }, ...STATUS_TABS.map((st) => ({ value: st, label: statusLabel(st), count: statusBase.filter((i) => (i.data.status || "Backlog").toLowerCase() === st.toLowerCase()).length }))].map(({ value, label, count }) => (
+                    <button
+                      key={label}
+                      role="tab"
+                      aria-selected={(activeFilter.status ?? "") === value}
+                      onClick={() => updateFilter({ status: value || undefined })}
+                    >
+                      {label}
+                      <span>{count}</span>
+                    </button>
+                  ))}
+                </div>
                 <div className="work-toolbar">
                   <button
                     className="work-control"
@@ -743,7 +779,6 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     </button>
                   </div>
                 )}
-                {!current && <GettingStarted onHelp={() => setDialog("help")} />}
                 {!issues.length ? (
                   <Empty
                     title={

@@ -50,7 +50,7 @@ export function GettingStarted({ onHelp }: { onHelp: () => void }) {
           <span aria-hidden>2</span>
           <div>
             <b>Keep the status current</b>
-            <p>Click the circle next to a task to move it to In progress or Done.</p>
+            <p>Open a task and tap In progress when you start, then Done when it&apos;s finished.</p>
           </div>
         </li>
         <li>

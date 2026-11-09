@@ -108,6 +108,8 @@ export function Empty({
     </div>
   );
 }
+/** Active work first, so the list opens on what people are doing now. */
+const LIST_ORDER = ["In progress", "In review", "Todo", "Backlog", "Done"];
 export function IssueList({
   rows,
   items,
@@ -134,7 +136,7 @@ export function IssueList({
   const issueMenu = useIssueMenu(items, issueActions);
   const groups =
     group === "status"
-      ? uniqueStatuses([...STATUSES, ...rows.map(i => i.data.status ?? "Backlog")]).map((s) => ({
+      ? uniqueStatuses([...LIST_ORDER, ...STATUSES, ...rows.map(i => i.data.status ?? "Backlog")]).map((s) => ({
           key: s,
           title: s,
           rows: rows.filter((i) => (i.data.status ?? "Backlog").toLowerCase() === s.toLowerCase()),
@@ -343,6 +345,12 @@ export function Collection({
                   : false),
         );
         const pct = progress(children);
+        const doing = children.filter((i) => ["in progress", "in review"].includes((i.data.status ?? "").toLowerCase())).length;
+        const doneCount = children.filter(done).length;
+        const next = children
+          .filter((i) => !done(i))
+          .sort((a, b) => (a.data.priority || 5) - (b.data.priority || 5))[0];
+        const lead = items.find((i) => i.id === item.data.assignee)?.title;
         return (
           <button
             className="work-project-card"
@@ -364,26 +372,43 @@ export function Collection({
               <Icon name="arrow" size={16} />
             </div>
             <h3>{item.title}</h3>
-            <p>
-              {item.data.description?.replace(/[#*`]/g, "").slice(0, 150) ||
-                "Add a description to share the context."}
-            </p>
+            {item.data.description && <p>{item.data.description.replace(/[#*`]/g, "").slice(0, 150)}</p>}
             {[
               "project",
               "initiative",
               "milestone",
             ].includes(kind) && (
-              <>
-                <div className="work-progress">
-                  <span style={{ width: `${pct}%` }} />
-                </div>
-                <div className="work-card-foot">
+              <div className="work-card-progress">
+                <div className="work-card-progress-head">
+                  <b>{pct}% complete</b>
                   <span>
-                    {children.filter(done).length}/{children.length} tasks
+                    {doneCount} of {children.length} tasks done
                   </span>
-                  <b>{pct}%</b>
                 </div>
-              </>
+                <div className="work-progress work-progress-split" aria-hidden>
+                  <span style={{ width: `${pct}%` }} />
+                  <span data-doing style={{ width: `${children.length ? (100 * doing) / children.length : 0}%` }} />
+                </div>
+                <div className="work-card-legend">
+                  <span data-tone="good">{doneCount} done</span>
+                  <span data-tone="warn">{doing} in progress</span>
+                  <span data-tone="muted">{children.length - doneCount - doing} not started</span>
+                </div>
+              </div>
+            )}
+            {kind === "project" && (lead || next) && (
+              <div className="work-card-meta">
+                {lead && (
+                  <span>
+                    Lead <Avatar small name={lead} /> <b>{lead}</b>
+                  </span>
+                )}
+                {next && (
+                  <span className="work-card-next">
+                    Next up: <b>{next.title}</b>
+                  </span>
+                )}
+              </div>
             )}
             <div className="work-card-foot">
               <span>

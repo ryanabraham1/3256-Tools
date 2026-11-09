@@ -240,17 +240,17 @@ export function TrackerTable({
       ))}
 
       {/* progress + actions */}
-      <div className="card p-4 mb-3 flex flex-wrap items-center gap-4">
+      <div className="card p-5 mb-4 flex flex-wrap items-center gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <span className="display text-3xl">
-              {done}/{total}
+              {done} of {total}
             </span>
-            <span className="text-sm" style={{ color: "var(--muted)" }}>
-              parts finished
+            <span className="text-[15px]" style={{ color: "var(--muted)" }}>
+              parts finished{total ? ` · ${Math.round((done / total) * 100)}%` : ""}
             </span>
           </div>
-          <div className="h-2 rounded-full mt-2 overflow-hidden" style={{ background: "var(--paper)" }}>
+          <div className="h-2.5 rounded-full mt-3 overflow-hidden" style={{ background: "var(--neutral-soft)" }}>
             <div className="h-full rounded-full" style={{ width: `${total ? (done / total) * 100 : 0}%`, background: "var(--good)" }} />
           </div>
         </div>
@@ -272,7 +272,7 @@ export function TrackerTable({
           if (s !== "open" && s !== "all" && !n && status !== s) return null;
           return (
             <button key={s} type="button" className="tile tile-chip text-sm" data-selected={status === s} onClick={() => setStatus(s)}>
-              {s === "open" ? "Still to make" : s === "all" ? "All" : STATUS_LABEL[s]} <span className="mono" style={{ color: "var(--muted)" }}>{n}</span>
+              {s === "open" ? "Still to make" : s === "all" ? "All" : STATUS_LABEL[s]} <span className="font-semibold" style={{ color: "var(--muted)" }}>{n}</span>
             </button>
           );
         })}

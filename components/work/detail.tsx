@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import {
   activeWorkItems,
   dateLabel,
+  done,
   issueCode,
   milestoneProgress,
   KIND_NAMES,
@@ -19,7 +20,7 @@ import {
 } from "@/lib/work";
 import { Avatar, LabelPicker } from "./collections";
 import { CommitInput, EntitySelect, Field } from "./editor";
-import { Icon, StatusIcon } from "./icons";
+import { Icon, StatusIcon, statusLabel, statusTone } from "./icons";
 import type { MilestoneActions } from "./milestone-menu";
 import { ProjectDetail } from "./project-detail";
 import { useIssueMenu, type IssueActions } from "./issue-menu";
@@ -151,6 +152,19 @@ export function ItemDetail({
         </div>
         <InlineEdit label="Title" value={item.title} disabled={pending} onSave={title => milestoneActions.onSave(item, { title })}><h1>{item.title}</h1></InlineEdit>
         {issue && item.data.parent && <button className="work-issue-parent" onClick={() => { const parent = items.find(i => i.id === item.data.parent); if (parent) onOpen(parent); }}><span>Sub-task of</span><StatusIcon status={items.find(i => i.id === item.data.parent)?.data.status}/>{items.find(i => i.id === item.data.parent)?.title}</button>}
+        {issue && (
+          <div className="work-status-choice" role="radiogroup" aria-label="Status">
+            {["Backlog", "Todo", "In progress", "Done"].map((s) => {
+              const on = (item.data.status ?? "Backlog").toLowerCase() === s.toLowerCase();
+              return (
+                <button key={s} role="radio" aria-checked={on} data-tone={statusTone(s)} disabled={pending} onClick={() => !on && onPatch({ status: s })}>
+                  <span aria-hidden />
+                  {statusLabel(s)}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {!issue && <LabelPicker item={item} items={items} disabled={pending} onChange={labels => onPatch({ labels })} />}
         <InlineEdit label="Description" multiline value={item.data.description ?? ""} disabled={pending} placeholder="Add a description…" onSave={description => onPatch({ description })}>
           {item.data.description ? <RichText text={item.data.description} /> : <span className="work-description-placeholder">Add a description…</span>}
@@ -207,9 +221,16 @@ export function ItemDetail({
           <section className="work-detail-section">
             <div className="work-section-title">
               <h2>
-                {issue ? "Sub-tasks" : "Issues"}
-                <span>{children.filter((i) => i.kind === "issue").length}</span>
+                {issue ? "Sub-tasks" : "Tasks"}
+                <span>
+                  {children.filter((i) => i.kind === "issue" && done(i)).length} of {children.filter((i) => i.kind === "issue").length} done
+                </span>
               </h2>
+              {children.some((i) => i.kind === "issue") && (
+                <div className="work-progress work-section-progress" aria-hidden>
+                  <span style={{ width: `${progress(children.filter((i) => i.kind === "issue"))}%` }} />
+                </div>
+              )}
               <button
                 className="work-text-button"
                 onClick={() =>
@@ -234,20 +255,23 @@ export function ItemDetail({
             {children
               .filter((i) => i.kind === "issue")
               .map((i) => (
-                <button
-                  key={i.id}
-                  className="work-child"
-                  onClick={() => onOpen(i)}
-                  onContextMenu={(e) => issueMenu.show(i, e)}
-                >
-                  <StatusIcon status={i.data.status} />
-                  <span className="work-code">{issueCode(i, items)}</span>
-                  <span>{i.title}</span>
-                  <Avatar
-                    small
-                    name={items.find((m) => m.id === i.data.assignee)?.title}
+                <div key={i.id} className="work-child-check" data-done={done(i)} onContextMenu={(e) => issueMenu.show(i, e)}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Mark ${i.title} ${done(i) ? "not done" : "done"}`}
+                    checked={done(i)}
+                    disabled={issueActions.disabled}
+                    onChange={() => issueActions.onPatch(i, { status: done(i) ? "Todo" : "Done" })}
                   />
-                </button>
+                  <button className="work-child" onClick={() => onOpen(i)}>
+                    <span>{i.title}</span>
+                    <span className="work-code">{issueCode(i, items)}</span>
+                    <Avatar
+                      small
+                      name={items.find((m) => m.id === i.data.assignee)?.title}
+                    />
+                  </button>
+                </div>
               ))}
             {!children.some((i) => i.kind === "issue") && (
               <p className="work-muted">

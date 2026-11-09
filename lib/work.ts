@@ -180,7 +180,7 @@ export function filterIssues(items: WorkItem[], filter: WorkFilter) {
       (!filter.project || i.data.project === filter.project) &&
       (!filter.cycle || i.data.cycle === filter.cycle) &&
       (!filter.status ||
-        (filter.status === "open" ? !done(i) : i.data.status === filter.status)) &&
+        (filter.status === "open" ? !done(i) : (i.data.status || "Backlog").toLowerCase() === filter.status.toLowerCase())) &&
       matchesDue(i, filter.due) &&
       (!filter.label || i.data.labels?.includes(filter.label)) &&
       (!filter.priority || String(i.data.priority ?? 0) === filter.priority),

@@ -10,5 +10,6 @@ export default async function WorkPage({
   params: Promise<{ section?: string[] }>;
 }) {
   const {section} = await params;
-  return <WorkWorkspace section={section?.[0] ?? "issues"} entityId={section?.[1]} />;
+  const activeSection = section?.[0] ?? "issues";
+  return <WorkWorkspace key={`${activeSection}:${section?.[1] ?? ""}`} section={activeSection} entityId={section?.[1]} />;
 }

@@ -1,5 +1,5 @@
 "use client";
-import { PRIORITIES, STATUSES, type WorkFilter, type WorkItem } from "@/lib/work";
+import { PRIORITIES, STATUSES, uniqueStatuses, type WorkFilter, type WorkItem } from "@/lib/work";
 import { EntitySelect, Field } from "./editor";
 import { Icon, StatusIcon } from "./icons";
 import { PropertyPicker } from "./property-picker";
@@ -53,7 +53,11 @@ export function IssueFilterFields({
             options={[
               { value: "", label: "All statuses" },
               { value: "open", label: "Open" },
-              ...STATUSES.map((st) => ({ value: st, label: st, icon: <StatusIcon status={st} /> })),
+              ...uniqueStatuses([
+                ...(filter.status && filter.status !== "open" ? [filter.status] : []),
+                ...STATUSES,
+                ...items.filter(i => !i.archived && !i.deleted_at).flatMap(i => i.kind === "team" ? i.data.workflow ?? [] : i.kind === "issue" && i.data.status ? [i.data.status] : []),
+              ]).map((st) => ({ value: st, label: st, icon: <StatusIcon status={st} /> })),
             ]}
           />
         </Field>

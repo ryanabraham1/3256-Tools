@@ -33,13 +33,20 @@ import { GettingStarted, HelpGuide } from "./help";
 import { IssueFilterFields } from "./filter-fields";
 
 import "./work.css";
+import "./work-refresh.css";
 import { PropertyPicker } from "./property-picker";
 import { useWork } from "./work-provider";
 const NAV = [
   {
-    heading: "",
+    heading: "Personal",
     links: [
       ["my-issues", "My work"],
+      ["inbox", "Inbox"],
+    ],
+  },
+  {
+    heading: "Workspace",
+    links: [
       ["issues", "Issues"],
       ["projects", "Projects"],
       ["initiatives", "Initiatives"],
@@ -78,7 +85,7 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
   issues: {
     title: "Issues",
     kind: "issue",
-    blurb: "Every task the team is working on. Click one to open it.",
+    blurb: "Plan, prioritize, and move work forward.",
   },
   "my-issues": {
     title: "My work",
@@ -88,7 +95,7 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
   projects: {
     title: "Projects",
     kind: "project",
-    blurb: "Bigger goals made of many issues.",
+    blurb: "Track the projects bringing this season together.",
   },
   initiatives: {
     title: "Initiatives",
@@ -130,9 +137,10 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
   const [pending, startTransition] = useTransition();
   const actor = user.memberId;
   const readOnly = user.role === "viewer";
+  const savedView = snapshot.items.find(i => i.id === entityId && i.kind === "view" && !i.deleted_at);
   const [filter, setFilter] = useState<WorkFilter>({});
-  const [layout, setLayout] = useState("list");
-  const [group, setGroup] = useState("status");
+  const [layout, setLayout] = useState(savedView?.data.layout || "list");
+  const [group, setGroup] = useState(savedView?.data.group || "status");
   const [sort, setSort] = useState("priority");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -380,6 +388,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
           </span>
           <div>
             <b>WarriorBorgs</b>
+            <span>Team workspace</span>
           </div>
           <button
             className="work-icon-button work-mobile-only"
@@ -407,8 +416,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   href={`/work/${path}`}
                   key={path}
                   className="work-nav-link"
-                  data-active={navActive(path)}
-                  aria-current={navActive(path) ? "page" : undefined}
+                  data-active={path === "my-issues" || path === "inbox" ? section === path : navActive(path)}
+                  aria-current={(path === "my-issues" || path === "inbox" ? section === path : navActive(path)) ? "page" : undefined}
                   onClick={() => {
                     setFilter({});
                     setSelected([]);
@@ -553,24 +562,13 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   </button>
                 ))}
                 {pageGroup.more && (
-                  <select
-                    aria-label="More issue pages"
-                    value={
-                      pageGroup.more.some(([path]) => path === section)
-                        ? section
-                        : ""
-                    }
-                    onChange={(e) => navigate(e.target.value)}
-                  >
-                    <option value="" disabled>
-                      More
-                    </option>
-                    {pageGroup.more.map(([path, label]) => (
-                      <option key={path} value={path}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                  <PropertyPicker
+                    label="More issue pages"
+                    value={pageGroup.more.some(([path]) => path === section) ? section : ""}
+                    display="More"
+                    onChange={navigate}
+                    options={pageGroup.more.map(([value, label]) => ({ value, label }))}
+                  />
                 )}
               </nav>
             )}
@@ -581,6 +579,11 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   {info.blurb && <p>{info.blurb}</p>}
                 </div>
                 <div className="work-heading-actions">
+                  {info.kind === "issue" && (
+                    <button className="btn btn-primary" disabled={pending || readOnly} onClick={() => create("issue")}>
+                      <Icon name="plus" size={16} /> New issue
+                    </button>
+                  )}
                   {section === "issues" && (
                     <button
                       className="btn btn-ghost"
@@ -628,6 +631,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   <button
                     className="work-control"
                     data-active={filterOpen || filtersActive}
+                    aria-expanded={filterOpen}
                     onClick={() => setFilterOpen((v) => !v)}
                   >
                     <Icon name="filter" size={15} />
@@ -638,6 +642,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                       </span>
                     )}
                   </button>
+                  <label className="work-search-field">
+                    <Icon name="search" size={15} />
                   <input
                     className="work-inline-search"
                     aria-label="Search issues"
@@ -645,6 +651,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     value={filter.query ?? ""}
                     onChange={(e) => updateFilter({ query: e.target.value })}
                   />
+                  </label>
                   {filtersActive && (
                     <button
                       className="work-text-button"

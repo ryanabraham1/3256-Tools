@@ -20,7 +20,7 @@ export default async function WorkLayout({
         <Header />
       </Suspense>
       <Realtime />
-      <main className="flex-1 mx-auto w-full max-w-[1400px] px-4 py-4 sm:py-5 pb-12">
+      <main className="flex-1 mx-auto w-full max-w-[1800px] px-4 py-4 sm:py-5 pb-12">
         <WorkProvider snapshot={snapshot} user={user} access={access}>{children}</WorkProvider>
       </main>
     </CompModeProvider>

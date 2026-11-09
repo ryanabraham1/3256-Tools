@@ -82,11 +82,16 @@ export function CommitInput({
   disabled?: boolean;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "disabled">) {
   const [draft, setDraft] = useState<string | null>(null);
+  const draftRef = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const shown = draft ?? value;
   function commit(next: string) {
     if (timer.current) clearTimeout(timer.current);
+    // A calendar debounce, Enter and blur may all finish the same edit.
+    // Consume it once so they cannot send duplicate revision-based saves.
+    if (draftRef.current === null) return;
+    draftRef.current = null;
     setDraft(null);
     if (next !== value) onCommit(next);
   }
@@ -96,6 +101,7 @@ export function CommitInput({
       disabled={disabled}
       value={shown}
       onChange={(e) => {
+        draftRef.current = e.target.value;
         setDraft(e.target.value);
         // A date picked from the calendar saves after a short pause; typed digits keep the field open.
         if (rest.type === "date") {

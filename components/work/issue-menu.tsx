@@ -79,19 +79,19 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
     </>;
     else if (panel === "status") body = <>{back}
       {uniqueStatuses([status, ...STATUSES]).map(s =>
-        <button role="menuitemradio" aria-checked={s === status} key={s} onClick={() => run(() => actions.onPatch(issue, { status: s }))}>
+        <button role="menuitemradio" disabled={readOnly} aria-checked={s === status} key={s} onClick={() => run(() => actions.onPatch(issue, { status: s }))}>
           <StatusIcon status={s} />{s}{s === status && <Icon name="check" size={14} />}
         </button>)}
     </>;
     else if (panel === "priority") body = <>{back}
       {PRIORITIES.map((p, n) =>
-        <button role="menuitemradio" aria-checked={n === (issue.data.priority ?? 0)} key={p} onClick={() => run(() => actions.onPatch(issue, { priority: n }))}>
+        <button role="menuitemradio" disabled={readOnly} aria-checked={n === (issue.data.priority ?? 0)} key={p} onClick={() => run(() => actions.onPatch(issue, { priority: n }))}>
           {p}{n === (issue.data.priority ?? 0) && <Icon name="check" size={14} />}
         </button>)}
     </>;
     else if (panel === "assignee") body = <>{back}
       {[{ id: "", title: "Unassigned" }, ...members].map(m =>
-        <button role="menuitemradio" aria-checked={m.id === (issue.data.assignee ?? "")} key={m.id || "none"} onClick={() => run(() => actions.onPatch(issue, { assignee: m.id }))}>
+        <button role="menuitemradio" disabled={readOnly} aria-checked={m.id === (issue.data.assignee ?? "")} key={m.id || "none"} onClick={() => run(() => actions.onPatch(issue, { assignee: m.id }))}>
           {m.title}{m.id === (issue.data.assignee ?? "") && <Icon name="check" size={14} />}
         </button>)}
     </>;
@@ -99,7 +99,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
       {labels.map(l => {
         const on = current.includes(l.id);
         // Stays open so several labels can be toggled in one go.
-        return <button role="menuitemcheckbox" aria-checked={on} key={l.id}
+        return <button role="menuitemcheckbox" disabled={readOnly} aria-checked={on} key={l.id}
           onClick={() => actions.onPatch(issue, { labels: on ? current.filter(v => v !== l.id) : [...current, l.id] })}>
           <span className="work-color-dot" style={{ background: l.data.color || "var(--purple)" }} />{l.title}{on && <Icon name="check" size={14} />}
         </button>;

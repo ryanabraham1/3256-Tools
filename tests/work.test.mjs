@@ -47,6 +47,11 @@ test("issue identifiers use the owning team", () => {
   );
   assert.equal(issueCode(issue("a"), []), "WB-42");
 });
+test("status filters match imported capitalization and implicit Backlog", () => {
+  const items = [issue("a", { status: "In Progress" }), issue("b", { status: "In progress" }), issue("c")];
+  assert.deepEqual(filterIssues(items, { status: "In progress" }).map(i => i.id), ["a", "b"]);
+  assert.deepEqual(filterIssues(items, { status: "Backlog" }).map(i => i.id), ["c"]);
+});
 test("server input validation rejects invalid kinds, properties, and unsafe links", () => {
   for (const [kind, title, data] of [
     ["bad", "a", {}],

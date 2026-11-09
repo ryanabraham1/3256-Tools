@@ -41,13 +41,13 @@ export function PropertyPicker({ value, options, onChange, label, disabled = fal
         if (!buttons.length) return;
         e.preventDefault();
         const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-        const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
+        const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : index < 0 ? (e.key === "ArrowUp" ? buttons.length - 1 : 0) : (index + (e.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
         buttons[next].focus();
       }}>
       {open && <>
       <input ref={search} aria-label={`Search ${label.toLowerCase()}`} placeholder={`Search ${label.toLowerCase()}…`} value={query} onChange={e => setQuery(e.target.value)} />
       <div className="work-picker-options">
-        {choices.map(o => <button type="button" key={o.value} aria-pressed={value === o.value} onClick={() => { onChange(o.value); menu.current?.hidePopover(); button.current?.focus(); }}>
+        {choices.map(o => <button type="button" key={o.value} disabled={disabled} aria-pressed={value === o.value} onClick={() => { onChange(o.value); menu.current?.hidePopover(); button.current?.focus(); }}>
           {o.icon ?? icon}<span>{o.label}</span>{o.value === value && <Icon name="check" size={14} />}
         </button>)}
         {!choices.length && <p>No matching options</p>}
@@ -92,7 +92,7 @@ export function MultiPicker({ values, options, onChange, label, disabled = false
         <div className="work-picker-options">
           {choices.map(o => {
             const on = values.includes(o.value);
-            return <button type="button" key={o.value} role="menuitemcheckbox" aria-checked={on} onClick={() => onChange(on ? values.filter(v => v !== o.value) : [...values, o.value])}>
+            return <button type="button" key={o.value} disabled={disabled} role="menuitemcheckbox" aria-checked={on} onClick={() => onChange(on ? values.filter(v => v !== o.value) : [...values, o.value])}>
               <span className="work-color-dot" style={{ background: o.color || "var(--purple)" }} /><span>{o.label}</span>{on && <Icon name="check" size={14} />}
             </button>;
           })}

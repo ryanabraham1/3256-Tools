@@ -13,6 +13,7 @@ import {
 } from "@/lib/work";
 import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { MultiPicker, PropertyPicker } from "./property-picker";
+import { useItemMenuShow } from "./item-menu";
 import { Icon, StatusIcon } from "./icons";
 export function Labels({ item, items }: { item: WorkItem; items: WorkItem[] }) {
   return (
@@ -306,6 +307,7 @@ export function Collection({
   onOpen: (item: WorkItem) => void;
   onCreate: () => void;
 }) {
+  const menuFor = useItemMenuShow();
   if (!rows.length)
     return (
       <Empty
@@ -350,6 +352,7 @@ export function Collection({
           <button
             className="work-project-card"
             key={item.id}
+            onContextMenu={menuFor(item)}
             onClick={() => onPreview && item.kind === "project" ? onPreview(item) : onOpen(item)}
             onDoubleClick={() => { if (onPreview && item.kind === "project") onOpen(item); }}
           >

@@ -11,6 +11,7 @@ import type { Loop } from "@/lib/geom";
 import { materialName, type FabMaterial } from "@/lib/fab";
 import { fmtLength, type Units } from "@/lib/units";
 import { timeAgo } from "@/lib/format";
+import { copyText, useContextMenu } from "./context-menu";
 import { Sheet } from "./sheet";
 import { Empty } from "./ui";
 import { Assignees, DfmPill, Outline, PersonChip } from "./parts-ui";
@@ -130,6 +131,24 @@ export function PartsBoard({
     });
   }
 
+  const ctx = useContextMenu();
+  function partMenu(p: BoardPart, e: React.MouseEvent<HTMLElement>) {
+    const status = moved[p.id] ?? p.status;
+    ctx.show(e, [
+      { label: "Open", icon: "→", onSelect: () => setOpen(p) },
+      { label: "Open full page", icon: "↗", onSelect: () => router.push(`/tracker/${p.id}`) },
+      { label: "Open in new tab", icon: "↗", onSelect: () => window.open(`/tracker/${p.id}`, "_blank", "noopener") },
+      "separator",
+      {
+        label: "Move to", icon: "⇄",
+        children: STATUSES[trackerOf(p.kind)].map((st) => ({ label: STATUS_LABEL[st], checked: st === status, disabled: st === status, onSelect: () => move(p, st) })),
+      },
+      "separator",
+      { label: "Copy name", icon: "⧉", onSelect: async () => ctx.toast((await copyText(p.name)) ? "Name copied" : "Couldn't copy") },
+      { label: "Copy link", icon: "⧉", onSelect: async () => ctx.toast((await copyText(`${window.location.origin}/tracker/${p.id}`)) ? "Link copied" : "Couldn't copy") },
+    ], p.name);
+  }
+
   const [dragOver, setDragOver] = useState<string | null>(null);
   const onDrop = (e: DragEvent, status: JobStatus) => {
     e.preventDefault();
@@ -241,7 +260,7 @@ export function PartsBoard({
                 </header>
                 <div className="flex flex-col gap-2 min-h-16">
                   {columns[st].map((p) => (
-                    <PartCard key={p.id} p={p} units={units} onOpen={() => setOpen(p)} />
+                    <PartCard key={p.id} p={p} units={units} onOpen={() => setOpen(p)} onMenu={(e) => partMenu(p, e)} />
                   ))}
                   {columns[st].length === 0 && (
                     <p className="text-xs text-center py-6 rounded-lg" style={{ color: "var(--muted)", border: "1px dashed var(--line)" }}>
@@ -269,7 +288,7 @@ function sizeText(p: BoardPart, units: Units): string {
   return [l, w, t].map((d) => fmtLength(d, units)).join(" × ");
 }
 
-function PartCard({ p, units, onOpen }: { p: BoardPart; units: Units; onOpen: () => void }) {
+function PartCard({ p, units, onOpen, onMenu }: { p: BoardPart; units: Units; onOpen: () => void; onMenu: (e: React.MouseEvent<HTMLElement>) => void }) {
   const need = p.quantity * p.copies + p.spare_qty;
   return (
     <button
@@ -280,6 +299,7 @@ function PartCard({ p, units, onOpen }: { p: BoardPart; units: Units; onOpen: ()
         e.dataTransfer.effectAllowed = "move";
       }}
       onClick={onOpen}
+      onContextMenu={onMenu}
       className="card p-3 text-left flex gap-3 hover:border-[var(--purple)] transition-colors cursor-grab active:cursor-grabbing w-full"
     >
       {p.outline && (

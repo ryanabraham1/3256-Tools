@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { PRIORITIES, STATUSES, uniqueStatuses, type WorkData, type WorkItem } from "@/lib/work";
+import { issueCode, PRIORITIES, STATUSES, uniqueStatuses, type WorkData, type WorkItem } from "@/lib/work";
+import { copyText, useContextMenu } from "../context-menu";
 import { Icon, StatusIcon } from "./icons";
 
 export type IssueActions = {
@@ -18,6 +19,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [panel, setPanel] = useState<Panel>("main");
   const ref = useRef<HTMLDivElement>(null);
+  const { toast } = useContextMenu();
 
   useEffect(() => {
     if (!menu) return;
@@ -68,11 +70,15 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
     </>;
     if (panel === "main") body = <>
       <button role="menuitem" onClick={() => run(() => actions.onOpen(issue))}><Icon name="arrow" size={14} />Open task</button>
+      <button role="menuitem" onClick={() => run(() => window.open(`/work/issues/${issue.id}`, "_blank", "noopener"))}><Icon name="arrow" size={14} />Open in new tab</button>
       <hr />
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("status")}><StatusIcon status={status} />Status…</button>
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("priority")}><Icon name="filter" size={14} />Priority…</button>
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("assignee")}><Icon name="member" size={14} />Assignee…</button>
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("labels")}><Icon name="plus" size={14} />Labels…</button>
+      <hr />
+      <button role="menuitem" onClick={() => run(async () => toast((await copyText(`${window.location.origin}/work/issues/${issue.id}`)) ? "Link copied" : "Couldn't copy"))}><Icon name="plus" size={14} />Copy link</button>
+      <button role="menuitem" onClick={() => run(async () => toast((await copyText(issueCode(issue, items))) ? "ID copied" : "Couldn't copy"))}><Icon name="plus" size={14} />Copy ID</button>
       <hr />
       <button role="menuitem" disabled={readOnly} onClick={() => run(() => actions.onArchive(issue))}><Icon name="check" size={14} />Archive</button>
       <button role="menuitem" className="danger" disabled={readOnly} onClick={() => run(() => actions.onTrash(issue))}><Icon name="trash" size={14} />Delete</button>

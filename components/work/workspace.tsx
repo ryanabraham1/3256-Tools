@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
+import { useEffect, useMemo, useOptimistic, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import { addWorkComment, markWorkRead, mutateWork } from "@/app/work-actions";
 import {
   activeWorkItems,
@@ -36,6 +36,9 @@ import { IssueFilterFields } from "./filter-fields";
 import "./work.css";
 import "./work-refresh.css";
 import { PropertyPicker } from "./property-picker";
+import { useIssueMenu } from "./issue-menu";
+import { useMilestoneMenu } from "./milestone-menu";
+import { ItemMenuProvider, itemRoute, useItemMenu, usePageMenu } from "./item-menu";
 import { useWork } from "./work-provider";
 const NAV = [
   { heading: "", links: [["home", "Home"]] },
@@ -132,9 +135,7 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
     blurb: "People, labels, templates and exports.",
   },
 };
-function route(item: WorkItem) {
-  return `/work/${({ issue: "issues", project: "projects", milestone: "projects", initiative: "initiatives", document: "documents", view: "views" } as Record<string, string>)[item.kind] ?? "settings"}/${item.id}`;
-}
+const route = itemRoute;
 export function WorkWorkspace({ section, entityId }: { section: string; entityId?: string; }) {
   const {snapshot, user, access} = useWork();
   const router = useRouter();
@@ -320,11 +321,45 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
   function archiveItem(item: WorkItem) {
     startTransition(async () => {
       applyOptimistic([{ id: item.id, archived: true }]);
-      await change([{ id: item.id, revision: latest(item).revision, archived: true }], "Issue archived");
+      await change([{ id: item.id, revision: latest(item).revision, archived: true }], "Archived");
+    });
+  }
+  function restoreItem(item: WorkItem) {
+    startTransition(async () => {
+      applyOptimistic([{ id: item.id, archived: false }]);
+      await change([{ id: item.id, revision: latest(item).revision, archived: false, deleted: false }], "Restored");
     });
   }
   const issueActions = { onPatch: patch, onArchive: archiveItem, onTrash: trashItem, onOpen: open, disabled: pending || readOnly };
   const milestoneActions = { onSave: saveItem, onTrash: trashItem, onOpen: open, disabled: pending || readOnly };
+  const issueMenu = useIssueMenu(items, issueActions);
+  const milestoneMenu = useMilestoneMenu(milestoneActions);
+  const itemMenu = useItemMenu(items, {
+    actor,
+    disabled: pending || readOnly,
+    onOpen: open,
+    onEdit: (item) => { setError(""); setEditor({ kind: item.kind, item }); },
+    onPatch: patch,
+    onArchive: archiveItem,
+    onRestore: restoreItem,
+    onTrash: trashItem,
+    onCreate: create,
+  });
+  const showItem = (item: WorkItem, e: ReactMouseEvent<HTMLElement>) =>
+    item.kind === "issue" && !item.archived && !item.deleted_at ? issueMenu.show(item, e)
+      : item.kind === "milestone" && !item.archived && !item.deleted_at ? milestoneMenu.show(item, e)
+        : itemMenu.show(item, e);
+  const pageMenu = usePageMenu({
+    disabled: pending || readOnly,
+    onCreate: (kind) => create(kind),
+    onSearch: () => setCommand(true),
+    onHelp: () => setDialog("help"),
+    onNavigate: navigate,
+    onExport: exportData,
+    extra: selected.length
+      ? [{ label: "Clear selection", onSelect: () => setSelected([]) }]
+      : undefined,
+  });
   const activeFilter =
     current?.kind === "view" ? { ...current.data.filter, ...filter } : filter;
   let issues = filterIssues(items, activeFilter);
@@ -389,7 +424,10 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
   }
 
   return (
-    <div className="work-shell">
+    <ItemMenuProvider value={showItem}>
+    <div className="work-shell" onContextMenu={pageMenu}>
+      {issueMenu.element}
+      {milestoneMenu.element}
       <aside
         className={`work-sidebar ${sidebarOpen ? "work-sidebar-open" : ""}`}
       >
@@ -459,6 +497,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     className="work-nav-link"
                     key={i.id}
                     onClick={() => open(i)}
+                    onContextMenu={(e) => showItem(i, e)}
                   >
                     <Icon name="star" size={15} />
                     <span>{i.title}</span>
@@ -1012,7 +1051,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                       {live
                         .filter((i) => i.kind === settingsTab)
                         .map((i) => (
-                          <div key={i.id}>
+                          <div key={i.id} onContextMenu={(e) => showItem(i, e)}>
                             <span
                               className="work-color-dot"
                               style={{
@@ -1196,7 +1235,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                         : i.archived && !i.deleted_at,
                     )
                     .map((i) => (
-                      <div key={i.id}>
+                      <div key={i.id} onContextMenu={(e) => itemMenu.show(i, e)}>
                         <Icon name="archive" />
                         <b>{i.title}</b>
                         <span className="work-muted">{i.kind}</span>
@@ -1233,6 +1272,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     <button
                       className="work-project-card"
                       key={i.id}
+                      onContextMenu={(e) => showItem(i, e)}
                       onClick={() => {
                         setFilter({});
                         setLayout(i.data.layout || "list");
@@ -1513,6 +1553,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         </div>
       )}
     </div>
+    </ItemMenuProvider>
   );
 }
 function Insights({

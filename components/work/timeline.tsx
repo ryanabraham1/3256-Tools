@@ -5,6 +5,7 @@ import { laneSlots } from "@/lib/work-timeline";
 import { Avatar, Empty } from "./collections";
 import { Icon, MilestoneIcon, StatusPill } from "./icons";
 import { useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
+import { useItemMenuShow } from "./item-menu";
 import "./work-timeline.css";
 
 const DAY = 86_400_000;
@@ -37,6 +38,7 @@ export function Timeline({
   milestoneActions: MilestoneActions;
 }) {
   const milestoneMenu = useMilestoneMenu(milestoneActions);
+  const menuFor = useItemMenuShow();
   const [zoom, setZoom] = useState<Zoom>("month");
   const scroller = useRef<HTMLDivElement>(null);
   const [paneWidth, setPaneWidth] = useState(1100);
@@ -160,7 +162,7 @@ export function Timeline({
             return (
               <div className="wtl-row" key={p.id} style={{ minHeight: rowHeight }}>
                 <div className="wtl-side">
-                  <button className="wtl-project" onClick={() => openProject(p)} onDoubleClick={() => onPreview && onOpen(p)}>
+                  <button className="wtl-project" onContextMenu={menuFor(p)} onClick={() => openProject(p)} onDoubleClick={() => onPreview && onOpen(p)}>
                     <span className="wtl-project-icon" style={{ color }}>
                       <Icon name={p.data.icon || "projects"} size={18} />
                     </span>
@@ -188,7 +190,7 @@ export function Timeline({
                       data-narrow={barWidth < 190}
                       style={{ left: barLeft, width: barWidth, ["--bar" as string]: color }}
                       onClick={() => openProject(p)}
-                     
+                      onContextMenu={menuFor(p)}
                       onDoubleClick={() => onPreview && onOpen(p)}
                       title={`${p.title}: ${dateLabel(p.data.start) || "?"} – ${dateLabel(p.data.due) || "?"} · ${pct}% done`}
                     >

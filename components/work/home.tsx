@@ -4,6 +4,7 @@ import { dateLabel, done, issueCode, type WorkEvent, type WorkItem } from "@/lib
 import { Avatar } from "./collections";
 import { GettingStarted } from "./help";
 import { Icon, StatusPill } from "./icons";
+import { useItemMenuShow } from "./item-menu";
 
 const GLANCE = [
   { status: "In progress", label: "In progress", tone: "warn", match: ["in progress", "in review"] },
@@ -44,6 +45,7 @@ export function WorkHome({
   onHelp: () => void;
   readOnly: boolean;
 }) {
+  const menuFor = useItemMenuShow();
   const issues = live.filter((i) => i.kind === "issue");
   const mine = issues
     .filter((i) => i.data.assignee === actor && !done(i))
@@ -84,7 +86,7 @@ export function WorkHome({
             mine.slice(0, 8).map((i) => {
               const project = byId.get(i.data.project ?? "");
               return (
-                <button key={i.id} className="work-home-row" onClick={() => onOpen(i)}>
+                <button key={i.id} className="work-home-row" onClick={() => onOpen(i)} onContextMenu={menuFor(i)}>
                   <StatusPill status={i.data.status} />
                   <span className="work-home-row-main">
                     <b>{i.title}</b>
@@ -139,7 +141,7 @@ export function WorkHome({
                       <p>
                         <b>{e.actor}</b>{" "}
                         <span className="work-home-activity-body">{describe(e)}</span>{" "}
-                        <button className="work-text-button" onClick={() => onOpen(item)}>
+                        <button className="work-text-button" onClick={() => onOpen(item)} onContextMenu={menuFor(item)}>
                           {item.title}
                         </button>
                         <small>{dateLabel(e.created_at)}</small>

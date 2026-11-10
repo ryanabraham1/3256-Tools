@@ -24,6 +24,7 @@ import { Icon, StatusIcon, statusLabel, statusTone } from "./icons";
 import type { MilestoneActions } from "./milestone-menu";
 import { ProjectDetail } from "./project-detail";
 import { useIssueMenu, type IssueActions } from "./issue-menu";
+import { useItemMenuShow } from "./item-menu";
 import { InlineEdit, PropertyPicker } from "./property-picker";
 export function RichText({ text }: { text: string }) {
   return (
@@ -104,6 +105,7 @@ export function ItemDetail({
       })),
   );
   const issueMenu = useIssueMenu(items, issueActions);
+  const menuFor = useItemMenuShow();
   const history = events
     .filter((e) => e.item_id === item.id)
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -207,6 +209,7 @@ export function ItemDetail({
                 key={p.id}
                 className="work-child"
                 onClick={() => onOpen(p)}
+                onContextMenu={menuFor(p)}
               >
                 <Icon name="projects" />
                 <span>{p.title}</span>

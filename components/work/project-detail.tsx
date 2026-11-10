@@ -9,6 +9,7 @@ import { RichText } from "./detail";
 import { CommitInput, EntitySelect, Field, Modal } from "./editor";
 import { Icon, MilestoneIcon, PROJECT_ICONS, StatusIcon } from "./icons";
 import { useIssueMenu, type IssueActions } from "./issue-menu";
+import { useItemMenuShow } from "./item-menu";
 import { useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
 import { InlineEdit, PropertyPicker } from "./property-picker";
 import { IssueFilterFields } from "./filter-fields";
@@ -44,6 +45,7 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
   const [tab, setTab] = useState<Tab>("Overview");
   const milestoneMenu = useMilestoneMenu(milestoneActions);
   const issueMenu = useIssueMenu(items, issueActions);
+  const menuFor = useItemMenuShow();
   const [composer, setComposer] = useState(false);
   const { user } = useWork();
   const router = useRouter();
@@ -120,7 +122,7 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
           <section className="work-project-resources"><div className="work-section-title"><h2>Resources</h2><button className="work-text-button" disabled={pending} onClick={() => onCreate("document", { project: item.id })}><Icon name="plus" size={14} /> Add document</button></div>
             {item.data.url && <a className="work-reference" href={item.data.url} target="_blank" rel="noreferrer"><Icon name="link" size={14} />{item.data.url}</a>}
             {item.data.attachments?.map(a => <a className="work-reference" key={a.id} href={a.url} target="_blank" rel="noreferrer"><Icon name="link" size={14} />{a.title}</a>)}
-            {documents.map(d => <button className="work-child" key={d.id} onClick={() => onOpen(d)}><Icon name="documents" size={15}/>{d.title}</button>)}
+            {documents.map(d => <button className="work-child" key={d.id} onClick={() => onOpen(d)} onContextMenu={menuFor(d)}><Icon name="documents" size={15}/>{d.title}</button>)}
             {!documents.length && !item.data.url && !item.data.attachments?.length && <p className="work-muted">Keep project documents and links here.</p>}
           </section>
           <section className="work-project-latest"><div className="work-section-title"><h2>Latest update</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={pending}><Icon name="updates" size={14} /> Update</button></div>

@@ -15,6 +15,7 @@ export function BatteryCard({
   now,
   grab,
   onClick,
+  onContextMenu,
   extra,
   queued,
 }: {
@@ -22,6 +23,7 @@ export function BatteryCard({
   now: number;
   grab?: boolean;
   onClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void;
   extra?: React.ReactNode;
   /** An offline change for this battery is waiting to send. */
   queued?: boolean;
@@ -38,6 +40,7 @@ export function BatteryCard({
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onKeyDown={(e) => onClick && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onClick())}
       className="card p-3.5 flex flex-col gap-2.5 cursor-pointer select-none transition-colors hover:border-[var(--purple)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--purple)]"
       style={grab ? { borderColor: "var(--purple)", boxShadow: "inset 0 0 0 1px var(--purple), var(--shadow-md)" } : undefined}

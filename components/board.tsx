@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { sortReady, type BatteryWithHealth } from "@/lib/health";
 import { STATES, STATE_LABEL, STATE_TONE, type BatteryState, type Settings } from "@/lib/types";
 import { BatteryActionSheet, useBatteryActions } from "./battery-actions";
 import { BatteryCard, restRemaining } from "./battery-card";
 import { useCompMode } from "./comp-mode";
+import { copyText, useContextMenu, type MenuEntry } from "./context-menu";
 import { useOffline } from "./offline";
 import { BoltIcon, Empty, HealthPill } from "./ui";
 import { fmtNum, timeAgo } from "@/lib/format";
@@ -23,6 +24,8 @@ export function useNow(intervalMs = 30_000) {
 
 export function Board({ items, settings }: { items: BatteryWithHealth[]; settings: Settings }) {
   const sp = useSearchParams();
+  const router = useRouter();
+  const menu = useContextMenu();
   const q = (sp.get("q") ?? "").trim().toLowerCase();
   const now = useNow();
   const actions = useBatteryActions();
@@ -74,6 +77,41 @@ export function Board({ items, settings }: { items: BatteryWithHealth[]; setting
       await run("logIncident", id, fd);
       setBusyId(null);
     });
+  }
+
+  /** Right-click a battery: jump to what you'd do next without opening the sheet first. */
+  function batteryMenu(item: BatteryWithHealth, e: React.MouseEvent<HTMLElement>) {
+    const b = item.battery;
+    const quickMove = (to: BatteryState) => {
+      // Charging → Ready asks for a resting voltage, so that one goes through the sheet.
+      if (b.state === "charging" && to === "ready") return actions.open(b, "move");
+      setBusyId(b.id);
+      start(async () => {
+        const fd = new FormData();
+        fd.set("to", to);
+        await run("moveStateForm", b.id, fd);
+        setBusyId(null);
+      });
+    };
+    const entries: MenuEntry[] = [
+      { label: "Open battery", icon: "→", onSelect: () => router.push(`/battery/batteries/${encodeURIComponent(b.name)}`) },
+      { label: "Open in new tab", icon: "↗", onSelect: () => window.open(`/battery/batteries/${encodeURIComponent(b.name)}`, "_blank", "noopener") },
+      "separator",
+      { label: "Quick actions…", icon: "⚡", onSelect: () => actions.open(b) },
+      b.state === "ready" && { label: "Pre-match check", icon: "▶", onSelect: () => actions.open(b, "pre") },
+      b.state === "in_robot" && { label: "Post-match check", icon: "■", onSelect: () => actions.open(b, "post") },
+      { label: "Log charge", icon: "⚡", onSelect: () => actions.open(b, "charge") },
+      { label: "Beak check", icon: "◎", onSelect: () => actions.open(b, "beak") },
+      {
+        label: "Move to", icon: "⇄",
+        children: STATES.map((s) => ({ label: STATE_LABEL[s], checked: s === b.state, disabled: s === b.state, onSelect: () => quickMove(s) })),
+      },
+      "separator",
+      { label: "Flag issue", icon: "⚑", danger: true, onSelect: () => actions.open(b, "incident") },
+      { label: "Add note", icon: "✎", onSelect: () => actions.open(b, "note") },
+      { label: "Copy name", icon: "⧉", onSelect: async () => menu.toast((await copyText(b.name)) ? "Name copied" : "Couldn't copy") },
+    ];
+    menu.show(e, entries, b.name);
   }
 
   const queuedIds = useMemo(() => new Set(outbox.map((e) => e.batteryId)), [outbox]);
@@ -197,6 +235,7 @@ export function Board({ items, settings }: { items: BatteryWithHealth[]; setting
                     now={now}
                     grab={state === "ready" && item.battery.id === grabId}
                     onClick={() => actions.open(item.battery)}
+                    onContextMenu={(e) => batteryMenu(item, e)}
                     queued={queuedIds.has(item.battery.id)}
                     extra={
                       compMode && state === "in_robot" ? (

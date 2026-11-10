@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { ContextMenuProvider } from "@/components/context-menu";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -42,7 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Apply the saved appearance before paint, as recommended by the bundled Next.js guide. */}
         <script dangerouslySetInnerHTML={{ __html: `(()=>{let t;try{t=localStorage.getItem("3256-tools-theme")}catch{}t=t==="light"||t==="dark"?t:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t;document.querySelector('meta[name="theme-color"]')?.setAttribute("content",t==="dark"?"#0f1115":"#f5f6f8")})()` }} />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col"><ContextMenuProvider>{children}</ContextMenuProvider></body>
     </html>
   );
 }

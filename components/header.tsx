@@ -238,8 +238,9 @@ export function Header() {
   const stockApp = isStockPath(pathname);
   const trackerApp = isTrackerPath(pathname);
   const workApp = pathname === "/work" || pathname.startsWith("/work/");
-  const batteryApp = !home && !stockApp && !trackerApp && !workApp;
-  const NAV = home || workApp ? [] : stockApp ? STOCK_NAV : trackerApp ? TRACKER_NAV : BATTERY_NAV;
+  const logsApp = pathname === "/logs" || pathname.startsWith("/logs/");
+  const batteryApp = !home && !stockApp && !trackerApp && !workApp && !logsApp;
+  const NAV = home || workApp || logsApp ? [] : stockApp ? STOCK_NAV : trackerApp ? TRACKER_NAV : BATTERY_NAV;
   const canSearch = SEARCHABLE.includes(pathname) || pathname.startsWith("/battery/batteries/");
   const searchTarget = stockApp ? "/stock" : trackerApp ? "/tracker/board" : pathname.startsWith("/battery/batteries") ? "/battery/batteries" : "/battery";
   const searchWhat = stockApp ? "stock" : trackerApp ? "parts" : "batteries";
@@ -292,13 +293,14 @@ export function Header() {
               <span className={`text-[17px] font-bold tracking-tight ${home ? "" : "sm:hidden lg:inline"}`}>Tools</span>
             </Link>
             {/* App switcher: batteries ↔ fab stock */}
-            <nav className="col-span-full row-start-2 grid grid-cols-4 sm:inline-flex gap-1 rounded-xl p-1 sm:overflow-x-auto min-w-0" style={{ background: "var(--neutral-soft)" }} aria-label="App">
+            <nav className="col-span-full row-start-2 grid grid-cols-5 sm:inline-flex gap-1 rounded-xl p-1 sm:overflow-x-auto min-w-0" style={{ background: "var(--neutral-soft)" }} aria-label="App">
               {(
                 [
                   ["/battery", "Batteries", "Batteries", batteryApp],
                   ["/stock", "Fab stock", "Stock", stockApp],
                   ["/tracker", "Tracker", "Track", trackerApp],
                   ["/work", "Work", "Work", workApp],
+                  ["/logs", "Robot logs", "Logs", logsApp],
                 ] as const
               ).map(([href, label, short, on]) => (
                 <Link

@@ -119,6 +119,7 @@ export default async function Home() {
         <h1 className="display text-5xl sm:text-6xl">Team tools</h1>
       </div>
 
+      <Link href="/logs" className="block rounded-xl border p-4 mb-4" style={{ borderColor: "var(--line)", background: "var(--surface)" }}><strong>Robot logs</strong><span className="ml-3 text-sm" style={{ color: "var(--muted)" }}>Open recordings, replay signals, and inspect power analysis →</span></Link>
       <div className="grid gap-4 lg:grid-cols-2 items-stretch">
         <ToolCard href="/work" name="Work" tagline="Issues and project planning" icon={<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 5h16M4 12h16M4 19h16" /></svg>} links={[["/work/issues", "Issues"], ["/work/projects", "Projects"], ["/work/initiatives", "Initiatives"]]} open="Open workspace">
           <div className="rounded-lg p-4" style={{ background: "var(--purple-soft)" }}>

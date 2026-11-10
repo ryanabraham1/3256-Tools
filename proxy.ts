@@ -40,6 +40,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/api/work/")
   )
     return refreshWorkSession(request);
+  // Upload-only device tokens are checked inside these routes; reads require team auth.
+  if (pathname === "/api/robot-logs" || pathname.startsWith("/api/robot-logs/")) return NextResponse.next();
   const secret = process.env.SESSION_SECRET ?? "";
   const ok = await hasValidSignature(
     request.cookies.get(COOKIE)?.value,

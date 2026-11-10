@@ -22,8 +22,8 @@ import {
   Empty,
   IssueBoard,
   IssueList,
-  Timeline,
 } from "./collections";
+import { Timeline } from "./timeline";
 import { ProjectDetail } from "./project-detail";
 import { ItemDetail, RichText } from "./detail";
 import { Field, ItemEditor, Modal } from "./editor";

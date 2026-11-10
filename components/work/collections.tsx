@@ -1,11 +1,8 @@
 "use client";
-import { Fragment, useState } from "react";
 import {
   dateLabel,
-  today as todayKey,
   done,
   issueCode,
-  milestoneProgress,
   PRIORITIES,
   progress,
   STATUSES,
@@ -15,10 +12,8 @@ import {
   type WorkKind,
 } from "@/lib/work";
 import { useIssueMenu, type IssueActions } from "./issue-menu";
-import { useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
-import { labelSlots } from "@/lib/work-timeline";
 import { MultiPicker, PropertyPicker } from "./property-picker";
-import { Icon, MilestoneIcon, StatusIcon } from "./icons";
+import { Icon, StatusIcon } from "./icons";
 export function Labels({ item, items }: { item: WorkItem; items: WorkItem[] }) {
   return (
     <span className="work-labels">
@@ -433,55 +428,4 @@ export function Collection({
       })}
     </div>
   );
-}
-export function Timeline({ projects, items, onOpen, onPreview, milestoneActions }: { onPreview?: (i: WorkItem) => void; projects: WorkItem[]; items: WorkItem[]; onOpen: (i: WorkItem) => void; milestoneActions: MilestoneActions; }) {
-  const milestoneMenu = useMilestoneMenu(milestoneActions);
-  const [scale, setScale] = useState("month");
-  const [focusToday, setFocusToday] = useState(true);
-  const now = todayKey();
-  const today = Date.parse(now);
-  const day = 86400000;
-  const milestones = items.filter(i => i.kind === "milestone" && !i.archived && !i.deleted_at && projects.some(p => p.id === i.data.project));
-  const dates = [...projects.flatMap(p => [p.data.start, p.data.due]), ...milestones.map(m => m.data.due)].filter((d): d is string => !!d).map(d => Date.parse(d));
-  if (!projects.length) return <Empty title="No projects yet" description="Create a project to start planning your roadmap." icon="timeline" />;
-  const min = focusToday ? today - 45 * day : Math.min(today, ...dates) - 7 * day;
-  const max = focusToday ? today + 60 * day : Math.max(today + 30 * day, ...dates) + 7 * day;
-  const range = max - min;
-  const width = Math.max(850, range / day * (scale === "week" ? 28 : scale === "month" ? 12 : 5));
-  const x = (date: number) => (date - min) / range * 100;
-  const step = scale === "week" ? 7 : scale === "month" ? 14 : Math.max(7, Math.ceil(range / day / 12 / 7) * 7);
-  const ticks = Array.from({length: Math.floor(range / day / step) + 1}, (_, n) => min + n * step * day);
-  return <div className="work-roadmap">
-    <div className="work-roadmap-toolbar"><span><span className="work-milestone-diamond" data-complete="true">◇</span> Completed <span className="work-milestone-diamond" data-overdue="true">◇</span> Overdue <span className="work-milestone-diamond">◇</span> Upcoming</span><div><button className="work-control" data-active={focusToday} onClick={() => setFocusToday(v => !v)}>{focusToday ? "All dates" : "Today"}</button><PropertyPicker label="Timeline scale" value={scale} onChange={setScale} options={[{value:"fit",label:"Fit"},{value:"month",label:"Month"},{value:"week",label:"Week"}]}/></div></div>
-    <div className="work-roadmap-scroll"><div className="work-roadmap-grid" style={{minWidth:width + 250}}>
-      <div className="work-roadmap-head"><span>Projects</span><div>{ticks.map(t => <time key={t} style={{left:`${x(t)}%`}}>{dateLabel(new Date(t).toISOString())}</time>)}</div></div>
-      {projects.map(p => {
-        const stages = milestones.filter(m => m.data.project === p.id).sort((a,b) => (a.data.due || "9999").localeCompare(b.data.due || "9999"));
-        const projectDates = [p.data.start, p.data.due, ...stages.map(m => m.data.due)].filter((d): d is string => !!d).map(d => Date.parse(d));
-        const start = p.data.start ? Date.parse(p.data.start) : projectDates.length ? Math.min(...projectDates) : null;
-        const end = p.data.due ? Date.parse(p.data.due) : projectDates.length ? Math.max(...projectDates) : null;
-        const positioned = labelSlots(stages, min, max, width - 190);
-        const undated = stages.filter(m => !m.data.due);
-        return <div className="work-roadmap-row" key={p.id} style={{minHeight:undated.length ? 145 : 102}}>
-          <button className="work-roadmap-project" onClick={() => onPreview ? onPreview(p) : onOpen(p)} onDoubleClick={() => { if (onPreview) onOpen(p); }}><Icon name={p.data.icon || "projects"} style={{color:p.data.color || "var(--purple)"}}/><span>{p.title}<small>{p.data.status || "Planned"}</small></span><Avatar small name={items.find(i => i.id === p.data.assignee)?.title}/></button>
-          <div className="work-roadmap-track">{ticks.map(t => <span className="work-roadmap-guide" key={t} style={{left:`${x(t)}%`}}/>)}<span className="work-roadmap-today" style={{left:`${x(today)}%`}}><small>Today</small></span>
-            {start !== null && end !== null && end >= min && start <= max ? <button className="work-roadmap-bar" style={{left:`${Math.max(0,x(start))}%`,width:`${Math.max(.5,Math.min(100,x(end))-Math.max(0,x(start)))}%`}} onClick={() => onPreview ? onPreview(p) : onOpen(p)} onDoubleClick={() => { if (onPreview) onOpen(p); }} title={`${p.title}: ${dateLabel(p.data.start)} – ${dateLabel(p.data.due)}`}><span>{p.title}</span></button> : <span className="work-roadmap-no-date">Set project dates to plan your timeline</span>}
-            {positioned.map(({m,width:labelWidth}) => {
-              const status = milestoneProgress(m, items);
-              const left = x(Date.parse(m.data.due!));
-              const complete = status.complete;
-              const diamond = <MilestoneIcon percent={status.percent} complete={complete} overdue={!complete && m.data.due! < now} />;
-              const title = `${m.title} · ${dateLabel(m.data.due)} · ${status.percent}% · ${status.completed}/${status.total} done${complete ? " · Completed" : ""}`;
-              return <Fragment key={m.id}>
-                <button className="work-roadmap-milestone work-roadmap-marker" style={{left:`${left}%`,top:34}} onClick={() => onOpen(m)} onContextMenu={e => milestoneMenu.show(m, e)} title={title} aria-label={title}>{diamond}</button>
-                {labelWidth > 0 && <button className="work-roadmap-milestone work-roadmap-name" style={{left:`${left}%`,top:58,width:labelWidth}} onClick={() => onOpen(m)} onContextMenu={e => milestoneMenu.show(m, e)} title={title} tabIndex={-1}><span>{m.title}</span></button>}
-              </Fragment>;
-            })}
-            {!!undated.length && <div className="work-roadmap-undated" style={{top:105}}>{undated.map(m => <button key={m.id} onClick={() => onOpen(m)} onContextMenu={e => milestoneMenu.show(m, e)}>{m.title} · No date · {milestoneProgress(m,items).percent}%</button>)}</div>}
-          </div>
-        </div>;
-      })}
-    </div></div>
-    {milestoneMenu.element}
-  </div>;
 }

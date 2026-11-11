@@ -1,4 +1,5 @@
 "use client";
+import { dayLabel } from "@/lib/robot-logs/day";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { plotSeries } from "@/lib/robot-logs/core/plot";
 import {
@@ -57,14 +58,6 @@ function saveSummary(hash: string, summary: Summary) {
 }
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const fixed = (n: number | undefined, digits = 2) => (n === undefined ? "—" : n.toFixed(digits));
-function dayLabel(iso: string) {
-  const date = new Date(iso);
-  const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" });
-  return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
-}
 
 /* ---------- Charts ---------- */
 const L = 56,
@@ -276,7 +269,7 @@ function Timeline({
 }
 
 /* ---------- Page ---------- */
-export function RobotLogs() {
+export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
   const [logs, setLogs] = useState<CloudLog[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [loadingLibrary, setLoadingLibrary] = useState(true);
@@ -400,6 +393,35 @@ export function RobotLogs() {
     if (!worker.current) throw new Error("The log reader is not ready yet.");
     worker.current.postMessage({ id, buffer, name, expectedHash }, [buffer]);
   }, []);
+
+  const [deleting, setDeleting] = useState(false);
+  const deleteCurrent = async () => {
+    const log = logs.find((l) => l.sha256 === currentHash);
+    if (!log || !canDelete) return;
+    if (
+      !window.confirm(
+        `Delete "${log.name}" from the team library?\n\nThis permanently removes it for everyone, including share links. Copies already saved in Mayhem on someone's laptop are not affected.`,
+      )
+    )
+      return;
+    setDeleting(true);
+    setError("");
+    try {
+      await requestJSON(`/api/robot-logs/${log.sha256}`, { method: "DELETE" });
+      setLogs((old) => old.filter((l) => l.sha256 !== log.sha256));
+      setRecording(null);
+      setAnalysis(null);
+      setCurrentHash(null);
+      const url = new URL(location.href);
+      url.searchParams.delete("log");
+      history.replaceState(null, "", url);
+      setNotice(`Deleted ${log.name}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const openFile = async (file?: File) => {
     if (!file) return;
@@ -662,7 +684,9 @@ export function RobotLogs() {
             {loadingLibrary && <p className="rl-note">Loading recordings…</p>}
             {groups.map(([label, items]) => (
               <section key={label}>
-                <h3>{label}</h3>
+                <h3>
+                  {label} <span className="rl-day-count">· {items.length}</span>
+                </h3>
                 {items.map((log) => {
                   const s = summaries[log.sha256];
                   return (
@@ -731,6 +755,11 @@ export function RobotLogs() {
                     <a className="btn btn-ghost" href={`/logs/advantagescope?log=${currentHash}`}>
                       Open in AdvantageScope
                     </a>
+                  )}
+                  {inLibrary && canDelete && (
+                    <button className="btn btn-danger" disabled={deleting || busy} onClick={() => void deleteCurrent()}>
+                      {deleting ? "Deleting…" : "Delete"}
+                    </button>
                   )}
                   {!inLibrary && (
                     <button className="btn btn-primary" disabled={uploading || busy || !currentHash} onClick={() => void upload()}>

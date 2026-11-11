@@ -19,7 +19,7 @@ Each shared recording has **Open in AdvantageScope**, which opens actual upstrea
 
 The library API (`GET /api/robot-logs` and `/api/robot-logs/<hash>/file`) accepts the team cookie or a per-device `mhm_` token from Connect Mayhem, which Mayhem uses for its Team cloud list. The legacy shared `ROBOT_LOG_UPLOAD_TOKEN` stays upload-only. `/api/robot-logs/<hash>/file` returns a private signed download URL valid for 120 seconds. Library/file responses are not cacheable. Browser downloads verify the actual SHA-256 before parsing. The server uses the client's hash for naming/deduplication and validates size; it does not independently hash the entire remote object during confirmation. Device tokens should therefore be limited to trusted team laptops, and revoked when a laptop leaves the team.
 
-No delete API is included. There is no automatic retention cleanup of pending uploads yet. Monitor storage usage and failed pending rows. Signed URLs are bearer capabilities until they expire.
+Team admins can delete a recording from its page (`DELETE /api/robot-logs/<hash>`): it removes the stored file, then the library row. Device and upload tokens can never delete. There is no automatic retention cleanup of pending uploads yet. Monitor storage usage and failed pending rows. Signed URLs are bearer capabilities until they expire.
 
 ## Analysis and display
 

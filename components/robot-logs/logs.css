@@ -108,6 +108,10 @@
   font-weight: 600;
   color: var(--muted);
 }
+.rl-library-list h3 .rl-day-count {
+  font-weight: 400;
+  opacity: 0.7;
+}
 .rl-log {
   display: flex;
   align-items: center;

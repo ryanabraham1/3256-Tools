@@ -387,3 +387,50 @@ test("device tokens browse and download the team library until revoked; the shar
   assert.equal((await list.GET(bearer(token))).status, 401);
   assert.equal((await file.GET(bearer(token), params)).status, 401);
 });
+
+test("only same-site team admins can delete a recording, which removes the file then the row", async () => {
+  const hash = "d".repeat(64);
+  const calls = [];
+  const db = {
+    from() {
+      const q = {
+        select: () => q,
+        eq: () => q,
+        delete() { calls.push("row"); return q; },
+        maybeSingle: async () => ({ data: { sha256: hash }, error: null }),
+        then: (resolve) => resolve({ error: null }),
+      };
+      return q;
+    },
+    storage: { from: () => ({ remove: async (paths) => { calls.push(`file:${paths[0]}`); return { error: null }; } }) },
+  };
+  const route = (role) =>
+    load("app/api/robot-logs/[id]/route.ts", {
+      "@/lib/work-auth": { getWorkUser: async () => (role ? { role } : null) },
+      "@/lib/supabase": { supabaseAdmin: () => db },
+      "@/lib/robot-logs/access": access(),
+    });
+  const params = { params: Promise.resolve({ id: hash }) };
+  const del = (headers = {}) => new Request(`https://tools.test/api/robot-logs/${hash}`, { method: "DELETE", headers });
+  assert.equal((await route(null).DELETE(del(), params)).status, 401);
+  assert.equal((await route("member").DELETE(del(), params)).status, 403);
+  assert.equal((await route("admin").DELETE(del({ authorization: "Bearer mhm_" + "x".repeat(43) }), params)).status, 403);
+  assert.equal((await route("admin").DELETE(del({ origin: "https://attacker.test" }), params)).status, 403);
+  assert.equal(calls.length, 0, "nothing is touched before authorization");
+  assert.equal((await route("admin").DELETE(del(), { params: Promise.resolve({ id: "nope" }) })).status, 400);
+  const ok = await route("admin").DELETE(del(), params);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(calls, [`file:${hash}.wpilog`, "row"]);
+});
+
+test("library headings name each calendar day", () => {
+  const { dayLabel } = load("lib/robot-logs/day.ts", {});
+  const now = new Date(2026, 10, 11, 15, 0);
+  const at = (d, h = 9) => new Date(2026, 10, d, h).toISOString();
+  assert.match(dayLabel(at(11, 1), now), /^Today · /);
+  assert.match(dayLabel(at(10, 23), now), /^Yesterday · /);
+  assert.match(dayLabel(at(9), now), /^Monday · /);
+  assert.doesNotMatch(dayLabel(at(1), now), /·/);
+  assert.match(dayLabel(new Date(2025, 2, 2).toISOString(), now), /2025/);
+  assert.notEqual(dayLabel(at(10, 1), now), dayLabel(at(9, 23), now));
+});

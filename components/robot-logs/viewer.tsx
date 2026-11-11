@@ -11,12 +11,14 @@ import {
   type PowerMapping,
   type Recording,
 } from "@/lib/robot-logs/core/analysis";
+import { ConnectMayhem } from "./devices";
 
 interface CloudLog {
   sha256: string;
   name: string;
   size: number;
   created_at: string;
+  device?: { name: string } | null;
 }
 interface Summary {
   errors: number;
@@ -268,6 +270,7 @@ export function RobotLogs() {
   const [speed, setSpeed] = useState(1);
   const [tab, setTab] = useState<Tab>("health");
   const [dragging, setDragging] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [summaries, setSummaries] = useState<Record<string, Summary>>({});
   const [poseMap, setPoseMap] = useState({ x: "", y: "", heading: "" });
   const [currentHash, setCurrentHash] = useState<string | null>(null);
@@ -553,6 +556,9 @@ export function RobotLogs() {
           <p>Every recording is checked for brownouts, faults, disconnects and loop overruns as it opens.</p>
         </div>
         <div className="rl-heading-actions">
+          <button className="btn btn-ghost" onClick={() => setConnecting(true)}>
+            Connect Mayhem
+          </button>
           <a className="btn btn-ghost" href="/logs/advantagescope">
             AdvantageScope
           </a>
@@ -610,6 +616,7 @@ export function RobotLogs() {
                           {new Date(log.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} ·{" "}
                           {mb(log.size)}
                           {s && ` · ${s.duration.toFixed(0)} s`}
+                          {log.device?.name && ` · ${log.device.name}`}
                         </span>
                       </button>
                       {s ? (
@@ -630,7 +637,7 @@ export function RobotLogs() {
               <p className="rl-note">
                 {logs.length
                   ? "No recordings match."
-                  : "Nothing uploaded yet. Mayhem desktop uploads logs here automatically, or open a file and upload it."}
+                  : "Nothing uploaded yet. Use Connect Mayhem to let a laptop upload automatically, or open a file and upload it."}
               </p>
             )}
             {next && (
@@ -1001,6 +1008,7 @@ export function RobotLogs() {
           )}
         </section>
       </div>
+      {connecting && <ConnectMayhem onClose={() => setConnecting(false)} />}
       {dragging && (
         <div className="rl-drop" aria-hidden="true">
           Drop the .wpilog to open it

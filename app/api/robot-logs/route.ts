@@ -4,8 +4,8 @@ import {
   LOG_BUCKET,
   MAX_LOG_BYTES,
   logPath,
-  mayUploadLogs,
   smallJSON,
+  uploadAuth,
   validHash,
 } from "@/lib/robot-logs/access";
 export const runtime = "nodejs";
@@ -20,14 +20,19 @@ export async function GET(request: Request) {
   if (before && !Number.isFinite(Date.parse(before)))
     return json({ error: "Invalid page cursor" }, 400);
   try {
-    let query = supabaseAdmin()
-      .from("robot_logs")
-      .select("sha256,name,size,created_at")
-      .eq("status", "ready")
-      .order("created_at", { ascending: false })
-      .limit(100);
-    if (before) query = query.lt("created_at", before);
-    const { data, error } = await query;
+    const page = (columns: string) => {
+      let query = supabaseAdmin()
+        .from("robot_logs")
+        .select(columns)
+        .eq("status", "ready")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (before) query = query.lt("created_at", before);
+      return query;
+    };
+    // Include the uploading device when the device migration is present; fall back without it.
+    let { data, error } = await page("sha256,name,size,created_at,device:robot_log_devices(name)");
+    if (error) ({ data, error } = await page("sha256,name,size,created_at"));
     if (error)
       return json(
         {
@@ -38,14 +43,15 @@ export async function GET(request: Request) {
       );
     return json({
       logs: data ?? [],
-      next: data?.length === 100 ? data.at(-1)?.created_at : null,
+      next: data?.length === 100 ? (data.at(-1) as unknown as { created_at: string }).created_at : null,
     });
   } catch {
     return json({ error: "Log storage is not configured." }, 503);
   }
 }
 export async function POST(request: Request) {
-  if (!(await mayUploadLogs(request)))
+  const auth = await uploadAuth(request);
+  if (!auth)
     return json(
       { error: "Team sign-in or a valid device upload token is required" },
       401,
@@ -105,7 +111,13 @@ export async function POST(request: Request) {
     const { error: insert } = await db
       .from("robot_logs")
       .upsert(
-        { sha256: hash, name: body.name, size: body.size, status: "pending" },
+        {
+          sha256: hash,
+          name: body.name,
+          size: body.size,
+          status: "pending",
+          ...(auth.kind === "device" ? { device_id: auth.id } : {}),
+        },
         { onConflict: "sha256", ignoreDuplicates: true },
       );
     if (insert)

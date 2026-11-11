@@ -38,6 +38,12 @@ const access = (authed = false, token = "a".repeat(40)) =>
     },
     { process: { env: { ROBOT_LOG_UPLOAD_TOKEN: token } } },
   );
+test('sign-in preserves the shared recording URL and its query string',async()=>{
+  const {proxy}=load('proxy.ts',{'next/server':{NextResponse:{redirect:url=>({location:url.toString()}),next:()=>({next:true})}},'@/lib/work-session':{refreshWorkSession:async()=>{throw new Error('unrelated work session');}}},{process:{env:{SESSION_SECRET:'test-only'}}});
+  const url=new URL('https://tools.test/logs?log='+'a'.repeat(64));
+  const response=await proxy({nextUrl:url,url:url.toString(),cookies:{get:()=>undefined}});
+  assert.equal(new URL(response.location).searchParams.get('next'),url.pathname+url.search);
+});
 test("upload tokens do not grant team browsing, and invalid tokens fail closed", async () => {
   const a = access();
   assert.equal(

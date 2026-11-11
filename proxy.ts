@@ -53,7 +53,7 @@ export async function proxy(request: NextRequest) {
   if (pathname === "/login") return NextResponse.next();
   if (!ok) {
     const url = new URL("/login", request.url);
-    if (pathname !== "/") url.searchParams.set("next", pathname);
+    if (pathname !== "/") url.searchParams.set("next", pathname + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();

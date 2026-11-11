@@ -1,72 +1,14 @@
-"use client";
-
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
-import { safeReturnPath } from "@/lib/navigation";
-
 export function LoginForm({ next }: { next: string }) {
-  const router = useRouter();
-  const [code, setCode] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const j = (await res.json()) as { ok: boolean; error?: string };
-      if (!j.ok) {
-        setError(j.error ?? "Something went wrong");
-        return;
-      }
-      router.replace(safeReturnPath(next));
-      router.refresh();
-    } catch {
-      setError("Network error — try again");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4">
-      <label className="block">
-        <span className="eyebrow block mb-2" style={{ color: "var(--plum-text)" }}>
-          Shared team code
-        </span>
-        <input
-          autoFocus
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          className="w-full rounded-lg px-4 py-3.5 text-lg outline-none min-h-[52px]"
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            border: `1px solid ${error ? "var(--bad)" : "rgba(189,168,238,0.35)"}`,
-            color: "#fff",
-          }}
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          placeholder="••••••••"
-          type="password"
-          inputMode="text"
-          enterKeyHint="go"
-        />
-      </label>
-      {error && (
-        <p className="text-sm font-medium" style={{ color: "#ff7d8a" }} role="alert">
-          {error}
-        </p>
-      )}
-      <button type="submit" disabled={busy || !code} className="btn btn-plum text-base py-4 mt-2">
-        {busy ? "Checking…" : "Open tracker"} <span aria-hidden>→</span>
+    <form action="/auth/work/sign-in" method="post" className="flex flex-col gap-4">
+      <input type="hidden" name="next" value={next} />
+      <p className="text-sm" style={{ color: "var(--plum-text)" }}>
+        Use the Google account your team admin has added. One sign-in opens all team tools.
+      </p>
+      <button type="submit" className="btn btn-plum text-base py-4 mt-2">
+        Continue with Google <span aria-hidden>→</span>
       </button>
+      <p className="text-sm" style={{ color: "var(--plum-text)" }}>Stay signed in on this device for up to 30 days, renewed as you use the app.</p>
     </form>
   );
 }

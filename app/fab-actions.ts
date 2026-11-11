@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase";
-import { isAuthed } from "@/lib/auth";
+import { requireWorkUser } from "@/lib/work-auth";
 import { getFabSettings } from "@/lib/fab-data";
 import { rematchQuietly } from "@/lib/parts-match";
 import { clipZones, FAB_SHAPES, isSheet, SHAPE_DIMS, toZones, type FabMaterial, type FabPiece, type FabShape, type OrderStatus, type Zone } from "@/lib/fab";
@@ -11,7 +11,7 @@ import { fmtLength, fmtRect, isUnits } from "@/lib/units";
 export type FabResult<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
 async function guard() {
-  if (!(await isAuthed())) throw new Error("Not signed in");
+  await requireWorkUser(true);
 }
 
 function refresh() {

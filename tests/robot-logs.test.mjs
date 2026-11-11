@@ -5,7 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 function load(file, imports, extra = {}) {
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   const js = ts.transpileModule(fs.readFileSync(file, "utf8"), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -13,8 +13,8 @@ function load(file, imports, extra = {}) {
     },
   }).outputText;
   vm.runInNewContext(js, {
-    module,
-    exports: module.exports,
+    module: loadedModule,
+    exports: loadedModule.exports,
     require: (name) => {
       if (name in imports) return imports[name];
       throw new Error(`Unexpected import ${name}`);
@@ -26,7 +26,7 @@ function load(file, imports, extra = {}) {
     AbortSignal,
     ...extra,
   });
-  return module.exports;
+  return loadedModule.exports;
 }
 const access = (authed = false, token = "a".repeat(40), db = null) =>
   load(
@@ -44,11 +44,20 @@ const access = (authed = false, token = "a".repeat(40), db = null) =>
     },
     { process: { env: { ROBOT_LOG_UPLOAD_TOKEN: token } } },
   );
-test('sign-in preserves the shared recording URL and its query string',async()=>{
-  const {proxy}=load('proxy.ts',{'next/server':{NextResponse:{redirect:url=>({location:url.toString()}),next:()=>({next:true})}},'@/lib/work-session':{refreshWorkSession:async()=>{throw new Error('unrelated work session');}}},{process:{env:{SESSION_SECRET:'test-only'}}});
-  const url=new URL('https://tools.test/logs?log='+'a'.repeat(64));
-  const response=await proxy({nextUrl:url,url:url.toString(),cookies:{get:()=>undefined}});
-  assert.equal(new URL(response.location).searchParams.get('next'),url.pathname+url.search);
+test("sign-in preserves the shared recording URL and its query string", async () => {
+  const response = () => ({ cookies: { getAll: () => [], set() {} }, headers: { set() {} } });
+  const session = load("lib/work-session.ts", {
+    "next/server": { NextResponse: {
+      next: response,
+      redirect: url => ({ ...response(), location: url.toString() }),
+    } },
+    "@supabase/ssr": { createServerClient: () => ({ auth: { getClaims: async () => ({ data: null, error: null }) } }) },
+    "./work-cookie": { WORK_COOKIE_OPTIONS: {} },
+  }, { process: { env: {} } });
+  const { proxy } = load("proxy.ts", { "@/lib/work-session": session });
+  const url = new URL("https://tools.test/logs?log=" + "a".repeat(64));
+  const result = await proxy({ nextUrl: url, url: url.toString(), cookies: { getAll: () => [] } });
+  assert.equal(new URL(result.location).searchParams.get("next"), url.pathname + url.search);
 });
 test("upload tokens do not grant team browsing, and invalid tokens fail closed", async () => {
   const a = access();

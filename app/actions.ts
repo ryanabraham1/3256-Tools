@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase";
-import { clearSessionCookie, currentCodeHash, hashCode, isAuthed, setSessionCookie } from "@/lib/auth";
+import { requireWorkUser, workAuthClient } from "@/lib/work-auth";
 import { irTierFor, statusForTier } from "@/lib/health";
 import {
   DEFAULT_SETTINGS,
@@ -26,7 +26,7 @@ import {
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
 async function guard() {
-  if (!(await isAuthed())) throw new Error("Not signed in");
+  await requireWorkUser(true);
 }
 
 function refresh() {
@@ -527,26 +527,9 @@ export async function updateSettings(form: FormData): Promise<Result> {
   });
 }
 
-export async function changeTeamCode(form: FormData): Promise<Result> {
-  return wrap(async () => {
-    await guard();
-    const current = str(form.get("current_code"));
-    const next = str(form.get("new_code"));
-    const confirm = str(form.get("confirm_code"));
-    if (!current || !next) throw new Error("All fields are required");
-    if (next.length < 4) throw new Error("New code must be at least 4 characters");
-    if (next !== confirm) throw new Error("New codes don't match");
-    if (hashCode(current) !== (await currentCodeHash())) throw new Error("Current code is wrong");
-    const newHash = hashCode(next);
-    const { error } = await supabaseAdmin().from("settings").update({ team_code_hash: newHash }).eq("id", 1);
-    if (error) throw error;
-    // keep this device signed in with the new code; everyone else is logged out
-    await setSessionCookie(newHash);
-    refresh();
-  });
-}
-
 export async function logout() {
-  await clearSessionCookie();
+  const client = await workAuthClient();
+  const { error } = await client.auth.signOut({ scope: "local" });
+  if (error) throw error;
   redirect("/login");
 }

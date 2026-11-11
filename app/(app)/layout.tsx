@@ -7,7 +7,7 @@ import { CompModeProvider } from "@/components/comp-mode";
 import { OfflineBanner, OfflineProvider, ServiceWorker } from "@/components/offline";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  // Full check: signature + hash matches the *current* team code.
+  // Verify the Google account and current team access on the server.
   if (!(await isAuthed())) redirect("/login");
   return (
     <CompModeProvider>

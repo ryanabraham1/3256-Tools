@@ -1,6 +1,6 @@
 # 3256 Tools — FRC 3256
 
-Mobile-first PWA with three tools behind one team code. The home page (`/`) is a dashboard: what battery to grab next, battery warnings, fab stock that's low or on order, pit kit status, and recent activity from both. Each tool is a tap away from there or from the header switcher:
+Mobile-first PWA with three tools behind one Google sign-in. The home page (`/`) is a dashboard: what battery to grab next, battery warnings, fab stock that's low or on order, pit kit status, and recent activity from both. Each tool is a tap away from there or from the header switcher:
 
 - **Batteries** (`/battery`) — which batteries exist, what state each is in, how healthy it is, and which one to grab next. See [SPEC.md](SPEC.md).
 - **Fab stock** (`/stock`) — the raw material the team cuts: tube, bar, angle, channel, rod, hex shaft, sheet/plate. See [Fab stock](#fab-stock) below.
@@ -17,16 +17,16 @@ The battery app used to live at the root; `next.config.ts` redirects the old `/b
    | Var | Where |
    |---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | Project Settings → API |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon / publishable key (realtime pings only) |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon / publishable key (Google sign-in and realtime) |
    | `SUPABASE_SERVICE_ROLE_KEY` | service role key (server only) |
-   | `TEAM_CODE` | the shared code everyone types on the login screen |
-   | `SESSION_SECRET` | `openssl rand -hex 32` |
    | `ONSHAPE_ACCESS_KEY` / `ONSHAPE_SECRET_KEY` | optional — Onshape API keys for Parts (dev-portal.onshape.com) |
 3. `npm install && npm run dev`
 
 ## How auth works
 
-`POST /api/login` checks the code and sets a signed HttpOnly cookie (`<sha256(code)>.<hmac>`). `proxy.ts` verifies the HMAC on every route except `/login`; the app layout additionally checks the hash matches the *current* code, so changing the code (env var, or from Settings → stored in `settings.team_code_hash`) logs everyone out.
+All tools share the existing Supabase Google sign-in and `work_access` account list. Enable Google in Supabase Auth and allow `/auth/work/callback` on each deployed origin. Team admins add accounts and roles in `/work/settings`; only enabled accounts linked to a member can enter. Viewers can read and export but cannot mutate batteries, stock, parts, or Work.
+
+The session is stored in Secure (production), HttpOnly, SameSite=Lax cookies with a 30-day lifetime, renewed during token refresh. The proxy refreshes sessions across all tools and forwards refreshed cookies on both normal responses and redirects. Existing Work Google sessions remain valid. Closing the browser or installed PWA does not sign users out; sign-out affects only the current device. Supabase project session limits or revoked access can still require a new sign-in. Team codes, `TEAM_CODE`, and `SESSION_SECRET` are no longer used.
 
 ## Layout
 
@@ -87,4 +87,4 @@ The same migration adds **unusable areas** to sheet stock (`fab_pieces.dead_zone
 
 ## Deploy
 
-Vercel: import the repo, set the five env vars (plus the two Onshape keys for Parts), deploy. `public/manifest.json` makes it installable (Add to Home Screen).
+Vercel: import the repo, set the three Supabase env vars (plus the two Onshape keys for Parts), deploy. `public/manifest.json` makes it installable (Add to Home Screen).

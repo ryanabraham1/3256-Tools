@@ -30,7 +30,11 @@ export async function workAuthClient() {
         getAll: () => jar.getAll(),
         setAll: (values) => {
           try {
-            for (const c of values) jar.set(c.name, c.value, c.options);
+            for (const c of values) jar.set(c.name, c.value, {
+              ...c.options,
+              // Enforce our lifetime at the write boundary; preserve cookie deletion.
+              maxAge: c.options.maxAge === 0 ? 0 : WORK_COOKIE_OPTIONS.maxAge,
+            });
           } catch {
             /* Proxy refreshes cookies for Server Components. */
           }
@@ -76,7 +80,7 @@ export const getWorkUser = cache(async (): Promise<WorkUser | null> => {
 });
 export async function requireWorkUser(write = false, admin = false) {
   const user = await getWorkUser();
-  if (!user) throw new Error("Sign in with Google to access Work.");
+  if (!user) throw new Error("Sign in with Google to access team tools.");
   if (write && user.role === "viewer")
     throw new Error("Your account has view-only access.");
   if (admin && user.role !== "admin")

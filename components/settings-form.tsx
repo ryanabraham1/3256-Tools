@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { changeTeamCode, updateSettings } from "@/app/actions";
+import Link from "next/link";
+import { updateSettings } from "@/app/actions";
 import type { Settings } from "@/lib/types";
 
 const FIELDS: { key: keyof Settings; label: string; unit: string; hint: string }[] = [
@@ -38,9 +39,8 @@ function useAction(action: (fd: FormData) => Promise<{ ok: true } | { ok: false;
   return { pending, msg, submit };
 }
 
-export function SettingsForm({ settings, usingEnvCode }: { settings: Settings; usingEnvCode: boolean }) {
+export function SettingsForm({ settings }: { settings: Settings }) {
   const s = useAction(updateSettings);
-  const c = useAction(changeTeamCode);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2 items-start">
@@ -73,40 +73,16 @@ export function SettingsForm({ settings, usingEnvCode }: { settings: Settings; u
       </form>
 
       <div className="flex flex-col gap-6">
-        <form onSubmit={c.submit} data-reset="1" className="card p-4 sm:p-5 flex flex-col gap-4">
-          <p className="eyebrow" style={{ color: "var(--muted)" }}>Team code</p>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            {usingEnvCode
-              ? "Currently using the TEAM_CODE environment variable."
-              : "Currently using a code set here (overrides the TEAM_CODE env var)."}{" "}
-            Changing it signs out every other device.
-          </p>
-          <label className="block">
-            <span className="label">Current code</span>
-            <input name="current_code" type="password" required className="input" autoComplete="off" />
-          </label>
-          <label className="block">
-            <span className="label">New code</span>
-            <input name="new_code" type="password" required minLength={4} className="input" autoComplete="off" />
-          </label>
-          <label className="block">
-            <span className="label">Confirm new code</span>
-            <input name="confirm_code" type="password" required className="input" autoComplete="off" />
-          </label>
-          {c.msg && (
-            <p className="text-sm font-medium" style={{ color: c.msg.ok ? "var(--good)" : "var(--bad)" }}>
-              {c.msg.ok ? "Code changed. Everyone else needs to sign in again." : c.msg.text}
-            </p>
-          )}
-          <button type="submit" disabled={c.pending} className="btn btn-ghost py-3">
-            {c.pending ? "Changing…" : "Change team code"} <span aria-hidden>→</span>
-          </button>
-        </form>
+        <div className="card p-4 sm:p-5 flex flex-col gap-3">
+          <p className="eyebrow" style={{ color: "var(--muted)" }}>Google account access</p>
+          <p className="text-sm">All team tools use your Google account. Team admins manage accounts and roles in Work settings.</p>
+          <Link href="/work/settings" className="btn btn-ghost">Open account access →</Link>
+        </div>
 
         <form action="/api/logout" method="post" className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <p className="eyebrow" style={{ color: "var(--muted)" }}>This device</p>
-            <p className="text-sm">Sign out of the tracker on this phone.</p>
+            <p className="text-sm">Sign out of all team tools on this device.</p>
           </div>
           <button type="submit" className="btn btn-ghost text-sm shrink-0">Sign out</button>
         </form>

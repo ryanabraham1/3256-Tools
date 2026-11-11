@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase";
-import { isAuthed } from "@/lib/auth";
+import { requireWorkUser } from "@/lib/work-auth";
 import { getFabSettings, getMaterial, getMaterials, getStockPieces } from "@/lib/fab-data";
 import { FILES_BUCKET, getMachines, getPartsSettings, toPart } from "@/lib/parts-data";
 import { cutLinear, cutSheet, type FabResult } from "@/app/fab-actions";
@@ -61,7 +61,7 @@ import {
 } from "@/lib/onshape";
 
 async function guard() {
-  if (!(await isAuthed())) throw new Error("Not signed in");
+  await requireWorkUser(true);
 }
 
 async function run<T>(fn: () => Promise<T>): Promise<FabResult<T>> {

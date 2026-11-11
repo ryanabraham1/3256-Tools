@@ -1,8 +1,15 @@
+import { cookies } from "next/headers";
+import { safeReturnPath } from "@/lib/navigation";
 import { NextResponse } from "next/server";
 import { workAuthClient } from "@/lib/work-auth";
 import { supabaseAdmin } from "@/lib/supabase";
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const jar = await cookies();
+  const next = safeReturnPath(jar.get("bt_auth_next")?.value ?? "/work");
+  jar.delete("bt_auth_next");
+  const login = new URL("/login", url.origin);
+  login.searchParams.set("next", next);
   const client = await workAuthClient();
   const code = url.searchParams.get("code");
   if (code) {
@@ -19,7 +26,7 @@ export async function GET(request: Request) {
           "claim_work_account",
           { auth_id: user.id },
         );
-        if (!accessError) return NextResponse.redirect(`${url.origin}/work`);
+        if (!accessError) return NextResponse.redirect(new URL(next, url.origin));
         const denied =
           accessError.message.includes(
             "has not been granted workspace access",
@@ -29,12 +36,12 @@ export async function GET(request: Request) {
             code: accessError.code,
             message: accessError.message,
           });
-        await client.auth.signOut();
-        return NextResponse.redirect(
-          `${url.origin}/work/login?error=${denied ? "access" : "server"}`,
-        );
+        await client.auth.signOut({ scope: "local" });
+        login.searchParams.set("error", denied ? "access" : "server");
+        return NextResponse.redirect(login);
       }
     }
   }
-  return NextResponse.redirect(`${url.origin}/work/login?error=callback`);
+  login.searchParams.set("error", "callback");
+  return NextResponse.redirect(login);
 }

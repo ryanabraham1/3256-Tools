@@ -14,18 +14,36 @@ export async function refreshWorkSession(request: NextRequest) {
           for (const c of cookies) request.cookies.set(c.name, c.value);
           response = NextResponse.next({ request });
           for (const c of cookies)
-            response.cookies.set(c.name, c.value, c.options);
+            response.cookies.set(c.name, c.value, {
+              ...c.options,
+              // @supabase/ssr overrides cookieOptions.maxAge with its 400-day default.
+              maxAge: c.options.maxAge === 0 ? 0 : WORK_COOKIE_OPTIONS.maxAge,
+            });
         },
       },
     },
   );
   const { data, error } = await client.auth.getClaims();
+  const { pathname } = request.nextUrl;
+  // Log routes check upload-only device tokens or Google account access themselves.
+  // Still refresh browser sessions here so log browsing keeps users signed in.
+  const routeHandlesAuth = pathname === "/api/robot-logs" || pathname.startsWith("/api/robot-logs/");
   if (
     (!data?.claims || error) &&
+    !routeHandlesAuth &&
+    request.nextUrl.pathname !== "/login" &&
     request.nextUrl.pathname !== "/work/login" &&
     !request.nextUrl.pathname.startsWith("/auth/work/")
   ) {
-    const redirect = NextResponse.redirect(new URL("/work/login", request.url));
+    if (request.nextUrl.pathname.startsWith("/api/")) {
+      const unauthorized = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      for (const c of response.cookies.getAll()) unauthorized.cookies.set(c.name, c.value, c);
+      unauthorized.headers.set("Cache-Control", "private, no-store");
+      return unauthorized;
+    }
+    const url = new URL("/login", request.url);
+    url.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
+    const redirect = NextResponse.redirect(url);
     for (const c of response.cookies.getAll())
       redirect.cookies.set(c.name, c.value, c);
     redirect.headers.set("Cache-Control", "private, no-store");

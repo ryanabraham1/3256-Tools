@@ -1,4 +1,4 @@
-// Work sign-in cookie settings, shared by the proxy and server code so the
+// App sign-in cookie settings, shared by the proxy and server code so the
 // browser keeps the Supabase session (and its refresh token) for a long time
 // instead of dropping it when the browser/PWA closes.
 export const WORK_COOKIE_OPTIONS = {
@@ -6,5 +6,5 @@ export const WORK_COOKIE_OPTIONS = {
   sameSite: "lax",
   secure: process.env.NODE_ENV === "production",
   path: "/",
-  maxAge: 60 * 60 * 24 * 400, // 400 days, the maximum browsers allow
+  maxAge: 60 * 60 * 24 * 30, // Renewed when Supabase refreshes the session
 } as const;

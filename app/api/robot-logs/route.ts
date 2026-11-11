@@ -1,9 +1,9 @@
-import { isAuthed } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
 import {
   LOG_BUCKET,
   MAX_LOG_BYTES,
   logPath,
+  readAuth,
   smallJSON,
   uploadAuth,
   validHash,
@@ -15,7 +15,8 @@ const json = (body: unknown, status = 200) =>
     headers: { "Cache-Control": "private, no-store" },
   });
 export async function GET(request: Request) {
-  if (!(await isAuthed())) return json({ error: "Team sign-in required" }, 401);
+  if (!(await readAuth(request)))
+    return json({ error: "Team sign-in or a device token is required" }, 401);
   const before = new URL(request.url).searchParams.get("before");
   if (before && !Number.isFinite(Date.parse(before)))
     return json({ error: "Invalid page cursor" }, 400);

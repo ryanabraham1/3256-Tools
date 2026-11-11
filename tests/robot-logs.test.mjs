@@ -59,7 +59,7 @@ test("sign-in preserves the shared recording URL and its query string", async ()
   const result = await proxy({ nextUrl: url, url: url.toString(), cookies: { getAll: () => [] } });
   assert.equal(new URL(result.location).searchParams.get("next"), url.pathname + url.search);
 });
-test("upload tokens do not grant team browsing, and invalid tokens fail closed", async () => {
+test("the shared upload token does not grant team browsing, and invalid tokens fail closed", async () => {
   const a = access();
   assert.equal(
     await a.mayUploadLogs(
@@ -351,4 +351,39 @@ test("device management needs a same-site team sign-in, not an upload token", as
     (await crossSite.POST(new Request("https://tools.test/api/robot-logs/devices", { method: "POST", headers: { origin: "https://attacker.test" }, body: JSON.stringify({ name: "x" }) }))).status,
     401,
   );
+});
+
+test("device tokens browse and download the team library until revoked; the shared token cannot", async () => {
+  const token = "mhm_" + "x".repeat(43);
+  const hash = "b".repeat(64);
+  const devices = deviceDB([
+    { id: "d1", name: "Pit laptop", token_hash: createHash("sha256").update(token).digest("hex"), revoked_at: null },
+  ]);
+  const a = access(false, "s".repeat(40), devices);
+  const row = { sha256: hash, name: "match.wpilog", size: 2048, created_at: "2026-11-11T00:00:00Z" };
+  const library = {
+    from() {
+      const q = {
+        select: () => q, eq: () => q, order: () => q, limit: () => q, lt: () => q,
+        maybeSingle: async () => ({ data: { name: row.name }, error: null }),
+        then: (resolve) => resolve({ data: [row], error: null }),
+      };
+      return q;
+    },
+    storage: { from: () => ({ createSignedUrl: async () => ({ data: { signedUrl: "https://storage.test/signed" }, error: null }) }) },
+  };
+  const imports = { "@/lib/supabase": { supabaseAdmin: () => library }, "@/lib/robot-logs/access": a };
+  const list = load("app/api/robot-logs/route.ts", imports);
+  const file = load("app/api/robot-logs/[id]/file/route.ts", imports);
+  const params = { params: Promise.resolve({ id: hash }) };
+  const listed = await list.GET(bearer(token));
+  assert.equal(listed.status, 200);
+  assert.equal((await listed.json()).logs[0].sha256, hash);
+  const signed = await file.GET(bearer(token), params);
+  assert.deepEqual(await signed.json(), { url: "https://storage.test/signed", name: "match.wpilog" });
+  assert.equal((await list.GET(bearer("s".repeat(40)))).status, 401, "shared token stays upload-only");
+  assert.equal((await file.GET(bearer("s".repeat(40)), params)).status, 401);
+  devices.devices[0].revoked_at = "2026-11-11T00:00:00Z";
+  assert.equal((await list.GET(bearer(token))).status, 401);
+  assert.equal((await file.GET(bearer(token), params)).status, 401);
 });

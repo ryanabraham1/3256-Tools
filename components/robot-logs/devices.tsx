@@ -186,8 +186,8 @@ export function ConnectMayhem({ onClose }: { onClose: () => void }) {
           </div>
         ))}
         <p className="rl-note">
-          Revoking stops that laptop from uploading right away. Logs it already uploaded stay in the library. Tokens
-          can only upload; viewing logs still needs the team sign-in.
+          A device token lets that laptop upload logs and download the team library into Mayhem. Revoking stops both
+          right away. Logs it already uploaded stay in the library.
         </p>
       </section>
     </dialog>

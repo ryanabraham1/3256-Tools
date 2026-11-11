@@ -1,12 +1,11 @@
-import { isAuthed } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
-import { LOG_BUCKET, logPath, validHash } from "@/lib/robot-logs/access";
+import { LOG_BUCKET, logPath, readAuth, validHash } from "@/lib/robot-logs/access";
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!(await isAuthed()))
-    return Response.json({ error: "Team sign-in required" }, { status: 401 });
+  if (!(await readAuth(request)))
+    return Response.json({ error: "Team sign-in or a device token is required" }, { status: 401 });
   const { id } = await params;
   if (!validHash(id))
     return Response.json({ error: "Invalid recording ID" }, { status: 400 });

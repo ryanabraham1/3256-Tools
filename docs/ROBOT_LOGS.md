@@ -9,7 +9,9 @@
 3. For desktop automatic uploads, generate a random secret of at least 32 characters and configure `ROBOT_LOG_UPLOAD_TOKEN` on the server. Paste that token into Mayhem's Device upload token field. It permits uploading only; library browsing and signed downloads still require the normal team login. This is separate from the team login code.
 4. Deploy this branch, then verify with a synthetic or approved WPILOG: upload from `/logs`, refresh the library, open its share link in another signed-in session, play/scrub, and confirm unsigned requests cannot browse/download it. Then test a Mayhem desktop upload and a retry after an interrupted confirmation.
 
-The migration and production upload round trip have **not** been verified against the deployed database. The configured project must be checked before marking deployment complete.
+Production is live at https://3256tools.vercel.app/logs. On 2026-11-10 the migration was applied to the existing team project, private storage/RLS were verified, and an upload-only device token was configured. A labeled synthetic recording was uploaded through both the API and installed Mayhem desktop; authenticated share-link download, hash verification, playback, findings, and actual hosted AdvantageScope graphs were checked. Upload tokens were verified unable to browse/download. Physical robot collection and real-match diagnostic accuracy remain unverified.
+
+Each shared recording has **Open in AdvantageScope**, which opens actual upstream AdvantageScope Lite inside the team site with that recording. See [ADVANTAGESCOPE.md](ADVANTAGESCOPE.md) for the pinned upstream version, licensing, build process, integration and limitations.
 
 ## Upload path
 
@@ -23,7 +25,7 @@ No delete API is included. There is no automatic retention cleanup of pending up
 
 The parser supports WPILOG 1.0 scalar values, numeric/boolean arrays, and selected common WPILib structs, including Pose2d. Unknown types are listed. Current limits are 250 MB per file and two million decoded samples. Raw samples remain intact; graph decimation preserves bucket minima/maxima so short spikes are visible. Playback uses historical values at the cursor.
 
-Power rules are initial diagnostic thresholds, not proven root causes or a breaker simulation. Missing signals are explicit. Loop/fault/disconnection/state-chatter rules require suitable recorded channels. Position mapping assumes blue-origin meters and heading radians; map channels explicitly when names differ. The field uses Mayhem's original vector drawing.
+Power rules are initial diagnostic thresholds, not proven root causes or a breaker simulation. Missing signals are explicit. Loop/fault/disconnection/state-chatter rules require suitable recorded channels. Position mapping assumes blue-origin meters and heading radians; map channels explicitly when names differ. The quick replay uses a coordinate view; AdvantageScope provides its own season field assets.
 
 Shared parser, plotting, and analysis sources are copied from Mayhem with `node scripts/sync-team-log-core.mjs /path/to/3256-Tools` in the Mayhem repository. Keep these sources aligned when changing either client.
 

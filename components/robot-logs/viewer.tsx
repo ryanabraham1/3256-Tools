@@ -312,6 +312,7 @@ export function RobotLogs() {
           <h1 className="display text-4xl sm:text-5xl">Robot logs</h1>
           <p>Replay a run. Follow the signals. See what happened.</p>
         </div>
+        <a className="btn btn-primary" href="/logs/advantagescope">Open AdvantageScope</a>
         <label className="btn btn-primary">
           {busy ? "Reading recording…" : "Open local WPILOG"}
           <input
@@ -358,10 +359,10 @@ export function RobotLogs() {
             upload them.
           </p>
           {logs.map((log) => (
+            <div key={log.sha256}>
             <button
               disabled={busy}
               className={`rl-library-log ${currentHash === log.sha256 ? "active" : ""}`}
-              key={log.sha256}
               onClick={() => {
                 void openCloud(log.sha256);
               }}
@@ -372,6 +373,8 @@ export function RobotLogs() {
                 {(log.size / 1024 / 1024).toFixed(1)} MB
               </span>
             </button>
+            <a className="btn btn-sm" href={`/logs/advantagescope?log=${log.sha256}`}>Open in AdvantageScope</a>
+            </div>
           ))}
           {!logs.length && (
             <p className="rl-note">

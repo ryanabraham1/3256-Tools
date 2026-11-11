@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prebuild": "node scripts/vendor-advantagescope.mjs",
+    "predev": "node scripts/vendor-advantagescope.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

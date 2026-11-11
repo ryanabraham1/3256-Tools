@@ -9,7 +9,7 @@
  * Server actions made while offline are queued by the app itself
  * (components/offline.tsx), not here.
  */
-const VERSION = "bt-v8";
+const VERSION = "bt-v9";
 const PAGES = `${VERSION}-pages`;
 const ASSETS = `${VERSION}-assets`;
 const NAV_TIMEOUT_MS = 6000;
@@ -54,6 +54,8 @@ self.addEventListener("fetch", (event) => {
   // Development assets reuse URLs across edits and must always stay fresh.
   if (url.pathname.startsWith("/_next/") && ["localhost", "127.0.0.1"].includes(url.hostname)) return;
   if (url.pathname.startsWith("/api/") || url.pathname === "/work" || url.pathname.startsWith("/work/") || url.pathname.startsWith("/auth/work/")) return;
+  // AdvantageScope uses its own workers and versioned bundles. Do not cache team recordings or scope pages.
+  if (url.pathname.startsWith("/advantagescope/") || url.pathname.startsWith("/logs")) return;
   // RSC payloads / prefetches are not page shells; let the app handle failures.
   if (req.headers.get("RSC") === "1" || req.headers.get("Next-Router-Prefetch") === "1") return;
 

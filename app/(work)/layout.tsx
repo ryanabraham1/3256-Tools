@@ -17,7 +17,7 @@ export default async function WorkLayout({
   return (
     <CompModeProvider>
       <Suspense fallback={null}>
-        <Header />
+        <Header isAdmin={user.role === "admin"} />
       </Suspense>
       <Realtime />
       <main className="flex-1 mx-auto w-full max-w-[1800px] px-4 py-4 sm:py-5 pb-12">

@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Tesseract.js worker/WASM copied from node_modules by scripts/ocr-assets.mjs.
     "public/ocr/**",
+    // Generated upstream viewer, copied by the prebuild script.
+    "public/advantagescope/**",
   ]),
 ]);
 

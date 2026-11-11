@@ -53,7 +53,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   // Development assets reuse URLs across edits and must always stay fresh.
   if (url.pathname.startsWith("/_next/") && ["localhost", "127.0.0.1"].includes(url.hostname)) return;
-  if (url.pathname.startsWith("/api/") || url.pathname === "/work" || url.pathname.startsWith("/work/") || url.pathname.startsWith("/auth/work/")) return;
+  if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/") || url.pathname === "/work" || url.pathname.startsWith("/work/") || url.pathname.startsWith("/auth/work/")) return;
   // AdvantageScope uses its own workers and versioned bundles. Do not cache team recordings or scope pages.
   if (url.pathname.startsWith("/advantagescope/") || url.pathname.startsWith("/logs")) return;
   // RSC payloads / prefetches are not page shells; let the app handle failures.

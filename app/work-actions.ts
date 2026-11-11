@@ -341,6 +341,8 @@ export async function setWorkAccess(
     });
     if (error) throw error;
     revalidatePath("/work", "layout");
+    revalidatePath("/admin");
+    revalidatePath("/", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: message(e) };

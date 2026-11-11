@@ -27,17 +27,17 @@ export function AccessPanel({
     });
   }
   return (
-    <div className="work-access">
-      <h2>People</h2>
+    <div className="p-0">
+      <h2 className="text-lg font-semibold mb-5">People</h2>
       <form
-        className="work-access-form"
+        className="flex flex-wrap items-end gap-3 mb-3"
         onSubmit={(e) => {
           e.preventDefault();
           save(email, role);
         }}
       >
-        <label>
-          <span>Email</span>
+        <label className="flex flex-col gap-1.5 grow min-w-0">
+          <span className="label">Google account email</span>
           <input
             className="input"
             type="email"
@@ -47,8 +47,8 @@ export function AccessPanel({
             onChange={(e) => setEmail(e.target.value)}
           />
         </label>
-        <label>
-          <span>Role</span>
+        <label className="flex flex-col gap-1.5">
+          <span className="label">Role</span>
           <select
             className="input"
             value={role}
@@ -63,21 +63,21 @@ export function AccessPanel({
           Add access
         </button>
       </form>
-      <p className="work-muted">
-        Admins manage access and teams. Members edit work. Viewers can read.
+      <p className="text-sm text-[var(--muted)]">
+        Admins manage access and teams. Members edit team tools. Viewers can read.
         Added people sign in with their own Google account.
       </p>
       {error && (
-        <p className="work-error" role="alert">
+        <p className="text-sm text-[var(--bad)] my-4" role="alert">
           {error}
         </p>
       )}
-      <div className="work-access-list">
+      <div className="mt-5">
         {accounts.map((a) => (
-          <div key={a.email}>
-            <div>
-              <b>{a.email}</b>
-              <span className="work-muted">
+          <div key={a.email} className="flex flex-wrap items-center gap-3 py-4 border-b border-[var(--line)]">
+            <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
+              <b className="text-sm font-medium break-all">{a.email}</b>
+              <span className="block text-sm mt-1 text-[var(--muted)]">
                 {a.disabled
                   ? "Disabled"
                   : a.user_id
@@ -86,10 +86,10 @@ export function AccessPanel({
               </span>
             </div>
             <select
-              className="work-control"
+              className="input w-auto min-w-28 text-sm"
               aria-label={`Role for ${a.email}`}
               value={a.role}
-              disabled={pending || a.email === currentEmail}
+              disabled={pending || a.email.toLowerCase() === currentEmail.toLowerCase()}
               onChange={(e) =>
                 save(a.email, e.target.value as WorkRole, a.disabled)
               }
@@ -99,8 +99,8 @@ export function AccessPanel({
               <option value="viewer">Viewer</option>
             </select>
             <button
-              className="work-text-button"
-              disabled={pending || a.email === currentEmail}
+              className="btn btn-ghost text-sm"
+              disabled={pending || a.email.toLowerCase() === currentEmail.toLowerCase()}
               onClick={() => save(a.email, a.role, !a.disabled)}
             >
               {a.disabled ? "Enable" : "Disable"}

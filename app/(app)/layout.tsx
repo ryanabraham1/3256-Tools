@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { isAuthed } from "@/lib/auth";
+import { getWorkUser } from "@/lib/work-auth";
 import { Header } from "@/components/header";
 import { Realtime } from "@/components/realtime";
 import { CompModeProvider } from "@/components/comp-mode";
@@ -8,12 +8,13 @@ import { OfflineBanner, OfflineProvider, ServiceWorker } from "@/components/offl
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   // Verify the Google account and current team access on the server.
-  if (!(await isAuthed())) redirect("/login");
+  const user = await getWorkUser();
+  if (!user) redirect("/login");
   return (
     <CompModeProvider>
       <OfflineProvider>
         <Suspense fallback={null}>
-          <Header />
+          <Header isAdmin={user.role === "admin"} />
         </Suspense>
         <OfflineBanner />
         <ServiceWorker />

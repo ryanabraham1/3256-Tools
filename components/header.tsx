@@ -200,7 +200,7 @@ function isActive(href: string, pathname: string) {
 const isStockPath = (pathname: string) => pathname === "/stock" || pathname.startsWith("/stock/");
 const isTrackerPath = (pathname: string) => pathname === "/tracker" || pathname.startsWith("/tracker/");
 
-export function Header() {
+export function Header({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const sp = useSearchParams();
@@ -239,8 +239,9 @@ export function Header() {
   const trackerApp = isTrackerPath(pathname);
   const workApp = pathname === "/work" || pathname.startsWith("/work/");
   const logsApp = pathname === "/logs" || pathname.startsWith("/logs/");
-  const batteryApp = !home && !stockApp && !trackerApp && !workApp && !logsApp;
-  const NAV = home || workApp || logsApp ? [] : stockApp ? STOCK_NAV : trackerApp ? TRACKER_NAV : BATTERY_NAV;
+  const adminApp = pathname === "/admin" || pathname.startsWith("/admin/");
+  const batteryApp = !adminApp && !home && !stockApp && !trackerApp && !workApp && !logsApp;
+  const NAV = home || workApp || logsApp || adminApp ? [] : stockApp ? STOCK_NAV : trackerApp ? TRACKER_NAV : BATTERY_NAV;
   const canSearch = SEARCHABLE.includes(pathname) || pathname.startsWith("/battery/batteries/");
   const searchTarget = stockApp ? "/stock" : trackerApp ? "/tracker/board" : pathname.startsWith("/battery/batteries") ? "/battery/batteries" : "/battery";
   const searchWhat = stockApp ? "stock" : trackerApp ? "parts" : "batteries";
@@ -283,7 +284,7 @@ export function Header() {
         className="sticky top-0 z-30 border-b pt-safe"
         style={{ background: "var(--surface)", borderColor: "var(--line)" }}
       >
-        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-2.5 grid grid-cols-[1fr_auto] sm:flex items-center gap-x-3 gap-y-1.5 min-h-[56px]">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-2.5 grid grid-cols-[auto_minmax(0,1fr)] sm:flex sm:flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[56px]">
           <div className="contents sm:flex sm:items-center sm:gap-2 min-w-0 sm:min-h-[44px]">
             {/* Home: the 3256 Tools dashboard */}
             <Link href="/" prefetch={false} className="flex items-center gap-2 min-h-[44px]" aria-label="3256 Tools home" aria-current={home ? "page" : undefined}>
@@ -339,7 +340,7 @@ export function Header() {
             })}
           </nav>
 
-          <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-2">
+          <div className="col-start-2 row-start-1 ml-auto flex min-w-0 max-w-full flex-wrap justify-end sm:shrink-0 items-center gap-2">
             {canSearch && (
               <form onSubmit={search} className="hidden xl:block">
                 <input
@@ -375,7 +376,21 @@ export function Header() {
               </button>
             )}
             {batteryApp && compPill}
+            {isAdmin && (
+              <Link href="/admin" className="btn btn-ghost text-sm min-h-11 px-3" aria-current={adminApp ? "page" : undefined}>
+                Admin
+              </Link>
+            )}
             <ThemeToggle />
+            <form action="/auth/work/sign-out" method="post" className="shrink-0">
+              <button
+                type="submit"
+                className="btn btn-ghost text-sm min-h-11 px-3 whitespace-nowrap"
+                title="Sign out of all team tools on this device"
+              >
+                Sign out
+              </button>
+            </form>
           </div>
         </div>
         {canSearch && searchOpen && (

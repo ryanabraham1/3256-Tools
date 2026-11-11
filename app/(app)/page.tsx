@@ -19,13 +19,15 @@ import { getParts } from "@/lib/parts-data";
 import { trackerOf } from "@/lib/parts";
 import { isDone, priorityLabel, TRACKER_LABEL } from "@/lib/tracker";
 import { getWorkHome } from "@/lib/work-data";
+import { getWorkUser } from "@/lib/work-auth";
+import { AccountCard } from "@/components/account-card";
 import { activeWorkItems, done, issueCode } from "@/lib/work";
 
 export const dynamic = "force-dynamic";
 
 /** 3256 Tools home: one glance at every tool, then a tap into the one you need. */
 export default async function Home() {
-  const [board, batteryEvents, materials, pieces, orders, locations, { kits, items: kitItems }, fabEvents, units, parts, work] = await Promise.all([
+  const [board, batteryEvents, materials, pieces, orders, locations, { kits, items: kitItems }, fabEvents, units, parts, work, user] = await Promise.all([
     getBoardData(),
     getAllEvents({ limit: 8 }),
     getMaterials(),
@@ -38,6 +40,7 @@ export default async function Home() {
     // null until the tracker tables are set up, so the dashboard still loads
     getParts().catch(() => null),
     getWorkHome(),
+    getWorkUser(),
   ]);
 
   const workIssues = activeWorkItems(work.items).filter((i) => i.kind === "issue" && !done(i));
@@ -118,6 +121,8 @@ export default async function Home() {
         </p>
         <h1 className="display text-5xl sm:text-6xl">Team tools</h1>
       </div>
+
+      {user && <AccountCard user={user} />}
 
       <Link href="/logs" className="block rounded-xl border p-4 mb-4" style={{ borderColor: "var(--line)", background: "var(--surface)" }}><strong>Robot logs</strong><span className="ml-3 text-sm" style={{ color: "var(--muted)" }}>Open recordings, replay signals, and inspect power analysis →</span></Link>
       <div className="grid gap-4 lg:grid-cols-2 items-stretch">

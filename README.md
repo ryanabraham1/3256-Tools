@@ -24,7 +24,7 @@ The battery app used to live at the root; `next.config.ts` redirects the old `/b
 
 ## How auth works
 
-All tools share the existing Supabase Google sign-in and `work_access` account list. Enable Google in Supabase Auth and allow `/auth/work/callback` on each deployed origin. Team admins add accounts and roles in `/work/settings`; only enabled accounts linked to a member can enter. Viewers can read and export but cannot mutate batteries, stock, parts, or Work.
+All tools share the existing Supabase Google sign-in and `work_access` account list. Enable Google in Supabase Auth and allow `/auth/work/callback` on each deployed origin. Team admins add accounts and roles in `/admin`, available from Home and the shared header; only enabled accounts linked to a member can enter. Viewers can read and export but cannot mutate batteries, stock, parts, or Work.
 
 The session is stored in Secure (production), HttpOnly, SameSite=Lax cookies with a 30-day lifetime, renewed during token refresh. The proxy refreshes sessions across all tools and forwards refreshed cookies on both normal responses and redirects. Existing Work Google sessions remain valid. Closing the browser or installed PWA does not sign users out; sign-out affects only the current device. Supabase project session limits or revoked access can still require a new sign-in. Team codes, `TEAM_CODE`, and `SESSION_SECRET` are no longer used.
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import Link from "next/link";
 import { updateSettings } from "@/app/actions";
 import type { Settings } from "@/lib/types";
 
@@ -75,8 +74,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       <div className="flex flex-col gap-6">
         <div className="card p-4 sm:p-5 flex flex-col gap-3">
           <p className="eyebrow" style={{ color: "var(--muted)" }}>Google account access</p>
-          <p className="text-sm">All team tools use your Google account. Team admins manage accounts and roles in Work settings.</p>
-          <Link href="/work/settings" className="btn btn-ghost">Open account access →</Link>
+          <p className="text-sm">All team tools use your Google account. Team admins manage accounts and roles from Home.</p>
+
         </div>
 
         <form action="/api/logout" method="post" className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

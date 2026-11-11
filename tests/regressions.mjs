@@ -295,3 +295,26 @@ test('Google callback returns to the selected tool and denies unapproved account
     }
   }
 });
+
+test('admin page blocks non-admins before reading the team access list', async () => {
+  for (const role of [null, 'viewer', 'member', 'admin']) {
+    let reads = 0;
+    const { default: AdminPage } = load('app/(app)/admin/page.tsx', {
+      'next/link': { default: 'a' },
+      'next/navigation': { notFound: () => { throw new Error('NOT_FOUND'); } },
+      '@/lib/work-auth': {
+        getWorkUser: async () => role ? { role, email: 'test@example.com' } : null,
+        getWorkAccess: async () => { reads++; return []; },
+      },
+      '@/components/work/access': { AccessPanel: () => null },
+      'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
+    });
+    if (role === 'admin') {
+      await AdminPage();
+      assert.equal(reads, 1);
+    } else {
+      await assert.rejects(AdminPage(), /NOT_FOUND/);
+      assert.equal(reads, 0);
+    }
+  }
+});

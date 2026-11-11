@@ -28,6 +28,22 @@ export interface PowerMapping {
   current?: string;
   brownout?: string;
 }
+export interface LogRule {
+  id: string; channel: string; op: "lt" | "gt" | "eq"; value: number | boolean | string;
+  duration: number; severity: "error" | "warning"; title: string; detail: string;
+}
+export interface LogPolicy { defaultRules?: boolean; rules: LogRule[] }
+export function parseLogPolicy(value: unknown): LogPolicy {
+  if (value === undefined) return { rules: [] };
+  const p = value as LogPolicy;
+  if (!p || !Array.isArray(p.rules) || p.rules.length > 256 || (p.defaultRules !== undefined && typeof p.defaultRules !== "boolean")) throw new Error("Invalid project log policy: expected rules and optional defaultRules.");
+  const ids = new Set<string>();
+  for (const r of p.rules) {
+    if (!r || ![r.id,r.channel,r.title,r.detail].every(x => typeof x === "string" && x.length > 0) || ids.has(r.id) || !["lt","gt","eq"].includes(r.op) || !["number","boolean","string"].includes(typeof r.value) || (typeof r.value === "number" && !Number.isFinite(r.value)) || (r.op !== "eq" && typeof r.value !== "number") || !Number.isFinite(r.duration) || r.duration < 0 || !["warning","error"].includes(r.severity)) throw new Error("Invalid project log rule. Check IDs, channel, comparison, duration and severity.");
+    ids.add(r.id);
+  }
+  return p;
+}
 export interface Analysis {
   findings: Finding[];
   coverage: string[];
@@ -60,7 +76,9 @@ export function suggestMapping(channels: Channel[]): PowerMapping {
 export function analyze(
   recording: Recording,
   supplied?: PowerMapping,
+  policyInput?: unknown,
 ): Analysis {
+  const policy = parseLogPolicy(policyInput);
   const mapping = supplied ?? suggestMapping(recording.channels);
   const channels = new Map(recording.channels.map((c) => [c.name, c]));
   const findings: Finding[] = [],
@@ -222,6 +240,14 @@ export function analyze(
   coverage.push(
     "Rules flag recorded symptoms, not proven root causes. Custom mechanisms need suitable signals and team-specific checks.",
   );
+  if (policy.defaultRules === false) findings.length = 0;
+  for (const rule of policy.rules) {
+    const channel = channels.get(rule.channel);
+    if (!channel) { coverage.push(`Rule ${rule.id}: missing channel ${rule.channel}.`); continue; }
+    const before = findings.length;
+    excursions(channel, v => rule.op === "eq" ? v === rule.value : typeof v === "number" && typeof rule.value === "number" && (rule.op === "lt" ? v < rule.value : v > rule.value), rule.title, rule.detail, rule.severity, rule.duration);
+    for (let i = before; i < findings.length; i++) findings[i].id = `rule:${rule.id}:${findings[i].start}`;
+  }
   let energy = 0,
     covered = 0;
   // Zero-order-hold integration over both streams, restricted to their common time span.
@@ -330,4 +356,50 @@ export function valueAt(
     else hi = mid - 1;
   }
   return channel.samples[lo].value;
+}
+
+export interface CurrentUse {
+  channel: string;
+  peak: number;
+  average: number;
+  /** Charge drawn over the recording, in milliamp-hours. */
+  mAh: number;
+}
+/**
+ * Rank individual current signals (motor controllers, PDH channels) by charge
+ * drawn. Excludes the mapped total so it doesn't dominate the list.
+ */
+export function currentBreakdown(
+  recording: Recording,
+  exclude?: string,
+  limit = 24,
+): CurrentUse[] {
+  const result: CurrentUse[] = [];
+  for (const channel of recording.channels) {
+    if (channel.name === exclude) continue;
+    // Ends in Current(s), CurrentLeft/Right or Amps, optionally with an array index.
+    if (!/(?:currents?(?:left|right)?|amps?)(?:\/\d+)?$/i.test(channel.name)) continue;
+    if (/stator/i.test(channel.name)) continue;
+    const samples = channel.samples.filter(
+      (s): s is Sample & { value: number } =>
+        typeof s.value === "number" && Number.isFinite(s.value),
+    );
+    if (samples.length < 2) continue;
+    let charge = 0,
+      peak = -Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const value = Math.abs(samples[i].value);
+      peak = Math.max(peak, value);
+      const next = samples[i + 1]?.time ?? samples[i].time;
+      charge += value * Math.max(0, next - samples[i].time);
+    }
+    const span = samples[samples.length - 1].time - samples[0].time;
+    result.push({
+      channel: channel.name,
+      peak,
+      average: span > 0 ? charge / span : 0,
+      mAh: (charge / 3600) * 1000,
+    });
+  }
+  return result.sort((a, b) => b.mAh - a.mAh).slice(0, limit);
 }

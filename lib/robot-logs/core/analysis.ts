@@ -144,14 +144,17 @@ export function analyze(
   let diagnosticChannels = 0;
   for (const channel of recording.channels) {
     if (
-      /(?:LoopTimeMs|LoopDurationMs|LoopTimeMilliseconds)$/i.test(channel.name)
+      /(?:LoopTimeMs|LoopDurationMs|LoopTimeMilliseconds|LoopPeriodMs)$/i.test(channel.name)
     ) {
       diagnosticChannels++;
+      const isPeriod = /LoopPeriodMs$/i.test(channel.name);
       excursions(
         channel,
-        (v) => typeof v === "number" && v > 20,
-        "Control loop over 20 ms",
-        "Recorded loop duration exceeds 20 ms for at least 100 ms. Compare with the robot’s configured loop period; this rule only accepts signals explicitly named in milliseconds.",
+        (v) => typeof v === "number" && v > (isPeriod ? 25 : 20),
+        isPeriod ? "Control loop period over 25 ms" : "Control loop over 20 ms",
+        isPeriod
+          ? "Recorded loop start-to-start period exceeds 25 ms for at least 100 ms. This allows ordinary jitter around a 20 ms loop; compare with the robot’s configured period."
+          : "Recorded loop duration exceeds 20 ms for at least 100 ms. Compare with the robot’s configured loop period; this rule only accepts signals explicitly named in milliseconds.",
         "warning",
         0.1,
       );
@@ -185,7 +188,7 @@ export function analyze(
         0.25,
       );
     }
-    if (/Mayhem\/States\/.+\/state$/.test(channel.name)) {
+    if (channel.type === "string" && /(?:^|\/)(?:state|currentstate)$/i.test(channel.name)) {
       diagnosticChannels++;
       const changes = channel.samples.filter(
         (s, i) => i === 0 || s.value !== channel.samples[i - 1].value,

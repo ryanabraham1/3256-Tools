@@ -1,0 +1,7 @@
+.scope-shell{height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);overflow:hidden}
+.scope-toolbar{display:flex;align-items:center;gap:12px;padding:8px 14px;flex-wrap:wrap;border-bottom:1px solid var(--line);font-size:12px}
+.scope-toolbar strong{font-size:14px}.scope-toolbar small{font-weight:400;color:var(--muted)}
+.scope-toolbar label{cursor:pointer}.scope-status{flex:1;min-width:100px;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.scope-toolbar>a:last-child{font-size:10px;color:var(--muted)}
+.scope-frame{border:0;width:100%;flex:1;min-height:0;background:#202020}
+.scope-error{padding:10px 14px;background:#4d2525;color:#fff;font-size:13px}

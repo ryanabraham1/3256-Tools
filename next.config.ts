@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return [{ source: "/advantagescope/assets", destination: "/advantagescope/asset-index.json" }];
+  },
   // The battery app moved under /battery when fab stock was added; keep old
   // bookmarks and home-screen shortcuts working. `/` itself picks the last-used
   // app (app/(app)/page.tsx).

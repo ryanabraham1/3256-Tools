@@ -559,9 +559,6 @@ export function RobotLogs() {
           <button className="btn btn-ghost" onClick={() => setConnecting(true)}>
             Connect Mayhem
           </button>
-          <a className="btn btn-ghost" href="/logs/advantagescope">
-            AdvantageScope
-          </a>
           <label className={`btn btn-primary ${busy ? "is-busy" : ""}`}>
             {busy ? "Reading…" : "Open a .wpilog"}
             {fileInput}

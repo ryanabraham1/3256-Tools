@@ -516,11 +516,11 @@ export function RobotLogs() {
     const result = new Map(recording?.channels.map((c) => [c.name, c]) ?? []);
     if (analysis?.estimatedCurrent) result.set(analysis.estimatedCurrent.name, analysis.estimatedCurrent);
     return result;
-  }, [recording, analysis?.estimatedCurrent]);
+  }, [recording, analysis]);
   const totalCurrent = analysis?.mapping.current;
   const breakdown = useMemo(
     () => (recording ? currentBreakdown(recording, totalCurrent, 24, analysis?.mapping.deviceCurrents) : []),
-    [recording, totalCurrent, analysis?.mapping.deviceCurrents],
+    [recording, totalCurrent, analysis?.mapping],
   );
   const trail = useMemo(() => {
     const xs = channels.get(poseMap.x),

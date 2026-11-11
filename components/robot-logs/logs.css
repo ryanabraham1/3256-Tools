@@ -875,3 +875,60 @@
     align-items: stretch;
   }
 }
+
+/* A chart-first workspace: keep the signal's leaf name and its full path readable. */
+.rl-layout.is-focused { grid-template-columns: minmax(0, 1fr); }
+.rl-layout.is-focused > .rl-library { display: none; }
+.rl-signal-toolbar, .rl-signal-browser-head, .rl-plot-tools, .rl-signal-plot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rl-signal-toolbar h3 { font-size: 17px; font-weight: 650; }
+.rl-signal-toolbar p { margin-top: 4px; font-size: 13px; color: var(--muted); }
+.rl-signal-toolbar .btn { flex: none; min-height: 36px; font-size: 13px; }
+.rl-signals { grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); gap: 20px; }
+.rl-signals aside { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.rl-signal-browser-head { font-size: 12px; padding-bottom: 4px; }
+.rl-signal-browser-head strong { font-size: 14px; }
+.rl-signal-browser-head small { margin-left: 5px; color: var(--muted); font-weight: 400; }
+.rl-signal-browser-head > span { color: var(--muted); white-space: nowrap; }
+.rl-signals .rl-signal-list { max-height: 520px; border: 0; padding: 0; border-radius: 0; scrollbar-gutter: stable; }
+.rl-signal-list label { padding: 10px 7px; gap: 10px; border-bottom: 1px solid var(--line); border-radius: 6px; }
+.rl-signal-list input { width: 16px; height: 16px; }
+.rl-signal-list label:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+.rl-signal-list .rl-signal-name { display: flex; flex-direction: column; gap: 3px; white-space: normal; }
+.rl-signal-name strong { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.rl-signal-name small { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; line-height: 1.4; }
+.rl-signal-list code { max-width: 76px; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.rl-signal-no-results { padding: 16px 8px; color: var(--muted); font-size: 13px; }
+.rl-plot-tools { justify-content: flex-start; flex-wrap: wrap; min-height: 44px; font-size: 12px; color: var(--muted); gap: 8px; }
+.rl-plot-tools label { display: flex; align-items: center; gap: 4px; }
+.rl-plot-tools input { width: 78px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-family: var(--font-mono); }
+.rl-plot-tools button:disabled { opacity: .45; cursor: default; }
+.rl-clear-signals { margin-left: auto; }
+.rl-signal-plot { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-top: 3px solid var(--signal-color); border-radius: 12px; background: var(--surface); }
+.rl-signal-plot-head { align-items: flex-start; padding: 14px 16px 8px; }
+.rl-signal-plot-head > div { min-width: 0; }
+.rl-signal-plot-head h4 { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+.rl-signal-plot-head code { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.rl-signal-plot-head button { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--muted); font-size: 22px; }
+.rl-signal-plot-head button:hover { background: var(--neutral-soft); color: var(--ink); }
+.rl-signal-plot .rl-chart { border: 0; border-radius: 0; padding: 4px 12px 10px; }
+.rl-signal-plot .rl-chart-head { padding-left: 8px; }
+.rl-signal-plot .rl-chart-head code { font-size: 19px; }
+.rl-plots-empty { min-height: 360px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; border: 1px dashed var(--line); border-radius: 12px; padding: 24px; text-align: center; }
+.rl-plots-empty > span { color: var(--purple); font-size: 48px; }
+.rl-plots-empty h4 { font-weight: 650; }
+.rl-plots-empty p { max-width: 36ch; font-size: 13px; color: var(--muted); }
+.rl-signals input:focus-visible, .rl-signals button:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+@media (max-width: 1100px) {
+  .rl-signals { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); gap: 12px; }
+}
+@media (max-width: 760px) {
+  .rl-signals { grid-template-columns: minmax(0, 1fr); }
+  .rl-signals .rl-signal-list { max-height: 240px; }
+  .rl-signal-toolbar { align-items: flex-start; }
+  .rl-signal-toolbar p { max-width: 30ch; }
+}

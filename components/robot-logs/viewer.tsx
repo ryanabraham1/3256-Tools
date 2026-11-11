@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { plotSeries } from "@/lib/robot-logs/core/plot";
 import {
   analyze,
@@ -67,8 +67,7 @@ function dayLabel(iso: string) {
 }
 
 /* ---------- Charts ---------- */
-const VW = 1000,
-  L = 46,
+const L = 56,
   R = 12,
   T = 10,
   B = 24;
@@ -83,6 +82,7 @@ function Chart({
   color = "var(--purple)",
   height = 200,
   label,
+  window,
 }: {
   channel: Channel;
   overlay?: Channel;
@@ -94,13 +94,26 @@ function Chart({
   color?: string;
   height?: number;
   label: string;
+  window?: { start: number; end: number };
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [width, setWidth] = useState(800);
+  const clipId = useId();
+  useEffect(() => {
+    const element = svg.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(120, entry.contentRect.width)));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [channel]);
+  const VW = width;
   const series = useMemo(() => plotSeries(channel), [channel]);
   const overlaySeries = useMemo(() => plotSeries(overlay), [overlay]);
-  const span = Math.max(duration, 0.001);
-  const x = (t: number) => L + (t / span) * (VW - L - R);
+  const start = window?.start ?? 0;
+  const end = window?.end ?? duration;
+  const span = Math.max(end - start, 0.001);
+  const x = (t: number) => L + ((t - start) / span) * (VW - L - R);
   const range = (s: typeof series, withThreshold: boolean) => {
     let min = s.min,
       max = s.max;
@@ -123,14 +136,14 @@ function Chart({
     const box = svg.current?.getBoundingClientRect();
     if (!box) return 0;
     const px = ((clientX - box.left) / box.width) * VW;
-    return Math.max(0, Math.min(span, ((px - L) / (VW - L - R)) * span));
+    return Math.max(start, Math.min(end, start + ((px - L) / (VW - L - R)) * span));
   };
   const shown = hover ?? time;
   const value = valueAt(channel, shown);
   if (!series.samples.length)
     return (
       <div className="rl-chart rl-chart-empty">
-        <strong style={{ color }}>{label}</strong>
+        <strong style={{ color }} title={label}>{label}</strong>
         <span>
           {channel.samples.length ? `Value now: ${String(valueAt(channel, time) ?? "—")}` : "No decoded samples for this signal."}
         </span>
@@ -140,7 +153,7 @@ function Chart({
   return (
     <div className="rl-chart">
       <div className="rl-chart-head">
-        <strong style={{ color }}>{label}</strong>
+        <strong style={{ color }} title={label}>{label}</strong>
         <code>
           {typeof value === "number" ? value.toFixed(2) : String(value ?? "—")}
           <small> at {shown.toFixed(2)} s</small>
@@ -154,14 +167,15 @@ function Chart({
       <svg
         ref={svg}
         viewBox={`0 0 ${VW} ${height}`}
-        preserveAspectRatio="none"
         style={{ height }}
         role="img"
-        aria-label={`${label} over time`}
+        aria-label={`${channel.name} over time`}
         onPointerMove={(e) => setHover(timeAt(e.clientX))}
         onPointerLeave={() => setHover(null)}
         onPointerDown={(e) => seek(timeAt(e.clientX))}
       >
+        <defs><clipPath id={clipId}><rect x={L} y={T} width={VW - L - R} height={height - T - B} /></clipPath></defs>
+        <g clipPath={`url(#${clipId})`}>
         {findings.map((f) => (
           <rect
             key={f.id}
@@ -172,6 +186,7 @@ function Chart({
             height={height - T - B}
           />
         ))}
+        </g>
         {ticks.map((t, i) => (
           <g key={i}>
             <line className="rl-grid" x1={L} x2={VW - R} y1={y(t)} y2={y(t)} />
@@ -188,6 +203,7 @@ function Chart({
             </text>
           </g>
         )}
+        <g clipPath={`url(#${clipId})`}>
         {overlay && overlaySeries.samples.length > 0 && (
           <path className="rl-overlay" d={path(overlaySeries, range(overlaySeries, false))} vectorEffect="non-scaling-stroke" />
         )}
@@ -196,11 +212,17 @@ function Chart({
         {hover !== null && (
           <line className="rl-hover" x1={x(hover)} x2={x(hover)} y1={T} y2={height - B} vectorEffect="non-scaling-stroke" />
         )}
+        </g>
+        {(width > 500 ? [0.25, 0.5, 0.75] : [0.5]).map((fraction) => (
+          <text key={fraction} className="rl-tick" x={x(start + span * fraction)} y={height - 6} textAnchor="middle">
+            {(start + span * fraction).toFixed(1)} s
+          </text>
+        ))}
         <text className="rl-tick" x={L} y={height - 6}>
-          0 s
+          {start.toFixed(1)} s
         </text>
         <text className="rl-tick" x={VW - R} y={height - 6} textAnchor="end">
-          {duration.toFixed(1)} s
+          {end.toFixed(1)} s
         </text>
       </svg>
     </div>
@@ -267,6 +289,8 @@ export function RobotLogs() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState("");
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [signalWindow, setSignalWindow] = useState<{ start: number; end: number } | undefined>();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [time, setTime] = useState(0);
@@ -316,6 +340,8 @@ export function RobotLogs() {
       setMappingJSON(JSON.stringify({ ...a.mapping, deviceCurrents: a.mapping.deviceCurrents ?? r.channels.filter(c => c.name !== a.mapping.current && isDeviceCurrentSignal(c.name)).map(c => c.name) }, null, 2));
       setMappingError("");
       setRecording(r);
+      setSignalWindow(undefined);
+      setSearch("");
       setAnalysis(a);
       setTime(0);
       setTab(a.findings.length ? "health" : "power");
@@ -617,7 +643,7 @@ export function RobotLogs() {
         </div>
       )}
 
-      <div className="rl-layout">
+      <div className={`rl-layout ${tab === "signals" && recording && !showLibrary ? "is-focused" : ""}`}>
         <aside className="rl-library card" aria-label="Team recordings">
           <div className="rl-library-head">
             <h2>Team library</h2>
@@ -924,61 +950,55 @@ export function RobotLogs() {
               )}
 
               {tab === "signals" && (
-                <div className="rl-section rl-signals">
-                  <aside>
-                    <input
-                      className="input"
-                      aria-label="Search log signals"
-                      placeholder="Find a signal"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <div className="rl-signal-list">
-                      {recording.channels
-                        .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
-                        .slice(0, 300)
-                        .map((c) => {
+                <section className="rl-section" aria-label="Signal workspace">
+                  <div className="rl-signal-toolbar">
+                    <div><h3>Signal workspace</h3><p>Compare up to four signals. Click a chart to move the playback cursor.</p></div>
+                    <button className="btn btn-ghost" onClick={() => setShowLibrary((v) => !v)}>{showLibrary ? "Hide library" : "Show library"}</button>
+                  </div>
+                  <div className="rl-signals">
+                    <aside aria-label="Signal browser">
+                      <div className="rl-signal-browser-head"><strong>Signals <small>{recording.channels.length}</small></strong><span>{selected.length} / 4 selected</span></div>
+                      <input className="input" aria-label="Search log signals" placeholder="Search names or paths…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                      <div className="rl-signal-list">
+                        {recording.channels.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())).map((c) => {
                           const on = selected.includes(c.name);
+                          const parts = c.name.split("/");
+                          const name = parts.pop() || c.name;
+                          const parent = parts.join("/");
                           return (
-                            <label key={c.name} className={on ? "is-on" : ""}>
-                              <input
-                                type="checkbox"
-                                checked={on}
-                                disabled={!on && selected.length >= 4}
-                                onChange={(e) =>
-                                  setSelected((previous) =>
-                                    e.target.checked ? [...previous, c.name] : previous.filter((n) => n !== c.name),
-                                  )
-                                }
-                              />
-                              <span>{c.name}</span>
-                              <code>{String(valueAt(c, time) ?? "—").slice(0, 10)}</code>
+                            <label key={c.name} className={on ? "is-on" : ""} title={c.name}>
+                              <input type="checkbox" checked={on} disabled={!on && selected.length >= 4} onChange={(e) => setSelected((previous) => e.target.checked ? [...previous, c.name].slice(0, 4) : previous.filter((n) => n !== c.name))} />
+                              <span className="rl-signal-name"><strong>{name}</strong><small>{parent || c.type}</small></span>
+                              <code title={String(valueAt(c, time) ?? "No value at this time")}>{typeof valueAt(c, time) === "number" ? Number(valueAt(c, time)).toFixed(2) : String(valueAt(c, time) ?? "—").slice(0, 12)}</code>
                             </label>
                           );
                         })}
+                        {!recording.channels.some((c) => c.name.toLowerCase().includes(search.toLowerCase())) && <p className="rl-signal-no-results">No signals match “{search}”. Try a mechanism or signal name.</p>}
+                      </div>
+                      <p className="rl-note">{selected.length === 4 ? "Deselect a signal to add another." : "Values follow the playback cursor."}</p>
+                    </aside>
+                    <div className="rl-plots">
+                      <div className="rl-plot-tools">
+                        <span>Time range</span>
+                        <label><span className="sr-only">Range start in seconds</span><input type="number" min="0" max={(signalWindow?.end ?? recording.duration) - 0.1} step="0.1" value={Number((signalWindow?.start ?? 0).toFixed(1))} onChange={(e) => { const start = e.target.valueAsNumber; const end = signalWindow?.end ?? recording.duration; if (Number.isFinite(start) && start >= 0 && start < end) setSignalWindow({ start, end }); }} /> s</label>
+                        <span>to</span>
+                        <label><span className="sr-only">Range end in seconds</span><input type="number" min={(signalWindow?.start ?? 0) + 0.1} max={recording.duration} step="0.1" value={Number((signalWindow?.end ?? recording.duration).toFixed(1))} onChange={(e) => { const end = e.target.valueAsNumber; const start = signalWindow?.start ?? 0; if (Number.isFinite(end) && end > start && end <= recording.duration) setSignalWindow({ start, end }); }} /> s</label>
+                        <button className="rl-link" disabled={!signalWindow} onClick={() => setSignalWindow(undefined)}>Full log</button>
+                        {!!selected.length && <button className="rl-link rl-clear-signals" onClick={() => setSelected([])}>Clear selection</button>}
+                      </div>
+                      {selected.map((name, i) => {
+                        const c = channels.get(name);
+                        return c ? (
+                          <div className="rl-signal-plot" key={name} style={{ "--signal-color": palette[i % palette.length] } as React.CSSProperties}>
+                            <div className="rl-signal-plot-head"><div><h4>{name.split("/").pop() || name}</h4><code>{name}</code></div><button aria-label={`Remove ${name}`} title="Remove signal" onClick={() => setSelected((s) => s.filter((n) => n !== name))}>×</button></div>
+                            <Chart label="Value" channel={c} duration={recording.duration} time={time} seek={seek} window={signalWindow} color={palette[i % palette.length]} height={selected.length === 1 ? 340 : 240} findings={analysis.findings.filter((f) => f.channel === name)} />
+                          </div>
+                        ) : null;
+                      })}
+                      {!selected.length && <div className="rl-plots-empty"><span aria-hidden="true">⌁</span><h4>Choose a signal to start exploring</h4><p>Search the signal browser, then select a signal to see its values over time.</p></div>}
                     </div>
-                    <p className="rl-note">Up to four signals, sharing one cursor.</p>
-                  </aside>
-                  <div className="rl-plots">
-                    {selected.map((name, i) => {
-                      const c = channels.get(name);
-                      return c ? (
-                        <Chart
-                          key={name}
-                          label={name}
-                          channel={c}
-                          duration={recording.duration}
-                          time={time}
-                          seek={seek}
-                          color={palette[i % palette.length]}
-                          height={150}
-                          findings={analysis.findings.filter((f) => f.channel === name)}
-                        />
-                      ) : null;
-                    })}
-                    {!selected.length && <p className="rl-note">Tick signals on the left to graph them.</p>}
                   </div>
-                </div>
+                </section>
               )}
 
               {tab === "field" && (

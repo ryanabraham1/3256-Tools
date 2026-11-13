@@ -153,6 +153,17 @@
 }
 .bh-stats dd { margin-top: 4px; font-size: clamp(18px, 2.4vw, 26px); font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 
+/* Foreword + game analysis */
+.b-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(24px, 5vw, 80px);
+  padding: clamp(48px, 9vh, 96px) clamp(16px, 4vw, 48px);
+  border-top: 1px solid var(--b-rule);
+}
+.b-intro-text { margin-top: 14px; font-size: 17px; line-height: 1.55; max-width: 56ch; }
+.b-intro-goal { margin-top: 12px; font-size: clamp(22px, 2.6vw, 32px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; max-width: 24ch; }
+
 /* Contents */
 .b-contents {
   display: grid;
@@ -312,6 +323,33 @@
 .bs-features ul li { padding: 3px 0; font-size: 14px; font-weight: 400; color: var(--b-dim); }
 .bs-source { margin-top: 28px; font-family: var(--font-mono); font-size: 11px; color: var(--b-dim); }
 
+/* Written sections (software): no CAD figure, topics in a grid. */
+.bw {
+  padding: clamp(56px, 10vh, 110px) clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid var(--b-rule);
+}
+.bw-head h2 {
+  font-size: clamp(44px, 6vw, 84px);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+  margin-top: 6px;
+}
+.bw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 40px clamp(24px, 4vw, 56px);
+  margin-top: 40px;
+}
+.bw-grid h3 {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--b-ink);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.bw-lede { margin-top: 12px; font-size: 15px; color: var(--b-dim); }
+
 .b-foot {
   display: flex;
   justify-content: space-between;
@@ -330,6 +368,7 @@
   .bh-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bh-stats div:nth-child(3) { border-left: 0; }
   .bh-stats div:nth-child(n + 3) { border-top: 1px solid var(--b-rule); }
+  .b-intro { grid-template-columns: minmax(0, 1fr); }
   .b-contents { grid-template-columns: minmax(0, 1fr); }
   .b-contents li a { grid-template-columns: 36px minmax(0, 1fr) auto; }
   .b-contents li span { display: none; }

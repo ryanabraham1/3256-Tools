@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { calloutLine, featuresOf, motorCount, type Render, type Subsystem, type View } from "@/lib/binder";
+import { calloutLine, featuresOf, motorCount, type Feature, type Render, type Subsystem, type View } from "@/lib/binder";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
@@ -102,6 +102,19 @@ export function BinderHero({ subsystems, render, title, eyebrow, totals }: {
   );
 }
 
+export function FeatureList({ features }: { features: Feature[] }) {
+  return (
+    <ul className="bs-features">
+      {features.map((f) => (
+        <li key={f.text}>
+          {f.text}
+          {f.sub?.length ? <ul>{f.sub.map((x) => <li key={x}>{x}</li>)}</ul> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const VIEW_LABEL: Record<View, string> = { iso: "Iso", front: "Front", side: "Side", top: "Top" };
 
 /** One subsystem page: the CAD figure on the left, the write-up on the right. */
@@ -149,14 +162,7 @@ export function BinderSubsystem({ s }: { s: Subsystem }) {
         {features.length > 0 && (
           <>
             <h3 className="b-eyebrow bs-features-head">Features</h3>
-            <ul className="bs-features">
-              {features.map((f) => (
-                <li key={f.text}>
-                  {f.text}
-                  {f.sub?.length ? <ul>{f.sub.map((x) => <li key={x}>{x}</li>)}</ul> : null}
-                </li>
-              ))}
-            </ul>
+            <FeatureList features={features} />
           </>
         )}
         <p className="bs-source">CAD: {s.document}</p>

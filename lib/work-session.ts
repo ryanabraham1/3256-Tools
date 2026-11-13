@@ -28,9 +28,12 @@ export async function refreshWorkSession(request: NextRequest) {
   // Log routes check upload-only device tokens or Google account access themselves.
   // Still refresh browser sessions here so log browsing keeps users signed in.
   const routeHandlesAuth = pathname === "/api/robot-logs" || pathname.startsWith("/api/robot-logs/");
+  // The tech binder (page and its CAD model) is public.
+  const isPublic = pathname === "/binder" || pathname.startsWith("/binder/");
   if (
     (!data?.claims || error) &&
     !routeHandlesAuth &&
+    !isPublic &&
     request.nextUrl.pathname !== "/login" &&
     request.nextUrl.pathname !== "/work/login" &&
     !request.nextUrl.pathname.startsWith("/auth/work/")

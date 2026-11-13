@@ -1,0 +1,448 @@
+{
+  "source": "https://cad.onshape.com/documents/055a51d5eaeef6139591218b/w/7b9b3dfd2c59fdfa0e50effd/e/8a00ae9090570fdf7fd92bea",
+  "generated": "2026-11-13",
+  "robot": {
+    "src": "/binder/robot.webp",
+    "w": 1727,
+    "h": 1600
+  },
+  "subsystems": [
+    {
+      "node": "Drivebase Assembly <1>",
+      "document": "Drivebase",
+      "parts": 193,
+      "uniqueParts": 80,
+      "motors": {
+        "Kraken X44": 5,
+        "Kraken X60": 4
+      },
+      "customParts": [
+        "15.671346 Tube",
+        "BasePlate",
+        "Big Gear",
+        "Gearbox Plate",
+        "Gearbox Shaft",
+        "Gearbox Spacer",
+        "Gearbox Standoff",
+        "Hex Spacers",
+        "IGUS Wrap Tunnel",
+        "Inner Clamping Plate",
+        "Outer Clamping Plate",
+        "Ring Spacers",
+        "SpurGear 32T",
+        "SpurGear 56T",
+        "Turret Base Plate",
+        "Turret Ring"
+      ],
+      "hardware": [
+        {
+          "name": "SDS MK5 Molded Wheel",
+          "qty": 4
+        },
+        {
+          "name": "1/2\" Rounded Hex (13.75mm) ID Bearing (1.125\" OD, 0.313\" WD, Shielded, Flanged)",
+          "qty": 4
+        },
+        {
+          "name": "WCP Through Bore Encoder",
+          "qty": 2
+        },
+        {
+          "name": "8\" ID X-Contact Bearing (8.5\" OD, 0.25\" WD, Shielded)",
+          "qty": 1
+        }
+      ],
+      "views": {
+        "iso": {
+          "src": "/binder/drivebase-assembly-iso.webp",
+          "w": 1800,
+          "h": 1054
+        },
+        "front": {
+          "src": "/binder/drivebase-assembly-front.webp",
+          "w": 1800,
+          "h": 392
+        },
+        "side": {
+          "src": "/binder/drivebase-assembly-side.webp",
+          "w": 1800,
+          "h": 396
+        },
+        "top": {
+          "src": "/binder/drivebase-assembly-top.webp",
+          "w": 1360,
+          "h": 1350
+        }
+      }
+    },
+    {
+      "node": "Assembly 1 <1>",
+      "document": "Spindexer/Feeder",
+      "parts": 293,
+      "uniqueParts": 166,
+      "motors": {
+        "Kraken X60": 3,
+        "Kraken X44": 4
+      },
+      "customParts": [
+        "11.5 Tube",
+        "11.5Tube",
+        "12.5 Tube",
+        "15.671346 Tube",
+        "3DP Ramp",
+        "Deadaxle Plate",
+        "Feeder Plate 1",
+        "Feeder Plate 2",
+        "Gearbox Axle",
+        "Gearbox Standoff",
+        "Intake 1\" Axle",
+        "Intake 1\" Tube",
+        "Intake 2\" Tube",
+        "Intake Jackshaft Plate",
+        "Intake Left Corner R",
+        "Intake Plate",
+        "Intake Plate Standoff",
+        "Intake Right Corner R",
+        "Intake Swerve Mounting Plate",
+        "Jackshaft",
+        "Main Plate",
+        "Monkey Standoff",
+        "Pivot Axle",
+        "Polycarb Backing",
+        "Polycarb Backing Standoff",
+        "Polycarb Standoff",
+        "Ring Of Death",
+        "Standoff",
+        "Support Nutstrip 2",
+        "Support Nutstrip 6",
+        "Support Plate 1",
+        "Support Plate 2",
+        "Turret Base Plate"
+      ],
+      "hardware": [
+        {
+          "name": "1/2\" Rounded Hex (13.75mm) ID Bearing (1.125\" OD, 0.313\" WD, Shielded, Flanged)",
+          "qty": 16
+        },
+        {
+          "name": "3/8\" Rounded Hex (10.25mm) ID Bearing (0.875\" OD, 0.281\" WD, Shielded, Flanged)",
+          "qty": 4
+        },
+        {
+          "name": "110T HTD Belt",
+          "qty": 3
+        },
+        {
+          "name": "12T HTD Custom Pulley",
+          "qty": 2
+        },
+        {
+          "name": "16T HTD Custom Pulley",
+          "qty": 2
+        },
+        {
+          "name": "46T Custom Pulley",
+          "qty": 1
+        },
+        {
+          "name": "115T HTD Belt",
+          "qty": 1
+        },
+        {
+          "name": "120T HTD Belt",
+          "qty": 1
+        }
+      ],
+      "views": {
+        "iso": {
+          "src": "/binder/assembly-1-iso.webp",
+          "w": 1800,
+          "h": 1128
+        },
+        "front": {
+          "src": "/binder/assembly-1-front.webp",
+          "w": 1800,
+          "h": 1274
+        },
+        "side": {
+          "src": "/binder/assembly-1-side.webp",
+          "w": 1634,
+          "h": 1350
+        },
+        "top": {
+          "src": "/binder/assembly-1-top.webp",
+          "w": 1576,
+          "h": 1350
+        }
+      }
+    },
+    {
+      "node": "0550_Ground_Intake_Assembly <1>",
+      "document": "Intake",
+      "parts": 130,
+      "uniqueParts": 78,
+      "motors": {
+        "Kraken X44": 1,
+        "Kraken X60": 1
+      },
+      "customParts": [
+        "Gearbox Axle",
+        "Gearbox Standoff",
+        "Intake 1\" Axle",
+        "Intake 1\" Tube",
+        "Intake 2\" Tube",
+        "Intake Jackshaft Plate",
+        "Intake Plate",
+        "Intake Plate Standoff",
+        "Intake Swerve Mounting Plate",
+        "Jackshaft",
+        "Monkey Standoff",
+        "Pivot Axle",
+        "Polycarb Backing",
+        "Polycarb Standoff",
+        "Standoff"
+      ],
+      "hardware": [
+        {
+          "name": "1/2\" Rounded Hex (13.75mm) ID Bearing (1.125\" OD, 0.313\" WD, Shielded, Flanged)",
+          "qty": 8
+        },
+        {
+          "name": "3DP Sprocket to Plate",
+          "qty": 1
+        },
+        {
+          "name": "80T HTD Belt",
+          "qty": 1
+        },
+        {
+          "name": "MAXPlanetary KrakenX44 & Minion Input Kit",
+          "qty": 1
+        },
+        {
+          "name": "MAXPlanetary Input Slice",
+          "qty": 1
+        },
+        {
+          "name": "Kraken Spline MAXPlanetary Input Coupler",
+          "qty": 1
+        },
+        {
+          "name": "MAXPlanetary 3:1 Slice",
+          "qty": 1
+        },
+        {
+          "name": "MAXPlanetary 4:1 Slice",
+          "qty": 1
+        }
+      ],
+      "views": {
+        "iso": {
+          "src": "/binder/0550-ground-intake-assembly-iso.webp",
+          "w": 1226,
+          "h": 1350
+        },
+        "front": {
+          "src": "/binder/0550-ground-intake-assembly-front.webp",
+          "w": 1198,
+          "h": 1260
+        },
+        "side": {
+          "src": "/binder/0550-ground-intake-assembly-side.webp",
+          "w": 1118,
+          "h": 1350
+        },
+        "top": {
+          "src": "/binder/0550-ground-intake-assembly-top.webp",
+          "w": 1446,
+          "h": 966
+        }
+      }
+    },
+    {
+      "node": "0200_Turret_Assembly <1>",
+      "document": "Turret",
+      "parts": 93,
+      "uniqueParts": 47,
+      "motors": {
+        "Kraken X44": 1
+      },
+      "customParts": [
+        "15.671346 Tube",
+        "BasePlate",
+        "Big Gear",
+        "Gearbox Plate",
+        "Gearbox Shaft",
+        "Gearbox Spacer",
+        "Gearbox Standoff",
+        "Hex Spacers",
+        "IGUS Wrap Tunnel",
+        "Inner Clamping Plate",
+        "Outer Clamping Plate",
+        "Ring Spacers",
+        "SpurGear 32T",
+        "SpurGear 56T",
+        "Turret Base Plate",
+        "Turret Ring"
+      ],
+      "hardware": [
+        {
+          "name": "1/2\" Rounded Hex (13.75mm) ID Bearing (1.125\" OD, 0.313\" WD, Shielded, Flanged)",
+          "qty": 4
+        },
+        {
+          "name": "WCP Through Bore Encoder",
+          "qty": 2
+        },
+        {
+          "name": "8\" ID X-Contact Bearing (8.5\" OD, 0.25\" WD, Shielded)",
+          "qty": 1
+        }
+      ],
+      "views": {
+        "iso": {
+          "src": "/binder/0200-turret-assembly-iso.webp",
+          "w": 1060,
+          "h": 1350
+        },
+        "front": {
+          "src": "/binder/0200-turret-assembly-front.webp",
+          "w": 840,
+          "h": 1350
+        },
+        "side": {
+          "src": "/binder/0200-turret-assembly-side.webp",
+          "w": 842,
+          "h": 1350
+        },
+        "top": {
+          "src": "/binder/0200-turret-assembly-top.webp",
+          "w": 1346,
+          "h": 1350
+        }
+      }
+    },
+    {
+      "node": "0900_V2_Shooter_Assembly <1>",
+      "document": "Shooter V2",
+      "parts": 152,
+      "uniqueParts": 51,
+      "motors": {
+        "Kraken X60": 2,
+        "Kraken X44": 1
+      },
+      "customParts": [
+        "Back Wall",
+        "Base Plate",
+        "Flywheel Gearbox Plate",
+        "Flywheel Mass",
+        "Gearbox Spacer",
+        "Hood Gear Plate L",
+        "Hood Rack Gear",
+        "Left Pivot Plate",
+        "Left Plate",
+        "Pinion Gear",
+        "Pivot Hardstop",
+        "Pivot Kraken Spacer",
+        "Pivot Spacer",
+        "Rack Spacer",
+        "Right Pivot Plate",
+        "Right Plate",
+        "Roller Guide Plate L",
+        "Roller Guide Plate R",
+        "Small Pivot Hardstop",
+        "Spacer Hardstop",
+        "Top Spacer"
+      ],
+      "hardware": [
+        {
+          "name": "3/8\" Rounded Hex (10.25mm) ID Bearing (0.875\" OD, 0.281\" WD, Shielded, Flanged)",
+          "qty": 10
+        },
+        {
+          "name": "Mass Wheel",
+          "qty": 8
+        },
+        {
+          "name": "Sushi Roller (40A, 3/8\" Hex Bore)",
+          "qty": 6
+        },
+        {
+          "name": "1/2\" Rounded Hex (13.75mm) ID Bearing (1.125\" OD, 0.313\" WD, Shielded, Flanged)",
+          "qty": 6
+        },
+        {
+          "name": "21T HTD Custom Pulley",
+          "qty": 4
+        },
+        {
+          "name": "50T HTD Belt",
+          "qty": 2
+        },
+        {
+          "name": "3D-Print Adapter (1/2\" Hex Bore, Thrifty Profile)",
+          "qty": 2
+        },
+        {
+          "name": "15T HTD Custom Pulley",
+          "qty": 1
+        }
+      ],
+      "views": {
+        "iso": {
+          "src": "/binder/0900-v2-shooter-assembly-iso.webp",
+          "w": 802,
+          "h": 1350
+        },
+        "front": {
+          "src": "/binder/0900-v2-shooter-assembly-front.webp",
+          "w": 562,
+          "h": 1350
+        },
+        "side": {
+          "src": "/binder/0900-v2-shooter-assembly-side.webp",
+          "w": 692,
+          "h": 1350
+        },
+        "top": {
+          "src": "/binder/0900-v2-shooter-assembly-top.webp",
+          "w": 1094,
+          "h": 1350
+        }
+      }
+    },
+    {
+      "node": "Assembly 3 <1>",
+      "document": "Hopper",
+      "parts": 44,
+      "uniqueParts": 31,
+      "motors": {},
+      "customParts": [
+        "15.671346 Tube"
+      ],
+      "hardware": [],
+      "views": {
+        "iso": {
+          "src": "/binder/assembly-3-iso.webp",
+          "w": 1470,
+          "h": 1350
+        },
+        "front": {
+          "src": "/binder/assembly-3-front.webp",
+          "w": 1516,
+          "h": 1240
+        },
+        "side": {
+          "src": "/binder/assembly-3-side.webp",
+          "w": 1800,
+          "h": 1194
+        },
+        "top": {
+          "src": "/binder/assembly-3-top.webp",
+          "w": 1094,
+          "h": 1350
+        }
+      }
+    }
+  ]
+}

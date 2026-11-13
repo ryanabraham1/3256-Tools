@@ -584,6 +584,12 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
 
   const errors = analysis?.findings.filter((f) => f.severity === "error") ?? [];
   const warnings = analysis?.findings.filter((f) => f.severity === "warning") ?? [];
+  // Repeats of the same rule share one card; each occurrence becomes a seekable time chip.
+  const findingGroups = [...[...errors, ...warnings].reduce((groups, f) => {
+    const key = `${f.severity}|${f.title}`;
+    groups.set(key, [...(groups.get(key) ?? []), f]);
+    return groups;
+  }, new Map<string, Finding[]>()).values()];
   const library = logs.filter((l) => l.name.toLowerCase().includes(query.trim().toLowerCase()));
   const groups = library.reduce<[string, CloudLog[]][]>((acc, log) => {
     const label = dayLabel(log.created_at);
@@ -632,7 +638,6 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
         <div>
           <p className="eyebrow">Software · FRC 3256</p>
           <h1 className="display text-3xl sm:text-4xl">Robot logs</h1>
-          <p>Every recording is checked for brownouts, faults, disconnects and loop overruns as it opens.</p>
         </div>
         <div className="rl-heading-actions">
           <button className="btn btn-ghost" onClick={() => setConnecting(true)}>
@@ -672,7 +677,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
           </div>
           <input
             className="input rl-filter"
-            placeholder="Filter by name"
+            placeholder="Filter"
             aria-label="Filter team recordings"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -715,7 +720,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
               <p className="rl-note">
                 {logs.length
                   ? "No recordings match."
-                  : "Nothing uploaded yet. Use Connect Mayhem to let a laptop upload automatically, or open a file and upload it."}
+                  : "Nothing uploaded yet."}
               </p>
             )}
             {next && (
@@ -724,7 +729,6 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
               </button>
             )}
           </div>
-          <p className="rl-note">Health badges appear once a recording has been opened on this device.</p>
         </aside>
 
         <section className="rl-content card">
@@ -734,7 +738,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                 <div>
                   <h2>{recording.name}</h2>
                   <p>
-                    {recording.duration.toFixed(1)} s · {recording.channels.length} signals · analyzed in your browser
+                    {recording.duration.toFixed(1)} s · {recording.channels.length} signals
                   </p>
                 </div>
                 <div className="rl-title-actions">
@@ -756,12 +760,12 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                   {inLibrary && canDelete && (
                     confirmDelete ? (
                       <>
-                        <span className="text-sm text-[var(--muted)]">Deletes it for everyone, including share links.</span>
+                        <span className="text-sm text-[var(--muted)]">Delete for everyone?</span>
                         <button className="btn btn-ghost" onClick={() => setConfirmDeleteHash(null)}>
                           Cancel
                         </button>
                         <button className="btn btn-danger" disabled={deleting || busy} onClick={() => void deleteCurrent()}>
-                          Confirm delete
+                          Delete
                         </button>
                       </>
                     ) : (
@@ -783,7 +787,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                   {errors.length
                     ? `${errors.length} red ${errors.length === 1 ? "flag" : "flags"}${warnings.length ? ` and ${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}` : ""}`
                     : warnings.length
-                      ? `${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"} to review`
+                      ? `${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}`
                       : "No red flags"}
                 </strong>
                 <span>
@@ -849,30 +853,44 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
 
               {tab === "health" && (
                 <div className="rl-section">
-                  {analysis.findings.length ? (
+                  {findingGroups.length ? (
                     <div className="rl-findings">
-                      {[...errors, ...warnings].map((f) => (
-                        <button key={f.id} className={`rl-finding is-${f.severity}`} onClick={() => seek(f.start, f)}>
-                          <span className={`pill ${f.severity === "error" ? "pill-bad" : "pill-warn"}`}>
-                            {f.severity === "error" ? "Red flag" : "Warning"}
-                          </span>
-                          <strong>{f.title}</strong>
-                          <p>{f.detail}</p>
-                          <code>
-                            {f.start.toFixed(2)}–{f.end.toFixed(2)} s · {f.channel}
-                          </code>
-                        </button>
-                      ))}
+                      {findingGroups.map((group) => {
+                        const f = group[0];
+                        return (
+                          <div key={f.id} className={`rl-finding is-${f.severity}`}>
+                            <span className={`pill ${f.severity === "error" ? "pill-bad" : "pill-warn"}`}>
+                              {f.severity === "error" ? "Red flag" : "Warning"}
+                            </span>
+                            <strong>
+                              {f.title}
+                              {group.length > 1 && <small> ×{group.length}</small>}
+                            </strong>
+                            <p>{f.detail}</p>
+                            <div className="rl-finding-times">
+                              {group.map((g) => (
+                                <button key={g.id} title={g.channel} onClick={() => seek(g.start, g)}>
+                                  {g.start.toFixed(1)}–{g.end.toFixed(1)} s
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
-                    <p className="rl-ok">No rule triggered. The notes below list what this log could not show.</p>
+                    <p className="rl-ok">No issues found.</p>
                   )}
-                  <h3 className="rl-subhead">What this log could and couldn&apos;t show</h3>
-                  <ul className="rl-coverage">
-                    {[...recording.warnings, ...analysis.coverage].map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
-                  </ul>
+                  {[...recording.warnings, ...analysis.coverage].length > 0 && (
+                    <details className="rl-coverage-box">
+                      <summary>Log coverage · {recording.warnings.length + analysis.coverage.length}</summary>
+                      <ul className="rl-coverage">
+                        {[...recording.warnings, ...analysis.coverage].map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
               )}
 
@@ -990,7 +1008,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
               {tab === "signals" && (
                 <section className="rl-section" aria-label="Signal workspace">
                   <div className="rl-signal-toolbar">
-                    <div><h3>Signal workspace</h3><p>Compare up to four signals. Click a chart to move the playback cursor.</p></div>
+                    <h3>Signal workspace</h3>
                     <button className="btn btn-ghost" onClick={() => setShowLibrary((v) => !v)}>{showLibrary ? "Hide library" : "Show library"}</button>
                   </div>
                   <div className="rl-signals">
@@ -1011,9 +1029,8 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                             </label>
                           );
                         })}
-                        {!recording.channels.some((c) => c.name.toLowerCase().includes(search.toLowerCase())) && <p className="rl-signal-no-results">No signals match “{search}”. Try a mechanism or signal name.</p>}
+                        {!recording.channels.some((c) => c.name.toLowerCase().includes(search.toLowerCase())) && <p className="rl-signal-no-results">No signals match “{search}”.</p>}
                       </div>
-                      <p className="rl-note">{selected.length === 4 ? "Deselect a signal to add another." : "Values follow the playback cursor."}</p>
                     </aside>
                     <div className="rl-plots">
                       <div className="rl-plot-tools">
@@ -1033,7 +1050,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                           </div>
                         ) : null;
                       })}
-                      {!selected.length && <div className="rl-plots-empty"><span aria-hidden="true">⌁</span><h4>Choose a signal to start exploring</h4><p>Search the signal browser, then select a signal to see its values over time.</p></div>}
+                      {!selected.length && <div className="rl-plots-empty"><span aria-hidden="true">⌁</span><h4>Pick a signal to plot</h4></div>}
                     </div>
                   </div>
                 </section>
@@ -1085,7 +1102,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                       </g>
                     </svg>
                   ) : (
-                    <p className="rl-note">Choose recorded X and Y position signals to replay the robot on the field.</p>
+                    <p className="rl-note">Map X and Y to replay the robot.</p>
                   )}
                 </div>
               )}
@@ -1105,7 +1122,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                 </svg>
               </span>
               <h2>{busy ? "Reading the recording…" : "Pick a recording from the library"}</h2>
-              <p>Or drop a .wpilog anywhere on this page. Files you open stay on your device until you upload them.</p>
+              <p>or drop a .wpilog here</p>
               {fileInput}
             </label>
           )}

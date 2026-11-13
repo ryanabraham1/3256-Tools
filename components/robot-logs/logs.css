@@ -373,9 +373,6 @@
 .rl-finding.is-error {
   border-left-color: var(--bad);
 }
-.rl-finding:hover {
-  border-color: color-mix(in srgb, var(--purple) 40%, var(--line));
-}
 .rl-finding strong {
   font-weight: 650;
 }
@@ -935,4 +932,38 @@
   .rl-signals .rl-signal-list { max-height: 240px; }
   .rl-signal-toolbar { align-items: flex-start; }
   .rl-signal-toolbar p { max-width: 30ch; }
+}
+
+.rl-finding strong small {
+  font-weight: 500;
+  color: var(--muted);
+}
+.rl-finding-times {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.rl-finding-times button {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--paper);
+}
+.rl-finding-times button:hover {
+  color: var(--purple);
+  border-color: color-mix(in srgb, var(--purple) 45%, var(--line));
+}
+.rl-coverage-box summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.rl-coverage-box[open] summary {
+  margin-bottom: 8px;
 }

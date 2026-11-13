@@ -395,15 +395,12 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
   }, []);
 
   const [deleting, setDeleting] = useState(false);
+  const [confirmDeleteHash, setConfirmDeleteHash] = useState<string | null>(null);
+  const confirmDelete = confirmDeleteHash !== null && confirmDeleteHash === currentHash;
   const deleteCurrent = async () => {
     const log = logs.find((l) => l.sha256 === currentHash);
     if (!log || !canDelete) return;
-    if (
-      !window.confirm(
-        `Delete "${log.name}" from the team library?\n\nThis permanently removes it for everyone, including share links. Copies already saved in Mayhem on someone's laptop are not affected.`,
-      )
-    )
-      return;
+    setConfirmDeleteHash(null);
     setDeleting(true);
     setError("");
     try {
@@ -757,9 +754,21 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                     </a>
                   )}
                   {inLibrary && canDelete && (
-                    <button className="btn btn-danger" disabled={deleting || busy} onClick={() => void deleteCurrent()}>
-                      {deleting ? "Deleting…" : "Delete"}
-                    </button>
+                    confirmDelete ? (
+                      <>
+                        <span className="text-sm text-[var(--muted)]">Deletes it for everyone, including share links.</span>
+                        <button className="btn btn-ghost" onClick={() => setConfirmDeleteHash(null)}>
+                          Cancel
+                        </button>
+                        <button className="btn btn-danger" disabled={deleting || busy} onClick={() => void deleteCurrent()}>
+                          Confirm delete
+                        </button>
+                      </>
+                    ) : (
+                      <button className="btn btn-danger" disabled={deleting || busy} onClick={() => setConfirmDeleteHash(currentHash)}>
+                        {deleting ? "Deleting…" : "Delete"}
+                      </button>
+                    )
                   )}
                   {!inLibrary && (
                     <button className="btn btn-primary" disabled={uploading || busy || !currentHash} onClick={() => void upload()}>

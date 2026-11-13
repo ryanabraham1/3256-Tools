@@ -13,6 +13,7 @@ export function AccessPanel({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<WorkRole>("member");
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState("");
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   function save(email: string, role: WorkRole, disabled = false) {
@@ -27,11 +28,10 @@ export function AccessPanel({
     });
   }
   function remove(email: string) {
-    if (!confirm(`Remove ${email}? They lose access until they're added again.`))
-      return;
     startTransition(async () => {
       setError("");
       const result = await removeWorkAccess(email);
+      setConfirming("");
       if (!result.ok) setError(result.error || "Couldn't remove access.");
       else router.refresh();
     });
@@ -115,13 +115,32 @@ export function AccessPanel({
             >
               {a.disabled ? "Enable" : "Disable"}
             </button>
-            <button
-              className="btn btn-ghost text-sm text-[var(--bad)]"
-              disabled={pending || a.email.toLowerCase() === currentEmail.toLowerCase()}
-              onClick={() => remove(a.email)}
-            >
-              Remove
-            </button>
+            {confirming === a.email ? (
+              <>
+                <button
+                  className="btn btn-ghost text-sm"
+                  disabled={pending}
+                  onClick={() => setConfirming("")}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-danger text-sm"
+                  disabled={pending}
+                  onClick={() => remove(a.email)}
+                >
+                  {pending ? "Removing…" : "Confirm remove"}
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn btn-ghost text-sm text-[var(--bad)]"
+                disabled={pending || a.email.toLowerCase() === currentEmail.toLowerCase()}
+                onClick={() => setConfirming(a.email)}
+              >
+                Remove
+              </button>
+            )}
           </div>
         ))}
       </div>

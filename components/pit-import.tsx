@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { fetchGoogleDoc, importPitItems } from "@/app/pit-actions";
 import { PHASES, PHASE_LABEL, type Phase } from "@/lib/pit";
-import { parseChecklist, type ImportRow } from "@/lib/pit-import";
+import { parseChecklist, pdfPageLines, type ImportRow } from "@/lib/pit-import";
 import { ErrorText, Field } from "./fab-ui";
 
 /** Paste, upload (.docx / .pdf / .txt / .md) or link a Google Doc → review the checks → import. */
@@ -230,22 +230,9 @@ async function pdfText(file: File): Promise<string> {
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const out: string[] = [];
   for (let n = 1; n <= pdf.numPages; n++) {
-    const page = await pdf.getPage(n);
-    const content = await page.getTextContent();
-    const lines: { x: number; text: string }[] = [];
-    let y: number | null = null;
-    for (const item of content.items) {
-      if (!("str" in item)) continue;
-      const iy = item.transform[5];
-      const last = lines[lines.length - 1];
-      if (!last || y === null || Math.abs(iy - y) > 2) lines.push({ x: item.transform[4], text: item.str });
-      else last.text += item.str;
-      y = item.hasEOL ? null : iy;
-    }
-    // Keep indentation (relative to the page's left edge) so sub-points stay under their check.
-    const left = Math.min(...lines.filter((l) => l.text.trim()).map((l) => l.x));
-    for (const l of lines) out.push(" ".repeat(Math.max(0, Math.round((l.x - left) / 18)) * 2) + l.text);
-    out.push("");
+    const content = await (await pdf.getPage(n)).getTextContent();
+    const runs = content.items.flatMap((i) => ("str" in i ? [{ str: i.str, x: i.transform[4], y: i.transform[5], eol: i.hasEOL }] : []));
+    out.push(...pdfPageLines(runs), "");
   }
   return out.join("\n");
 }

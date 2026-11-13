@@ -1,10 +1,11 @@
 # 3256 Tools — FRC 3256
 
-Mobile-first PWA with three tools behind one Google sign-in. The home page (`/`) is a dashboard: what battery to grab next, battery warnings, fab stock that's low or on order, pit kit status, and recent activity from both. Each tool is a tap away from there or from the header switcher:
+Mobile-first PWA with the team's tools behind one Google sign-in. The home page (`/`) is a dashboard: what battery to grab next, battery warnings, fab stock that's low or on order, pit kit status, and recent activity from both. Each tool is a tap away from there or from the header switcher:
 
 - **Batteries** (`/battery`) — which batteries exist, what state each is in, how healthy it is, and which one to grab next. See [SPEC.md](SPEC.md).
 - **Fab stock** (`/stock`) — the raw material the team cuts: tube, bar, angle, channel, rod, hex shaft, sheet/plate. See [Fab stock](#fab-stock) below.
 - **Fab tracker** (`/tracker`) — replaces the team's Machining and 3D Printing tracker sheets: every part to make, loaded from Onshape or pasted from the sheet, on a table and a kanban board, with manufacturability checks against the shop's machines, a cut plan that nests parts onto the stock on the rack, and stock taken off the rack automatically. See [Fab tracker](#fab-tracker) below.
+- **Pit** (`/pit`) — the pit checklist at competitions: run it before/after matches, log every problem (on the checklist or not), and review what got missed afterwards. See [Pit](#pit) below.
 
 The battery app used to live at the root; `next.config.ts` redirects the old `/batteries`, `/log`, `/comp` and `/settings` URLs.
 
@@ -88,3 +89,14 @@ The same migration adds **unusable areas** to sheet stock (`fab_pieces.dead_zone
 ## Deploy
 
 Vercel: import the repo, set the three Supabase env vars (plus the two Onshape keys for Parts), deploy. `public/manifest.json` makes it installable (Add to Home Screen).
+
+## Pit
+
+Needs migration `20261112170000_pit_checklist.sql` (seeds the team's pit checklist).
+
+- **Checklist** (`/pit`) — four lists: start of day, pre-match, post-match, end of day. Start one (the match number comes from comp mode) and tap through it on any phone; everyone sees the same run live. Critical checks come first. A check can be ✓, N/A, or **Problem** (logs a problem tied to that check). **Finish** records anything unchecked as *missed*.
+- **Problems** (`/pit/problems`) — everything that went wrong at the event, including things no check covers: severity, area, match, the fix at the event, and a follow-up for next time.
+- **Review** (`/pit/review`) — per competition: most-missed checks, recurring problems (same check or same title), problems not on the checklist (**Add a check** turns one into a check), problems by area, and the improvement plan (every follow-up). **Copy review as text** for the post-event meeting.
+- **Setup** (`/pit/setup`) — edit/reorder checks, competitions (the active one is what new runs and problems attach to), and **Import from doc**: .docx, PDF, .txt, a shared Google Docs link, or pasted text. Headings become sections (or the list, for "Pre-match" etc.), ALL-CAPS checks and an "Essential" section become critical, and you review every row before importing. Files are read in the browser; PDFs use pdf.js and get their structure from layout (indent + line spacing), since Docs exports draw checkboxes as graphics.
+
+Code: `lib/pit.ts` (types, review maths), `lib/pit-import.ts` (doc → checks), `lib/pit-data.ts`, `app/pit-actions.ts`, `components/pit-*.tsx`.

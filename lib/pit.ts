@@ -85,10 +85,17 @@ export interface PitProblem {
   created_at: string;
 }
 
-/** Critical first, then section, then the set order. */
+/** Critical first, then sections in the order they first appear, then the set order. */
 export function sortItems(items: PitItem[]): PitItem[] {
+  const first = new Map<string, number>();
+  for (const i of items) first.set(i.section, Math.min(first.get(i.section) ?? Infinity, i.sort));
   return [...items].sort(
-    (a, b) => Number(b.critical) - Number(a.critical) || a.section.localeCompare(b.section) || a.sort - b.sort || a.title.localeCompare(b.title),
+    (a, b) =>
+      Number(b.critical) - Number(a.critical) ||
+      first.get(a.section)! - first.get(b.section)! ||
+      a.section.localeCompare(b.section) ||
+      a.sort - b.sort ||
+      a.title.localeCompare(b.title),
   );
 }
 

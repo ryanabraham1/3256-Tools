@@ -61,12 +61,12 @@
         "front": {
           "src": "/binder/drivebase-assembly-front.webp",
           "w": 1800,
-          "h": 392
+          "h": 340
         },
         "side": {
           "src": "/binder/drivebase-assembly-side.webp",
           "w": 1800,
-          "h": 396
+          "h": 343
         },
         "top": {
           "src": "/binder/drivebase-assembly-top.webp",
@@ -156,23 +156,23 @@
       "views": {
         "iso": {
           "src": "/binder/assembly-1-iso.webp",
-          "w": 1800,
+          "w": 1477,
           "h": 1128
         },
         "front": {
           "src": "/binder/assembly-1-front.webp",
-          "w": 1800,
-          "h": 1274
+          "w": 1433,
+          "h": 952
         },
         "side": {
           "src": "/binder/assembly-1-side.webp",
-          "w": 1634,
-          "h": 1350
+          "w": 1455,
+          "h": 1008
         },
         "top": {
           "src": "/binder/assembly-1-top.webp",
-          "w": 1576,
-          "h": 1350
+          "w": 1254,
+          "h": 1202
         }
       }
     },
@@ -249,8 +249,8 @@
         },
         "side": {
           "src": "/binder/0550-ground-intake-assembly-side.webp",
-          "w": 1118,
-          "h": 1350
+          "w": 800,
+          "h": 1259
         },
         "top": {
           "src": "/binder/0550-ground-intake-assembly-top.webp",
@@ -302,18 +302,18 @@
       "views": {
         "iso": {
           "src": "/binder/0200-turret-assembly-iso.webp",
-          "w": 1060,
+          "w": 1001,
           "h": 1350
         },
         "front": {
           "src": "/binder/0200-turret-assembly-front.webp",
           "w": 840,
-          "h": 1350
+          "h": 1188
         },
         "side": {
           "src": "/binder/0200-turret-assembly-side.webp",
           "w": 842,
-          "h": 1350
+          "h": 1188
         },
         "top": {
           "src": "/binder/0200-turret-assembly-top.webp",
@@ -391,22 +391,22 @@
       "views": {
         "iso": {
           "src": "/binder/0900-v2-shooter-assembly-iso.webp",
-          "w": 802,
-          "h": 1350
+          "w": 697,
+          "h": 465
         },
         "front": {
           "src": "/binder/0900-v2-shooter-assembly-front.webp",
-          "w": 562,
-          "h": 1350
+          "w": 489,
+          "h": 271
         },
         "side": {
           "src": "/binder/0900-v2-shooter-assembly-side.webp",
           "w": 692,
-          "h": 1350
+          "h": 271
         },
         "top": {
           "src": "/binder/0900-v2-shooter-assembly-top.webp",
-          "w": 1094,
+          "w": 952,
           "h": 1350
         }
       }

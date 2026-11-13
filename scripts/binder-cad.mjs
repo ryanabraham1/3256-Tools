@@ -110,8 +110,12 @@ async function cutout(png, file) {
     blobs.push(b);
   }
   const main = blobs.reduce((a, b) => (b.n > a.n ? b : a));
-  // Tiny detached specks are mate connectors, origin cubes and the like, never real geometry.
-  const stray = new Set(blobs.filter((b) => b.n < main.n * 0.01).map((b) => b.id));
+  // Small blobs sticking out past the real geometry are view cubes, origin markers and mate
+  // connectors; left in, they stretch the trim and leave the part floating in empty space.
+  const real = blobs.filter((b) => b.n >= main.n * 0.05);
+  const box = { x0: Math.min(...real.map((b) => b.x0)), y0: Math.min(...real.map((b) => b.y0)), x1: Math.max(...real.map((b) => b.x1)), y1: Math.max(...real.map((b) => b.y1)) };
+  const outside = (b) => b.x0 < box.x0 || b.y0 < box.y0 || b.x1 > box.x1 || b.y1 > box.y1;
+  const stray = new Set(blobs.filter((b) => b.n < main.n * 0.01 || (b.n < main.n * 0.05 && outside(b))).map((b) => b.id));
   for (let i = 0; i < px; i++) if (stray.has(comp[i])) data[i * 4 + 3] = 0;
   const out = await sharp(data, { raw: { width: w, height: h, channels: 4 } }).trim({ threshold: 1 }).webp({ quality: 84, alphaQuality: 90 }).toBuffer({ resolveWithObject: true });
   writeFileSync(`public/binder/${file}`, out.data);

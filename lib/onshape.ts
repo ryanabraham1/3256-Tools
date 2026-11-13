@@ -3,30 +3,25 @@ import type { Geometry, Loop, Pt, Seg } from "./geom";
 import type { PartSource, ShapeFacts } from "./parts";
 
 /**
- * Onshape REST client using an API key pair (Basic auth), set in
- * ONSHAPE_ACCESS_KEY / ONSHAPE_SECRET_KEY. Onshape bills API calls against a
- * yearly allowance, so everything here reads a whole Part Studio per call
- * rather than one part at a time.
+ * Onshape REST client using an API key pair (Basic auth). Each person signs in
+ * with their own keys (lib/onshape-keys.ts), so calls bill against their own
+ * Onshape API allowance. Onshape bills API calls against a yearly allowance, so
+ * everything here reads a whole Part Studio per call rather than one part at a
+ * time.
  */
 
 const BASE = () => (process.env.ONSHAPE_BASE_URL || "https://cad.onshape.com").replace(/\/$/, "");
 
-export function onshapeConfigured(): boolean {
-  return !!(process.env.ONSHAPE_ACCESS_KEY && process.env.ONSHAPE_SECRET_KEY);
+export interface OnshapeKeys {
+  access: string;
+  secret: string;
 }
 
-function auth(): string {
-  const a = process.env.ONSHAPE_ACCESS_KEY;
-  const s = process.env.ONSHAPE_SECRET_KEY;
-  if (!a || !s) throw new Error("Onshape isn't connected — set ONSHAPE_ACCESS_KEY and ONSHAPE_SECRET_KEY");
-  return `Basic ${Buffer.from(`${a}:${s}`).toString("base64")}`;
-}
-
-async function call(path: string, init: RequestInit = {}): Promise<Response> {
+async function call(keys: OnshapeKeys, path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(`${BASE()}/api/v10${path}`, {
     ...init,
     headers: {
-      Authorization: auth(),
+      Authorization: `Basic ${Buffer.from(`${keys.access}:${keys.secret}`).toString("base64")}`,
       Accept: "application/json;charset=UTF-8; qs=0.09",
       ...(init.body ? { "Content-Type": "application/json" } : {}),
       ...init.headers,
@@ -36,8 +31,9 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   });
   if (!res.ok) {
     const body = (await res.text().catch(() => "")).slice(0, 300);
-    if (res.status === 401) throw new Error("Onshape rejected the API keys (401) — check ONSHAPE_ACCESS_KEY / ONSHAPE_SECRET_KEY");
-    if (res.status === 403) throw new Error("The API key can't open that document (403) — share it with the key's Onshape account");
+    if (res.status === 401) throw new Error("Onshape rejected your API keys (401) — re-enter them on the Designs page");
+    if (res.status === 402) throw new Error("Your Onshape account is out of API calls (402) — wait for it to reset or use another account's keys");
+    if (res.status === 403) throw new Error("Your Onshape account can't open that document (403) — ask for it to be shared with you");
     if (res.status === 404) throw new Error(`Onshape couldn't find that (404): ${path.split("?")[0]}`);
     if (res.status === 429) throw new Error("Onshape rate limit hit (429) — wait a minute and try again");
     throw new Error(`Onshape error ${res.status}: ${body}`);
@@ -45,7 +41,13 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-const getJson = async <T>(path: string): Promise<T> => (await call(path)).json() as Promise<T>;
+const getJson = async <T>(keys: OnshapeKeys, path: string): Promise<T> => (await call(keys, path)).json() as Promise<T>;
+
+/** Checks a key pair works; one cheap call. Returns the Onshape account's name. */
+export async function verifyKeys(keys: OnshapeKeys): Promise<string> {
+  const me = await getJson<{ name?: string; email?: string }>(keys, "/users/sessioninfo");
+  return me.name || me.email || "your Onshape account";
+}
 
 // ── URLs ─────────────────────────────────────────────────────────────────────
 
@@ -70,10 +72,10 @@ const q = (params: Record<string, string | boolean | undefined>) => {
   return str ? `?${str}` : "";
 };
 
-export async function describeElement(r: OnshapeRef): Promise<{ docName: string; elementName: string; type: "assembly" | "partstudio" }> {
+export async function describeElement(keys: OnshapeKeys, r: OnshapeRef): Promise<{ docName: string; elementName: string; type: "assembly" | "partstudio" }> {
   const [doc, els] = await Promise.all([
-    getJson<{ name?: string }>(`/documents/${r.did}`),
-    getJson<{ id: string; name: string; elementType: string }[]>(`/documents/d/${r.did}/${r.wvm}/${r.wvmid}/elements${q({ elementId: r.eid })}`),
+    getJson<{ name?: string }>(keys, `/documents/${r.did}`),
+    getJson<{ id: string; name: string; elementType: string }[]>(keys, `/documents/d/${r.did}/${r.wvm}/${r.wvmid}/elements${q({ elementId: r.eid })}`),
   ]);
   const el = els.find((e) => e.id === r.eid) ?? els[0];
   if (!el) throw new Error("That tab isn't in the document");
@@ -129,8 +131,9 @@ interface BomInfo {
 }
 
 /** Flattened BOM of an assembly: one line per distinct part, quantity summed across sub-assemblies. */
-export async function assemblyBom(r: OnshapeRef): Promise<{ lines: BomLine[] }> {
+export async function assemblyBom(keys: OnshapeKeys, r: OnshapeRef): Promise<{ lines: BomLine[] }> {
   const bom = await getJson<BomInfo>(
+    keys,
     `/assemblies${refPath(r)}/bom${q({ indented: false, generateIfAbsent: true, onlyVisibleColumns: false, thumbnail: false })}`,
   );
   const header = (prop: string, ...names: string[]) =>
@@ -186,8 +189,9 @@ export interface StudioPart {
 }
 
 /** Every part's properties (custom ones included) in one call. */
-export async function studioMetadata(r: OnshapeRef, configuration?: string): Promise<StudioPart[]> {
+export async function studioMetadata(keys: OnshapeKeys, r: OnshapeRef, configuration?: string): Promise<StudioPart[]> {
   const res = await getJson<{ items?: { partId?: string; properties?: { name: string; value: unknown }[] }[] }>(
+    keys,
     `/metadata${refPath(r)}/p${q({ configuration, includeComputedProperties: false, thumbnail: false })}`,
   );
   return (res.items ?? [])
@@ -255,8 +259,8 @@ export interface BodyShape {
  * Sizes, flatness, profile and the biggest flat face's outline for every part
  * in a Part Studio, from one body-details call. Onshape answers in metres.
  */
-export async function studioShapes(r: OnshapeRef, configuration?: string): Promise<Map<string, BodyShape>> {
-  const res = await getJson<BodyDetails>(`/partstudios${refPath(r)}/bodydetails${q({ configuration, includeGeometricData: true })}`);
+export async function studioShapes(keys: OnshapeKeys, r: OnshapeRef, configuration?: string): Promise<Map<string, BodyShape>> {
+  const res = await getJson<BodyDetails>(keys, `/partstudios${refPath(r)}/bodydetails${q({ configuration, includeGeometricData: true })}`);
   const out = new Map<string, BodyShape>();
   for (const b of res.bodies ?? []) {
     try {
@@ -419,11 +423,11 @@ function bulge3(a: Pt, m: Pt, b: Pt): number {
  * Export one part to STEP (or another format) through Onshape's translation
  * service, waiting for it to finish. Uses 3+ API calls, so it's on demand.
  */
-export async function exportPart(src: PartSource, formatName: "STEP" | "STL" | "PARASOLID"): Promise<Uint8Array> {
+export async function exportPart(keys: OnshapeKeys, src: PartSource, formatName: "STEP" | "STL" | "PARASOLID"): Promise<Uint8Array> {
   if (src.wvm === "m") throw new Error("Can't export from a microversion link — use a workspace or version link");
   const r: OnshapeRef = { did: src.did, wvm: src.wvm, wvmid: src.wvmid, eid: src.eid };
   const start = (await (
-    await call(`/partstudios${refPath(r)}/translations`, {
+    await call(keys, `/partstudios${refPath(r)}/translations`, {
       method: "POST",
       body: JSON.stringify({
         formatName,
@@ -437,12 +441,12 @@ export async function exportPart(src: PartSource, formatName: "STEP" | "STL" | "
   let tr: { requestState?: string; resultExternalDataIds?: string[]; resultDocumentId?: string; failureReason?: string } = {};
   for (let i = 0, wait = 1000; i < 20; i++, wait = Math.min(wait * 1.5, 5000)) {
     await new Promise((res) => setTimeout(res, wait));
-    tr = await getJson(`/translations/${start.id}`);
+    tr = await getJson(keys, `/translations/${start.id}`);
     if (tr.requestState !== "ACTIVE") break;
   }
   if (tr.requestState !== "DONE") throw new Error(tr.failureReason ? `Onshape export failed: ${tr.failureReason}` : "Onshape export timed out — try again");
   const fid = tr.resultExternalDataIds?.[0];
   if (!fid) throw new Error("Onshape export finished with no file");
-  const res = await call(`/documents/d/${tr.resultDocumentId || src.did}/externaldata/${fid}`, { headers: { Accept: "application/octet-stream" } });
+  const res = await call(keys, `/documents/d/${tr.resultDocumentId || src.did}/externaldata/${fid}`, { headers: { Accept: "application/octet-stream" } });
   return new Uint8Array(await res.arrayBuffer());
 }

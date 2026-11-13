@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { addDesign, deleteDesign, syncDesign, updateDesign } from "@/app/parts-actions";
+import { addDesign, deleteDesign, removeOnshapeKeys, setOnshapeKeys, syncDesign, updateDesign } from "@/app/parts-actions";
 import type { FabDesign } from "@/lib/parts";
 import { SUGGEST } from "@/lib/tracker";
 import { timeAgo } from "@/lib/format";
@@ -14,12 +14,14 @@ export function PartsDesigns({
   designs,
   counts,
   connected,
+  accessKey,
   processProp,
   requireProp,
 }: {
   designs: FabDesign[];
   counts: Record<string, { live: number; missing: number; done: number }>;
   connected: boolean;
+  accessKey: string | null;
   processProp: string;
   requireProp: boolean;
 }) {
@@ -55,6 +57,7 @@ export function PartsDesigns({
       </div>
 
       <div className="flex flex-col gap-4">
+        <OnshapeAccount connected={connected} accessKey={accessKey} />
         <form className="card p-4 flex flex-col gap-3" onSubmit={add.submit}>
           <h2 className="text-xl font-medium tracking-tight">Add a design</h2>
           <Field label="Onshape link" hint="Open the robot's top assembly (or a Part Studio) in Onshape and copy the URL.">
@@ -85,12 +88,6 @@ export function PartsDesigns({
 
         <section className="card p-4 flex flex-col gap-2 text-sm">
           <h2 className="text-xl font-medium tracking-tight">How parts get sorted</h2>
-          {!connected && (
-            <p className="rounded-md p-2" style={{ background: "var(--warn-soft)", color: "var(--warn)" }}>
-              Onshape isn&apos;t connected yet: set <span className="mono">ONSHAPE_ACCESS_KEY</span> and <span className="mono">ONSHAPE_SECRET_KEY</span> (from dev-portal.onshape.com → API keys) in the
-              app&apos;s environment.
-            </p>
-          )}
           <p>
             <b>You don&apos;t need to set anything up.</b> A synced part goes on the tracker if its name starts with a part number (
             <span className="mono">0201_Mounting_Plate</span>) or its material is a 3D print, and the app guesses its kind from its shape and material. Everything
@@ -149,12 +146,74 @@ export function PartsDesigns({
             </div>
           </details>
           <p style={{ color: "var(--muted)" }}>
-            Syncing reads the BOM plus two calls per Part Studio. Plate outlines (DXF) come straight from the model; STEP files are fetched per part on demand, since
-            Onshape counts API calls.
+            Syncing reads the BOM plus two calls per Part Studio, on the API keys of whoever presses Sync. Plate outlines (DXF) come straight from the model; STEP
+            files are fetched per part on demand, since Onshape counts API calls.
           </p>
         </section>
       </div>
     </div>
+  );
+}
+
+function OnshapeAccount({ connected, accessKey }: { connected: boolean; accessKey: string | null }) {
+  const [note, setNote] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const save = useFabAction(setOnshapeKeys, (who) => {
+    setNote(who ?? "Connected.");
+    setEditing(false);
+  });
+  const remove = useFabAction(removeOnshapeKeys, () => setNote(null));
+  if (connected && !editing)
+    return (
+      <section className="card p-4 flex flex-col gap-2 text-sm">
+        <h2 className="text-xl font-medium tracking-tight">Your Onshape account</h2>
+        <p>
+          {note ?? "Connected."} Syncs and STEP exports you run use your key <span className="mono">{accessKey}</span>, so they count against your own Onshape API
+          calls.
+        </p>
+        <ErrorText error={remove.error} />
+        <div className="flex gap-2">
+          <button type="button" className="btn btn-ghost text-sm" onClick={() => setEditing(true)}>
+            Change keys
+          </button>
+          <ConfirmButton
+            className="btn btn-danger text-sm"
+            danger
+            pending={remove.pending}
+            label="Disconnect"
+            confirmLabel="Remove my keys"
+            message="Remove your Onshape API keys? You won't be able to sync or export from Onshape until you add them again."
+            onConfirm={() => remove.call({})}
+          />
+        </div>
+      </section>
+    );
+  return (
+    <form className="card p-4 flex flex-col gap-3" onSubmit={save.submit}>
+      <h2 className="text-xl font-medium tracking-tight">Connect your Onshape account</h2>
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
+        Everyone uses their own Onshape API keys, so syncing and exports count against your Onshape API calls, not the team&apos;s. Make a key pair at{" "}
+        <a href="https://dev-portal.onshape.com/keys" target="_blank" rel="noreferrer" className="underline">
+          dev-portal.onshape.com → API keys
+        </a>{" "}
+        with <b>Read</b> permission. Your account needs access to the documents you sync.
+      </p>
+      <Field label="Access key">
+        <input name="access_key" className="input mono text-sm" autoComplete="off" spellCheck={false} />
+      </Field>
+      <Field label="Secret key" hint="Stored encrypted; only the server uses it.">
+        <input name="secret_key" type="password" className="input mono text-sm" autoComplete="off" spellCheck={false} />
+      </Field>
+      <ErrorText error={save.error} />
+      <div className="flex gap-2">
+        <SubmitButton pending={save.pending} label={save.pending ? "Checking…" : "Save keys"} />
+        {connected && (
+          <button type="button" className="btn btn-ghost text-sm" onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
   );
 }
 

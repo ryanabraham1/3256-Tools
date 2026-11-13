@@ -1,6 +1,7 @@
 import { isDone } from "@/lib/tracker";
 import { getDesigns, getParts, getPartsSettings } from "@/lib/parts-data";
-import { onshapeConfigured } from "@/lib/onshape";
+import { getOnshapeKeys } from "@/lib/onshape-keys";
+import { getWorkUser } from "@/lib/work-auth";
 import { PartsDesigns } from "@/components/parts-designs";
 import { PageHead } from "@/components/fab-ui";
 
@@ -9,7 +10,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export default async function DesignsPage() {
-  const [designs, parts, settings] = await Promise.all([getDesigns({ includeArchived: true }), getParts({ includeMissing: true }), getPartsSettings()]);
+  const [designs, parts, settings, user] = await Promise.all([getDesigns({ includeArchived: true }), getParts({ includeMissing: true }), getPartsSettings(), getWorkUser()]);
+  const keys = user ? await getOnshapeKeys(user.userId) : null;
   const counts = new Map<string, { live: number; missing: number; done: number }>();
   for (const p of parts) {
     if (!p.design_id || p.kind === "cots") continue;
@@ -22,7 +24,7 @@ export default async function DesignsPage() {
   return (
     <>
       <PageHead eyebrow="Fab tracker" title="Designs" />
-      <PartsDesigns designs={designs} counts={Object.fromEntries(counts)} connected={onshapeConfigured()} processProp={settings.onshape_process_prop} requireProp={settings.onshape_require_prop} />
+      <PartsDesigns designs={designs} counts={Object.fromEntries(counts)} connected={!!keys} accessKey={keys ? `${keys.access.slice(0, 4)}…${keys.access.slice(-4)}` : null} processProp={settings.onshape_process_prop} requireProp={settings.onshape_require_prop} />
     </>
   );
 }

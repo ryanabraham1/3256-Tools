@@ -55,10 +55,13 @@ import {
   parseOnshapeUrl,
   studioMetadata,
   studioShapes,
+  verifyKeys,
   type BodyShape,
+  type OnshapeKeys,
   type OnshapeRef,
   type StudioPart,
 } from "@/lib/onshape";
+import { clearOnshapeKeys, getOnshapeKeys, saveOnshapeKeys } from "@/lib/onshape-keys";
 
 async function guard() {
   await requireWorkUser(true);
@@ -102,6 +105,33 @@ async function logPart(partId: string, type: string, data: Record<string, unknow
 
 // ── Designs + Onshape sync ───────────────────────────────────────────────────
 
+/** The signed-in person's own Onshape keys: every Onshape call bills to them. */
+async function myOnshapeKeys(): Promise<OnshapeKeys> {
+  const user = await requireWorkUser(true);
+  const keys = await getOnshapeKeys(user.userId);
+  if (!keys) throw new Error("Connect your Onshape account first: add your own API keys on the Designs page");
+  return keys;
+}
+
+/** Save the signed-in person's Onshape API keys, after checking they work. */
+export async function setOnshapeKeys(fd: FormData): Promise<FabResult<string>> {
+  return run(async () => {
+    const user = await requireWorkUser(true);
+    const keys = { access: str(fd, "access_key"), secret: str(fd, "secret_key") };
+    if (!keys.access || !keys.secret) throw new Error("Paste both the access key and the secret key");
+    const who = await verifyKeys(keys);
+    await saveOnshapeKeys(user.userId, keys);
+    return `Connected as ${who}.`;
+  });
+}
+
+export async function removeOnshapeKeys(): Promise<FabResult> {
+  return run(async () => {
+    const user = await requireWorkUser(true);
+    await clearOnshapeKeys(user.userId);
+  });
+}
+
 export async function addDesign(fd: FormData): Promise<FabResult<{ id: string; note: string }>> {
   return run(async () => {
     const url = str(fd, "url");
@@ -116,7 +146,8 @@ export async function addDesign(fd: FormData): Promise<FabResult<{ id: string; n
     }
     const ref = parseOnshapeUrl(url);
     if (!ref) throw new Error("That doesn't look like an Onshape tab link (…/documents/…/w/…/e/…)");
-    const info = await describeElement(ref);
+    const keys = await myOnshapeKeys();
+    const info = await describeElement(keys, ref);
     if (!name) name = info.type === "assembly" ? `${info.docName} · ${info.elementName}` : info.elementName;
     const { data, error } = await db()
       .from("fab_designs")
@@ -134,13 +165,13 @@ export async function addDesign(fd: FormData): Promise<FabResult<{ id: string; n
       .select("id")
       .single();
     if (error) throw error;
-    const note = await sync(data.id as string);
+    const note = await sync(keys, data.id as string);
     return { id: data.id as string, note };
   });
 }
 
 export async function syncDesign(fd: FormData): Promise<FabResult<string>> {
-  return run(() => sync(str(fd, "id")));
+  return run(async () => sync(await myOnshapeKeys(), str(fd, "id")));
 }
 
 export async function updateDesign(fd: FormData): Promise<FabResult> {
@@ -219,7 +250,7 @@ function trimProps(props: Record<string, string>): Record<string, string> {
  * outline plates. Updates parts in place; parts that left the design are
  * flagged, not deleted, so their board history stays.
  */
-async function sync(designId: string): Promise<string> {
+async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
   const { data: design, error } = await db().from("fab_designs").select("*").eq("id", designId).single();
   if (error || !design) throw new Error("Design not found");
   if (!design.document_id) throw new Error("This design isn't linked to Onshape");
@@ -232,9 +263,9 @@ async function sync(designId: string): Promise<string> {
   let lines: Line[] = [];
   const metaCache = new Map<string, Map<string, StudioPart>>();
   if (design.element_type === "assembly") {
-    lines = (await assemblyBom(ref)).lines;
+    lines = (await assemblyBom(keys, ref)).lines;
   } else {
-    const meta = await studioMetadata(ref);
+    const meta = await studioMetadata(keys, ref);
     metaCache.set(studioKey({ ...ref }), new Map(meta.map((m) => [m.partId, m])));
     lines = meta.map((m) => ({ source: { ...ref, partId: m.partId }, quantity: 1, name: m.name, partNumber: m.partNumber, material: m.material, description: m.description, props: m.props }));
   }
@@ -248,12 +279,12 @@ async function sync(designId: string): Promise<string> {
     const r: OnshapeRef = { did: s.did, wvm: s.wvm, wvmid: s.wvmid, eid: s.eid };
     const key = studioKey(s);
     try {
-      if (!metaCache.has(key)) metaCache.set(key, new Map((await studioMetadata(r, s.configuration)).map((m) => [m.partId, m])));
+      if (!metaCache.has(key)) metaCache.set(key, new Map((await studioMetadata(keys, r, s.configuration)).map((m) => [m.partId, m])));
     } catch (e) {
       failures.push(e instanceof Error ? e.message : String(e));
     }
     try {
-      shapeCache.set(key, await studioShapes(r, s.configuration));
+      shapeCache.set(key, await studioShapes(keys, r, s.configuration));
     } catch (e) {
       failures.push(e instanceof Error ? e.message : String(e));
     }
@@ -946,7 +977,7 @@ export async function fetchOnshapeFile(fd: FormData): Promise<FabResult> {
     const part = await loadPart(str(fd, "part_id"));
     if (!part.source) throw new Error("This part isn't from Onshape");
     const format = str(fd, "format") === "STL" ? "STL" : "STEP";
-    const bytes = await exportPart(part.source, format);
+    const bytes = await exportPart(await myOnshapeKeys(), part.source, format);
     const ext = format === "STL" ? "stl" : "step";
     const file = `${safeName(part.name)}.${ext}`;
     const path = `parts/${part.id}/onshape-${file}`;

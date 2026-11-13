@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useOptimistic, useState, useTransition } from "react";
 import { deletePitRun, finishPitRun, reopenPitRun, setPitCheck } from "@/app/pit-actions";
 import { CHECK_LABEL, CHECK_TONE, runItems, runTitle, sortItems, type CheckStatus, type PitCheck, type PitItem, type PitProblem, type PitRun } from "@/lib/pit";
@@ -12,6 +12,8 @@ import { ProblemForm } from "./pit-ui";
 import { Sheet } from "./sheet";
 
 type Mark = { item_id: string; status: CheckStatus | null };
+
+const CRITICAL = "★critical";
 
 export function PitRunView({
   run,
@@ -31,7 +33,9 @@ export function PitRunView({
   canWrite: boolean;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [problemFor, setProblemFor] = useState<PitItem | null>(null);
   const byItem = new Map(checks.map((c) => [c.item_id, c]));
@@ -45,17 +49,46 @@ export function PitRunView({
 
   const finished = !!run.completed_at;
   // A finished run shows exactly what it covered; an open one shows the live checklist.
-  const ordered = finished ? sortItems(items.filter((i) => byItem.has(i.id))) : runItems(run, items);
-  // Group headings: critical checks first, then one heading per section.
+  const all = finished ? sortItems(items.filter((i) => byItem.has(i.id))) : runItems(run, items);
+  const status = (id: string) => marks.get(id) ?? null;
+  const isDone = (i: PitItem) => !!status(i.id) && status(i.id) !== "missed";
+  const done = all.filter(isDone).length;
+  const left = all.length - done;
+
+  // Sections, in the checklist's order, so one person can take one section.
+  const sectionOf = (i: PitItem) => i.section || "Other";
+  const sections = [...new Set([...all].sort((a, b) => a.sort - b.sort).map(sectionOf))].map((name) => {
+    const its = all.filter((i) => sectionOf(i) === name);
+    return { name, total: its.length, done: its.filter(isDone).length };
+  });
+  const criticalItems = all.filter((i) => i.critical);
+  const picked = sp.get("section") ?? "";
+  const view = picked === CRITICAL || sections.some((x) => x.name === picked) ? picked : "";
+  const ordered = view === CRITICAL ? criticalItems : view ? all.filter((i) => sectionOf(i) === view) : all;
+  const nextSection = view && view !== CRITICAL
+    ? [...sections.slice(sections.findIndex((x) => x.name === view) + 1), ...sections].find((x) => x.name !== view && x.done < x.total)
+    : undefined;
+  // In the full list: critical checks first, then a heading per section. A single section needs none.
   const headers = ordered.map((item, n) => {
+    if (view) return null;
     const prev = ordered[n - 1];
     if (item.critical) return prev?.critical ? null : "Critical";
-    return !prev || prev.critical || prev.section !== item.section ? item.section || "Other" : null;
+    return !prev || prev.critical || prev.section !== item.section ? sectionOf(item) : null;
   });
-  const status = (id: string) => marks.get(id) ?? null;
-  const done = ordered.filter((i) => status(i.id) && status(i.id) !== "missed").length;
-  const left = ordered.length - done;
-  const criticalLeft = ordered.filter((i) => i.critical && (!status(i.id) || status(i.id) === "missed")).length;
+
+  function pick(name: string, chip?: HTMLElement) {
+    const q = new URLSearchParams(sp.toString());
+    if (name) q.set("section", name);
+    else q.delete("section");
+    // Native history keeps useSearchParams in sync without a server round trip.
+    window.history.replaceState(null, "", q.size ? `${pathname}?${q}` : pathname);
+    chip?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    // Bring the top of the list up under the sticky progress bar if it's scrolled past.
+    const list = document.getElementById("pit-run-list")?.getBoundingClientRect().top;
+    const bar = document.getElementById("pit-run-bar")?.getBoundingClientRect().bottom;
+    if (list !== undefined && bar !== undefined && list < bar) window.scrollTo({ top: window.scrollY + list - bar - 8, behavior: "smooth" });
+  }
+  const criticalLeft = all.filter((i) => i.critical && (!status(i.id) || status(i.id) === "missed")).length;
   const editable = canWrite && !finished;
 
   function set(item: PitItem, s: CheckStatus | "clear") {
@@ -84,11 +117,11 @@ export function PitRunView({
         <h1 className="display text-3xl sm:text-[34px] break-words">{runTitle(run)}</h1>
       </div>
 
-      <div className="card p-4 flex flex-col gap-2 sticky z-10" style={{ top: "calc(var(--app-header-height, 0px) + 8px)" }}>
+      <div id="pit-run-bar" className="card p-4 flex flex-col gap-2 sticky z-10" style={{ top: "calc(var(--app-header-height, 0px) + 8px)" }}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm">
             <span className="mono text-xl font-semibold">
-              {done}/{ordered.length}
+              {done}/{all.length}
             </span>{" "}
             <span style={{ color: "var(--muted)" }}>checked</span>
             {criticalLeft > 0 && !finished && <span className="pill pill-bad ml-2">{criticalLeft} critical left</span>}
@@ -114,12 +147,23 @@ export function PitRunView({
           )}
         </div>
         <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--line)" }}>
-          <div className="h-full transition-all" style={{ width: `${ordered.length ? (done / ordered.length) * 100 : 0}%`, background: left ? "var(--purple)" : "var(--good)" }} />
+          <div className="h-full transition-all" style={{ width: `${all.length ? (done / all.length) * 100 : 0}%`, background: left ? "var(--purple)" : "var(--good)" }} />
         </div>
+        {sections.length > 1 && (
+          <nav className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pt-1 pb-0.5 [scrollbar-width:none]" aria-label="Sections">
+            <SectionChip label="All" done={done} total={all.length} on={!view} onPick={(el) => pick("", el)} />
+            {criticalItems.length > 0 && (
+              <SectionChip label="Critical" done={criticalItems.filter(isDone).length} total={criticalItems.length} on={view === CRITICAL} critical onPick={(el) => pick(CRITICAL, el)} />
+            )}
+            {sections.map((x) => (
+              <SectionChip key={x.name} label={x.name} done={x.done} total={x.total} on={view === x.name} onPick={(el) => pick(x.name, el)} />
+            ))}
+          </nav>
+        )}
         <ErrorText error={error ?? finish.error ?? reopen.error} />
       </div>
 
-      <ul className="card overflow-hidden">
+      <ul id="pit-run-list" className="card overflow-hidden">
         {ordered.map((item, n) => {
           const s = status(item.id);
           const c = byItem.get(item.id);
@@ -145,7 +189,7 @@ export function PitRunView({
                     color: s === "ok" ? "var(--good)" : s === "issue" ? "var(--bad)" : "var(--warn)",
                   }}
                   onClick={() => set(item, s === "ok" ? "clear" : "ok")}
-                  disabled={!editable || pending}
+                  disabled={!editable}
                   aria-pressed={s === "ok"}
                   aria-label={s === "ok" ? `Uncheck ${item.title}` : `Check ${item.title}`}
                 >
@@ -213,6 +257,16 @@ export function PitRunView({
         )}
       </ul>
 
+      {nextSection && (
+        <button type="button" className="btn btn-ghost w-full" onClick={() => pick(nextSection.name)}>
+          Next: {nextSection.name}{" "}
+          <span className="mono text-sm" style={{ color: "var(--muted)" }}>
+            {nextSection.done}/{nextSection.total}
+          </span>{" "}
+          <span aria-hidden>→</span>
+        </button>
+      )}
+
       {canWrite && (
         <div>
           <ConfirmButton
@@ -233,5 +287,39 @@ export function PitRunView({
         )}
       </Sheet>
     </div>
+  );
+}
+
+function SectionChip({
+  label,
+  done,
+  total,
+  on,
+  critical,
+  onPick,
+}: {
+  label: string;
+  done: number;
+  total: number;
+  on: boolean;
+  critical?: boolean;
+  onPick: (el: HTMLElement) => void;
+}) {
+  const complete = total > 0 && done >= total;
+  return (
+    <button
+      type="button"
+      className="tile tile-chip shrink-0 flex items-center gap-1.5"
+      data-selected={on}
+      aria-pressed={on}
+      onClick={(e) => onPick(e.currentTarget)}
+      style={!on && complete ? { borderColor: "var(--good)", color: "var(--good)" } : !on && critical ? { color: "var(--bad)" } : undefined}
+    >
+      {complete && <span aria-hidden>✓</span>}
+      {label}
+      <span className="mono text-xs opacity-75">
+        {done}/{total}
+      </span>
+    </button>
   );
 }

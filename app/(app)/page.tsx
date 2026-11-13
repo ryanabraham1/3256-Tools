@@ -22,12 +22,14 @@ import { getWorkHome } from "@/lib/work-data";
 import { getWorkUser } from "@/lib/work-auth";
 import { AccountCard } from "@/components/account-card";
 import { activeWorkItems, done, issueCode } from "@/lib/work";
+import { getPitEvents, getPitProblems, getPitRuns } from "@/lib/pit-data";
+import { runTitle, SEVERITY_LABEL } from "@/lib/pit";
 
 export const dynamic = "force-dynamic";
 
 /** 3256 Tools home: one glance at every tool, then a tap into the one you need. */
 export default async function Home() {
-  const [board, batteryEvents, materials, pieces, orders, locations, { kits, items: kitItems }, fabEvents, units, parts, work, user] = await Promise.all([
+  const [board, batteryEvents, materials, pieces, orders, locations, { kits, items: kitItems }, fabEvents, units, parts, work, user, pit] = await Promise.all([
     getBoardData(),
     getAllEvents({ limit: 8 }),
     getMaterials(),
@@ -41,6 +43,14 @@ export default async function Home() {
     getParts().catch(() => null),
     getWorkHome(),
     getWorkUser(),
+    // null until the pit tables are set up
+    getPitEvents()
+      .then(async (events) => {
+        const event = events.find((e) => e.active) ?? null;
+        const [runs, problems] = await Promise.all([getPitRuns({ eventId: event?.id, limit: 20 }), getPitProblems({ eventId: event?.id })]);
+        return { event, runs, problems };
+      })
+      .catch(() => null),
   ]);
 
   const workIssues = activeWorkItems(work.items).filter((i) => i.kind === "issue" && !done(i));
@@ -79,6 +89,11 @@ export default async function Home() {
   const jobsActive = openJobs.filter((j) => j.status === "in_progress").length;
   const unclaimed = openJobs.filter((j) => j.status === "in_progress" && j.assignees.length === 0).length;
   const urgent = openJobs.filter((j) => j.priority !== null && j.priority <= 1).sort((a, b) => a.priority! - b.priority!);
+
+  // ── Pit ──
+  const pitOpen = (pit?.problems ?? []).filter((p) => p.status === "open");
+  const pitRunning = (pit?.runs ?? []).filter((r) => !r.completed_at);
+  const pitGaps = (pit?.problems ?? []).filter((p) => !p.item_id).length;
 
   // ── Recent activity across both tools ──
   const recent = [
@@ -335,6 +350,58 @@ export default async function Home() {
             }))}
             more={urgent.length - 3}
             moreHref="/tracker"
+          />
+        </ToolCard>
+
+        {/* Pit checklist */}
+        <ToolCard
+          href="/pit"
+          name="Pit"
+          tagline="Checklists and problems at competition"
+          icon={
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="5" y="4" width="14" height="17" rx="2" />
+              <path d="M9 4V3h6v1M9 12l2 2 4-4" />
+            </svg>
+          }
+          links={[
+            ["/pit/problems", "Problems"],
+            ["/pit/review", "Review"],
+          ]}
+          open="Open checklists"
+        >
+          <div className="rounded-lg p-4" style={{ background: pitRunning.length ? "var(--purple-soft)" : "var(--paper)" }}>
+            <p className="eyebrow" style={{ color: pitRunning.length ? "var(--purple-dark)" : "var(--muted)" }}>
+              {pit?.event ? pit.event.name : "Practice"}
+            </p>
+            {pitRunning.length ? (
+              <Link href={`/pit/run/${pitRunning[0].id}`} className="block text-xl font-semibold mt-1 hover:underline">
+                {runTitle(pitRunning[0])} in progress
+              </Link>
+            ) : (
+              <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+                {pit === null ? "Pit checklist not set up yet." : "No checklist running."}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <Stat label="Open problems" value={pitOpen.length} tone={pitOpen.length ? "bad" : undefined} />
+            <Stat label="Runs" value={(pit?.runs ?? []).filter((r) => r.completed_at).length} />
+            <Stat label="Not on list" value={pitGaps} tone={pitGaps ? "warn" : undefined} />
+          </div>
+
+          <AlertList
+            empty="No open pit problems."
+            rows={pitOpen.slice(0, 3).map((p) => ({
+              key: p.id,
+              strong: p.title,
+              text: [SEVERITY_LABEL[p.severity], p.match_label].filter(Boolean).join(" · "),
+              bad: p.severity !== "minor",
+              href: `/pit/problems?id=${p.id}`,
+            }))}
+            more={pitOpen.length - 3}
+            moreHref="/pit/problems"
           />
         </ToolCard>
       </div>

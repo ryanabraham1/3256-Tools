@@ -1,7 +1,7 @@
 {
   "name": "3256 Tools — FRC 3256",
   "short_name": "3256 Tools",
-  "description": "Batteries and fab stock for FRC 3256.",
+  "description": "Batteries, fab stock, tracker, pit checklist and work for FRC 3256.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

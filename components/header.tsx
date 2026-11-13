@@ -179,6 +179,40 @@ const TRACKER_NAV: (NavItem & { desktopOnly?: boolean })[] = [
   { href: "/tracker/machines", label: "Machines", icon: SETTINGS_ICON, desktopOnly: true },
 ];
 
+/** Pit checklist tabs: run the checklists, log problems, review after the event. */
+const PIT_NAV: NavItem[] = [
+  {
+    href: "/pit",
+    label: "Checklist",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4V3h6v1M9 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
+    href: "/pit/problems",
+    label: "Problems",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <path d="M12 9v4M12 17h.01" />
+      </svg>
+    ),
+  },
+  {
+    href: "/pit/review",
+    label: "Review",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </svg>
+    ),
+  },
+  { href: "/pit/setup", label: "Setup", icon: SETTINGS_ICON },
+];
+
 const SEARCHABLE = ["/battery", "/battery/batteries", "/stock", "/tracker/board"];
 
 /** The first tab of each app (board / rack) is exact, so it doesn't light up for the other tabs. */
@@ -186,10 +220,13 @@ const SUBPAGES: Record<string, RegExp> = {
   "/battery": /^\/battery\/./,
   "/stock": /^\/stock\/(log|shopping|kit|setup)(\/|$)/,
   "/tracker": /^\/tracker\/./,
+  "/pit": /^\/pit\/./,
 };
 
 function isActive(href: string, pathname: string) {
   const sub = SUBPAGES[href];
+  // A checklist run (/pit/run/<id>) sits under Checklist.
+  if (href === "/pit" && pathname.startsWith("/pit/run/")) return true;
   // The rack tab also covers material pages (/stock/<id>), but not the other stock tabs.
   if (sub) return pathname === href || (href === "/stock" && pathname.startsWith(`${href}/`) && !sub.test(pathname));
   // A part's page (/tracker/<id>) sits under the board.
@@ -199,6 +236,7 @@ function isActive(href: string, pathname: string) {
 
 const isStockPath = (pathname: string) => pathname === "/stock" || pathname.startsWith("/stock/");
 const isTrackerPath = (pathname: string) => pathname === "/tracker" || pathname.startsWith("/tracker/");
+const isPitPath = (pathname: string) => pathname === "/pit" || pathname.startsWith("/pit/");
 
 export function Header({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
@@ -237,11 +275,12 @@ export function Header({ isAdmin = false }: { isAdmin?: boolean }) {
   const home = pathname === "/";
   const stockApp = isStockPath(pathname);
   const trackerApp = isTrackerPath(pathname);
+  const pitApp = isPitPath(pathname);
   const workApp = pathname === "/work" || pathname.startsWith("/work/");
   const logsApp = pathname === "/logs" || pathname.startsWith("/logs/");
   const adminApp = pathname === "/admin" || pathname.startsWith("/admin/");
-  const batteryApp = !adminApp && !home && !stockApp && !trackerApp && !workApp && !logsApp;
-  const NAV = home || workApp || logsApp || adminApp ? [] : stockApp ? STOCK_NAV : trackerApp ? TRACKER_NAV : BATTERY_NAV;
+  const batteryApp = !adminApp && !home && !stockApp && !trackerApp && !pitApp && !workApp && !logsApp;
+  const NAV = home || workApp || logsApp || adminApp ? [] : stockApp ? STOCK_NAV : trackerApp ? TRACKER_NAV : pitApp ? PIT_NAV : BATTERY_NAV;
   const canSearch = SEARCHABLE.includes(pathname) || pathname.startsWith("/battery/batteries/");
   const searchTarget = stockApp ? "/stock" : trackerApp ? "/tracker/board" : pathname.startsWith("/battery/batteries") ? "/battery/batteries" : "/battery";
   const searchWhat = stockApp ? "stock" : trackerApp ? "parts" : "batteries";
@@ -294,12 +333,13 @@ export function Header({ isAdmin = false }: { isAdmin?: boolean }) {
               <span className={`text-[17px] font-bold tracking-tight ${home ? "" : "sm:hidden lg:inline"}`}>Tools</span>
             </Link>
             {/* App switcher: batteries ↔ fab stock */}
-            <nav className="col-span-full row-start-2 grid grid-cols-5 sm:inline-flex gap-1 rounded-xl p-1 sm:overflow-x-auto min-w-0" style={{ background: "var(--neutral-soft)" }} aria-label="App">
+            <nav className="col-span-full row-start-2 grid grid-cols-6 sm:inline-flex gap-1 rounded-xl p-1 sm:overflow-x-auto min-w-0" style={{ background: "var(--neutral-soft)" }} aria-label="App">
               {(
                 [
-                  ["/battery", "Batteries", "Batteries", batteryApp],
+                  ["/battery", "Batteries", "Batt", batteryApp],
                   ["/stock", "Fab stock", "Stock", stockApp],
                   ["/tracker", "Tracker", "Track", trackerApp],
+                  ["/pit", "Pit", "Pit", pitApp],
                   ["/work", "Work", "Work", workApp],
                   ["/logs", "Robot logs", "Logs", logsApp],
                 ] as const
@@ -308,7 +348,7 @@ export function Header({ isAdmin = false }: { isAdmin?: boolean }) {
                   key={href}
                   href={href}
                   prefetch={false}
-                  className={`rounded-[9px] px-2 sm:px-3.5 flex items-center justify-center text-[15px] whitespace-nowrap min-h-11 sm:min-h-10 ${on ? "font-semibold" : "font-medium"}`}
+                  className={`rounded-[9px] px-1 sm:px-3.5 flex items-center justify-center text-[14px] sm:text-[15px] whitespace-nowrap min-h-11 sm:min-h-10 ${on ? "font-semibold" : "font-medium"}`}
                   style={{ background: on ? "var(--surface)" : "transparent", color: on ? "var(--ink)" : "var(--muted)", boxShadow: on ? "var(--shadow-sm)" : undefined }}
                   aria-current={on ? "page" : undefined}
                 >

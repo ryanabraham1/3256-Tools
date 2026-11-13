@@ -2,6 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { WORK_COOKIE_OPTIONS } from "./work-cookie";
 export async function refreshWorkSession(request: NextRequest) {
+  // Supabase sends the OAuth code to the Site URL when the callback isn't on its
+  // Redirect URLs allow-list; hand it to the callback instead of losing the sign-in.
+  const code = request.nextUrl.searchParams.get("code");
+  if (code && !request.nextUrl.pathname.startsWith("/auth/") && !request.nextUrl.pathname.startsWith("/api/")) {
+    const callback = new URL("/auth/work/callback", request.url);
+    callback.searchParams.set("code", code);
+    return NextResponse.redirect(callback);
+  }
   let response = NextResponse.next({ request });
   const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

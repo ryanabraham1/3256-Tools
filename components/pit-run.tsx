@@ -84,8 +84,11 @@ export function PitRunView({
     window.history.replaceState(null, "", q.size ? `${pathname}?${q}` : pathname);
     chip?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
     // Bring the top of the list up under the sticky progress bar if it's scrolled past.
+    // On desktop the bar sits in the sidebar, so only the app header covers the list.
     const list = document.getElementById("pit-run-list")?.getBoundingClientRect().top;
-    const bar = document.getElementById("pit-run-bar")?.getBoundingClientRect().bottom;
+    const bar = window.matchMedia("(min-width: 1024px)").matches
+      ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height") || "0") + 8
+      : document.getElementById("pit-run-bar")?.getBoundingClientRect().bottom;
     if (list !== undefined && bar !== undefined && list < bar) window.scrollTo({ top: window.scrollY + list - bar - 8, behavior: "smooth" });
   }
   const criticalLeft = all.filter((i) => i.critical && (!status(i.id) || status(i.id) === "missed")).length;
@@ -105,7 +108,7 @@ export function PitRunView({
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-3xl">
+    <div className="flex flex-col gap-4 max-w-6xl">
       <div>
         <Link href="/pit" className="text-sm underline" style={{ color: "var(--muted)" }}>
           ← Checklists
@@ -117,169 +120,181 @@ export function PitRunView({
         <h1 className="display text-3xl sm:text-[34px] break-words">{runTitle(run)}</h1>
       </div>
 
-      <div id="pit-run-bar" className="card p-4 flex flex-col gap-2 sticky z-10" style={{ top: "calc(var(--app-header-height, 0px) + 8px)" }}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-sm">
-            <span className="mono text-xl font-semibold">
-              {done}/{all.length}
-            </span>{" "}
-            <span style={{ color: "var(--muted)" }}>checked</span>
-            {criticalLeft > 0 && !finished && <span className="pill pill-bad ml-2">{criticalLeft} critical left</span>}
-          </p>
-          {editable && (
-            <ConfirmButton
-              label="Finish"
-              className="btn btn-primary text-sm min-h-10 py-1.5"
-              message={
-                left
-                  ? `${left} ${left === 1 ? "check hasn't" : "checks haven't"} been done. They'll be recorded as missed for the review.`
-                  : "Everything's checked. Finish this run?"
-              }
-              confirmLabel={left ? `Finish with ${left} missed` : "Finish"}
-              onConfirm={() => finish.call({ run_id: run.id })}
-              pending={finish.pending}
-            />
-          )}
-          {finished && canWrite && (
-            <button type="button" className="btn btn-ghost text-sm min-h-10 py-1.5" onClick={() => reopen.call({ run_id: run.id })} disabled={reopen.pending}>
-              Reopen
-            </button>
-          )}
-        </div>
-        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--line)" }}>
-          <div className="h-full transition-all" style={{ width: `${all.length ? (done / all.length) * 100 : 0}%`, background: left ? "var(--purple)" : "var(--good)" }} />
-        </div>
-        {sections.length > 1 && (
-          <nav className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pt-1 pb-0.5 [scrollbar-width:none]" aria-label="Sections">
-            <SectionChip label="All" done={done} total={all.length} on={!view} onPick={(el) => pick("", el)} />
-            {criticalItems.length > 0 && (
-              <SectionChip label="Critical" done={criticalItems.filter(isDone).length} total={criticalItems.length} on={view === CRITICAL} critical onPick={(el) => pick(CRITICAL, el)} />
+      {/* Phone: progress bar on top of the list. Desktop: progress and sections in a sticky sidebar. */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-6 lg:items-start">
+        <div
+          id="pit-run-bar"
+          className="card p-4 flex flex-col gap-2 sticky z-10 lg:max-h-[calc(100vh_-_var(--app-header-height,0px)_-_24px)] lg:overflow-y-auto"
+          style={{ top: "calc(var(--app-header-height, 0px) + 8px)" }}
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm">
+              <span className="mono text-xl font-semibold">
+                {done}/{all.length}
+              </span>{" "}
+              <span style={{ color: "var(--muted)" }}>checked</span>
+              {criticalLeft > 0 && !finished && <span className="pill pill-bad ml-2">{criticalLeft} critical left</span>}
+            </p>
+            {editable && (
+              <ConfirmButton
+                label="Finish"
+                className="btn btn-primary text-sm min-h-10 py-1.5"
+                message={
+                  left
+                    ? `${left} ${left === 1 ? "check hasn't" : "checks haven't"} been done. They'll be recorded as missed for the review.`
+                    : "Everything's checked. Finish this run?"
+                }
+                confirmLabel={left ? `Finish with ${left} missed` : "Finish"}
+                onConfirm={() => finish.call({ run_id: run.id })}
+                pending={finish.pending}
+              />
             )}
-            {sections.map((x) => (
-              <SectionChip key={x.name} label={x.name} done={x.done} total={x.total} on={view === x.name} onPick={(el) => pick(x.name, el)} />
-            ))}
-          </nav>
-        )}
-        <ErrorText error={error ?? finish.error ?? reopen.error} />
-      </div>
-
-      <ul id="pit-run-list" className="card overflow-hidden">
-        {ordered.map((item, n) => {
-          const s = status(item.id);
-          const c = byItem.get(item.id);
-          const header = headers[n];
-          const itemProblems = problems.filter((p) => p.item_id === item.id);
-          return (
-            <li key={item.id}>
-              {header && (
-                <p
-                  className="eyebrow px-4 pt-3 pb-1.5 border-t first:border-t-0"
-                  style={{ color: header === "Critical" ? "var(--bad)" : "var(--muted)", borderColor: "var(--line)" }}
-                >
-                  {header}
-                </p>
+            {finished && canWrite && (
+              <button type="button" className="btn btn-ghost text-sm min-h-10 py-1.5" onClick={() => reopen.call({ run_id: run.id })} disabled={reopen.pending}>
+                Reopen
+              </button>
+            )}
+          </div>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--line)" }}>
+            <div className="h-full transition-all" style={{ width: `${all.length ? (done / all.length) * 100 : 0}%`, background: left ? "var(--purple)" : "var(--good)" }} />
+          </div>
+          {sections.length > 1 && (
+            <nav
+              className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pt-1 pb-0.5 [scrollbar-width:none] lg:flex-col lg:overflow-visible lg:mx-0 lg:px-0 lg:pt-2"
+              aria-label="Sections"
+            >
+              <SectionChip label="All" done={done} total={all.length} on={!view} onPick={(el) => pick("", el)} />
+              {criticalItems.length > 0 && (
+                <SectionChip label="Critical" done={criticalItems.filter(isDone).length} total={criticalItems.length} on={view === CRITICAL} critical onPick={(el) => pick(CRITICAL, el)} />
               )}
-              <div className="px-4 py-3 border-t flex gap-3 items-start" style={{ borderColor: "var(--line)", opacity: s === "na" ? 0.6 : 1 }}>
-                <button
-                  type="button"
-                  className="w-11 h-11 shrink-0 rounded-[10px] flex items-center justify-center border-2 text-lg"
-                  style={{
-                    borderColor: s === "ok" ? "var(--good)" : s === "issue" ? "var(--bad)" : s === "missed" ? "var(--warn)" : "var(--line)",
-                    background: s === "ok" ? "var(--good-soft)" : s === "issue" ? "var(--bad-soft)" : s === "missed" ? "var(--warn-soft)" : "var(--surface)",
-                    color: s === "ok" ? "var(--good)" : s === "issue" ? "var(--bad)" : "var(--warn)",
-                  }}
-                  onClick={() => set(item, s === "ok" ? "clear" : "ok")}
-                  disabled={!editable}
-                  aria-pressed={s === "ok"}
-                  aria-label={s === "ok" ? `Uncheck ${item.title}` : `Check ${item.title}`}
-                >
-                  {s === "ok" ? "✓" : s === "issue" ? "!" : s === "missed" ? "–" : ""}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium leading-snug break-words">
-                    {item.title}
-                    {item.critical && item.section && (
-                      <span className="chip ml-2 align-middle" style={{ fontSize: 11 }}>
-                        {item.section}
-                      </span>
-                    )}
-                  </p>
-                  {item.how && (
-                    <p className="text-sm mt-0.5" style={{ color: "var(--muted)" }}>
-                      {item.how}
+              {sections.map((x) => (
+                <SectionChip key={x.name} label={x.name} done={x.done} total={x.total} on={view === x.name} onPick={(el) => pick(x.name, el)} />
+              ))}
+            </nav>
+          )}
+          <ErrorText error={error ?? finish.error ?? reopen.error} />
+        </div>
+
+        <div className="flex flex-col gap-4 min-w-0">
+          <ul id="pit-run-list" className="card overflow-hidden">
+            {ordered.map((item, n) => {
+              const s = status(item.id);
+              const c = byItem.get(item.id);
+              const header = headers[n];
+              const itemProblems = problems.filter((p) => p.item_id === item.id);
+              return (
+                <li key={item.id}>
+                  {header && (
+                    <p
+                      className="eyebrow px-4 pt-3 pb-1.5 border-t first:border-t-0"
+                      style={{ color: header === "Critical" ? "var(--bad)" : "var(--muted)", borderColor: "var(--line)" }}
+                    >
+                      {header}
                     </p>
                   )}
-                  {s && s !== "ok" && (
-                    <p className="text-xs mt-1">
-                      <span className={`pill pill-${CHECK_TONE[s]}`}>{CHECK_LABEL[s]}</span>
-                      {c?.note && <span className="ml-2">{c.note}</span>}
-                    </p>
-                  )}
-                  {c?.checked_by && s !== "missed" && (
-                    <p className="mono text-[11px] mt-1" style={{ color: "var(--muted)" }}>
-                      {c.checked_by} · {timeAgo(c.checked_at)}
-                    </p>
-                  )}
-                  {itemProblems.length > 0 && (
-                    <Link href={`/pit/problems?item=${item.id}`} className="text-xs underline mt-1 inline-block" style={{ color: "var(--muted)" }}>
-                      {itemProblems.length} problem{itemProblems.length === 1 ? "" : "s"} logged on this check
-                    </Link>
-                  )}
-                </div>
-                {editable && (
-                  <div className="flex gap-1.5 shrink-0">
-                    <button type="button" className="btn btn-ghost text-sm min-h-11 px-2.5" onClick={() => setProblemFor(item)} title="Log a problem found by this check">
-                      Problem
-                    </button>
+                  <div className="px-4 py-3 border-t flex gap-3 items-start" style={{ borderColor: "var(--line)", opacity: s === "na" ? 0.6 : 1 }}>
                     <button
                       type="button"
-                      className="btn btn-ghost text-sm min-h-11 px-2.5"
-                      onClick={() => set(item, s === "na" ? "clear" : "na")}
-                      aria-pressed={s === "na"}
-                      title="Doesn't apply this time"
+                      className="w-11 h-11 shrink-0 rounded-[10px] flex items-center justify-center border-2 text-lg"
+                      style={{
+                        borderColor: s === "ok" ? "var(--good)" : s === "issue" ? "var(--bad)" : s === "missed" ? "var(--warn)" : "var(--line)",
+                        background: s === "ok" ? "var(--good-soft)" : s === "issue" ? "var(--bad-soft)" : s === "missed" ? "var(--warn-soft)" : "var(--surface)",
+                        color: s === "ok" ? "var(--good)" : s === "issue" ? "var(--bad)" : "var(--warn)",
+                      }}
+                      onClick={() => set(item, s === "ok" ? "clear" : "ok")}
+                      disabled={!editable}
+                      aria-pressed={s === "ok"}
+                      aria-label={s === "ok" ? `Uncheck ${item.title}` : `Check ${item.title}`}
                     >
-                      N/A
+                      {s === "ok" ? "✓" : s === "issue" ? "!" : s === "missed" ? "–" : ""}
                     </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium leading-snug break-words">
+                        {item.title}
+                        {item.critical && item.section && (
+                          <span className="chip ml-2 align-middle" style={{ fontSize: 11 }}>
+                            {item.section}
+                          </span>
+                        )}
+                      </p>
+                      {item.how && (
+                        <p className="text-sm mt-0.5" style={{ color: "var(--muted)" }}>
+                          {item.how}
+                        </p>
+                      )}
+                      {s && s !== "ok" && (
+                        <p className="text-xs mt-1">
+                          <span className={`pill pill-${CHECK_TONE[s]}`}>{CHECK_LABEL[s]}</span>
+                          {c?.note && <span className="ml-2">{c.note}</span>}
+                        </p>
+                      )}
+                      {c?.checked_by && s !== "missed" && (
+                        <p className="mono text-[11px] mt-1" style={{ color: "var(--muted)" }}>
+                          {c.checked_by} · {timeAgo(c.checked_at)}
+                        </p>
+                      )}
+                      {itemProblems.length > 0 && (
+                        <Link href={`/pit/problems?item=${item.id}`} className="text-xs underline mt-1 inline-block" style={{ color: "var(--muted)" }}>
+                          {itemProblems.length} problem{itemProblems.length === 1 ? "" : "s"} logged on this check
+                        </Link>
+                      )}
+                    </div>
+                    {editable && (
+                      <div className="flex gap-1.5 shrink-0">
+                        <button type="button" className="btn btn-ghost text-sm min-h-11 px-2.5" onClick={() => setProblemFor(item)} title="Log a problem found by this check">
+                          Problem
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost text-sm min-h-11 px-2.5"
+                          onClick={() => set(item, s === "na" ? "clear" : "na")}
+                          aria-pressed={s === "na"}
+                          title="Doesn't apply this time"
+                        >
+                          N/A
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </li>
-          );
-        })}
-        {ordered.length === 0 && (
-          <li className="p-6 text-center text-sm" style={{ color: "var(--muted)" }}>
-            No checks in this list. Add some in{" "}
-            <Link href="/pit/setup" className="underline">
-              Setup
-            </Link>
-            .
-          </li>
-        )}
-      </ul>
+                </li>
+              );
+            })}
+            {ordered.length === 0 && (
+              <li className="p-6 text-center text-sm" style={{ color: "var(--muted)" }}>
+                No checks in this list. Add some in{" "}
+                <Link href="/pit/setup" className="underline">
+                  Setup
+                </Link>
+                .
+              </li>
+            )}
+          </ul>
 
-      {nextSection && (
-        <button type="button" className="btn btn-ghost w-full" onClick={() => pick(nextSection.name)}>
-          Next: {nextSection.name}{" "}
-          <span className="mono text-sm" style={{ color: "var(--muted)" }}>
-            {nextSection.done}/{nextSection.total}
-          </span>{" "}
-          <span aria-hidden>→</span>
-        </button>
-      )}
+          {nextSection && (
+            <button type="button" className="btn btn-ghost w-full" onClick={() => pick(nextSection.name)}>
+              Next: {nextSection.name}{" "}
+              <span className="mono text-sm" style={{ color: "var(--muted)" }}>
+                {nextSection.done}/{nextSection.total}
+              </span>{" "}
+              <span aria-hidden>→</span>
+            </button>
+          )}
 
-      {canWrite && (
-        <div>
-          <ConfirmButton
-            label="Delete this run"
-            message="The run and its checks are removed from the review. Problems logged from it stay."
-            onConfirm={() => del.call({ run_id: run.id })}
-            pending={del.pending}
-            danger
-            link
-          />
-          <ErrorText error={del.error} />
+          {canWrite && (
+            <div>
+              <ConfirmButton
+                label="Delete this run"
+                message="The run and its checks are removed from the review. Problems logged from it stay."
+                onConfirm={() => del.call({ run_id: run.id })}
+                pending={del.pending}
+                danger
+                link
+              />
+              <ErrorText error={del.error} />
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       <Sheet open={!!problemFor} onClose={() => setProblemFor(null)} title="Log a problem" eyebrow={problemFor?.title}>
         {problemFor && (
@@ -309,14 +324,14 @@ function SectionChip({
   return (
     <button
       type="button"
-      className="tile tile-chip shrink-0 flex items-center gap-1.5"
+      className="tile tile-chip shrink-0 flex items-center gap-1.5 lg:w-full lg:text-left"
       data-selected={on}
       aria-pressed={on}
       onClick={(e) => onPick(e.currentTarget)}
       style={!on && complete ? { borderColor: "var(--good)", color: "var(--good)" } : !on && critical ? { color: "var(--bad)" } : undefined}
     >
       {complete && <span aria-hidden>✓</span>}
-      {label}
+      <span className="lg:flex-1 lg:truncate">{label}</span>
       <span className="mono text-xs opacity-75">
         {done}/{total}
       </span>

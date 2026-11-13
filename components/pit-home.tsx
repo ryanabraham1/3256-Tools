@@ -105,9 +105,11 @@ export function PitHome({
           <p className="eyebrow" style={{ color: "var(--muted)" }}>
             In progress
           </p>
-          {open.map((r) => (
-            <RunRow key={r.id} run={r} items={items} checks={byRun.get(r.id) ?? []} />
-          ))}
+          <div className="grid gap-2 lg:grid-cols-2">
+            {open.map((r) => (
+              <RunRow key={r.id} run={r} items={items} checks={byRun.get(r.id) ?? []} />
+            ))}
+          </div>
         </section>
       )}
 

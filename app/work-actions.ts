@@ -348,3 +348,38 @@ export async function setWorkAccess(
     return { ok: false, error: message(e) };
   }
 }
+export async function removeWorkAccess(email: string) {
+  try {
+    const user = await requireWorkUser(true, true);
+    if (typeof email !== "string" || !email.trim())
+      throw new Error("Choose someone to remove.");
+    const target = email.trim().toLowerCase();
+    if (target === user.email.toLowerCase())
+      throw new Error("You can't remove your own access.");
+    const db = supabaseAdmin();
+    const { data: account, error: findError } = await db
+      .from("work_access")
+      .select("role,disabled")
+      .eq("email", target)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!account) throw new Error("That person no longer has access.");
+    if (account.role === "admin" && !account.disabled) {
+      const { count, error: countError } = await db
+        .from("work_access")
+        .select("email", { count: "exact", head: true })
+        .eq("role", "admin")
+        .eq("disabled", false);
+      if (countError) throw countError;
+      if ((count ?? 0) <= 1) throw new Error("Keep at least one active admin");
+    }
+    const { error } = await db.from("work_access").delete().eq("email", target);
+    if (error) throw error;
+    revalidatePath("/work", "layout");
+    revalidatePath("/admin");
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: message(e) };
+  }
+}

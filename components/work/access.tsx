@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setWorkAccess } from "@/app/work-actions";
+import { removeWorkAccess, setWorkAccess } from "@/app/work-actions";
 import type { WorkAccess, WorkRole } from "@/lib/work-auth";
 export function AccessPanel({
   accounts,
@@ -24,6 +24,16 @@ export function AccessPanel({
         setEmail("");
         router.refresh();
       }
+    });
+  }
+  function remove(email: string) {
+    if (!confirm(`Remove ${email}? They lose access until they're added again.`))
+      return;
+    startTransition(async () => {
+      setError("");
+      const result = await removeWorkAccess(email);
+      if (!result.ok) setError(result.error || "Couldn't remove access.");
+      else router.refresh();
     });
   }
   return (
@@ -104,6 +114,13 @@ export function AccessPanel({
               onClick={() => save(a.email, a.role, !a.disabled)}
             >
               {a.disabled ? "Enable" : "Disable"}
+            </button>
+            <button
+              className="btn btn-ghost text-sm text-[var(--bad)]"
+              disabled={pending || a.email.toLowerCase() === currentEmail.toLowerCase()}
+              onClick={() => remove(a.email)}
+            >
+              Remove
             </button>
           </div>
         ))}

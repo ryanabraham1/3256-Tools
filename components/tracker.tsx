@@ -175,7 +175,6 @@ export function TrackerTable({
           { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
         ]),
     { key: "designer", label: "Design DRI", w: 120, render: (j) => <Cell part={j} field="designer" value={j.designer} list="tr-people" /> },
-    { key: "dri", label: "DRI", w: 120, render: (j) => <Cell part={j} field="dri" value={j.assignees.join(", ")} list="tr-people" /> },
     {
       key: "file",
       label: print ? "STL File" : "Drawing/CAM File",
@@ -371,7 +370,7 @@ export function TrackerTable({
             job={edit === "new" ? null : edit}
             stock={stock}
             person={person}
-            defaults={{ bot, subsystem }}
+            defaults={{ bot, subsystem, designer: person }}
             onDone={() => setEdit(null)}
           />
         )}
@@ -591,10 +590,9 @@ function StatusSelect({ job, person }: { job: FabJob; person: string }) {
 }
 
 function JobCard({ job: j, print, stock, need, person, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; person: string; onOpen: () => void }) {
-  const dri = j.assignees.join(", ");
   const details = print
-    ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`, dri && `DRI ${dri}`]
-    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, isLengthKind(j.kind) && `Length: ${j.length_spec ? LENGTH_SPEC_SHORT[j.length_spec] : "fit not set"}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`, dri && `DRI ${dri}`];
+    ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`]
+    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, isLengthKind(j.kind) && `Length: ${j.length_spec ? LENGTH_SPEC_SHORT[j.length_spec] : "fit not set"}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`];
   return (
     <div className="tracker-job-card flex flex-col gap-2" style={{ opacity: isDone(j.status) ? 0.65 : 1 }}>
       <div className="flex items-start gap-2">
@@ -690,7 +688,7 @@ function JobForm({
   job: FabJob | null;
   stock: Stock;
   person: string;
-  defaults: { bot: string; subsystem: string };
+  defaults: { bot: string; subsystem: string; designer: string };
   onDone: () => void;
 }) {
   const [note, setNote] = useState<string | null>(null);
@@ -748,8 +746,7 @@ function JobForm({
           <div className="grid grid-cols-2 gap-2">
             <TextField name="material" label="Material" value={v("material")} list="tr-material" />
             <TextField name="infill" label="Infill" value={v("infill")} placeholder="40%" />
-            <TextField name="designer" label="Design DRI" value={v("designer")} list="tr-people" />
-            <TextField name="dri" label="DRI" value={v("dri")} />
+            <TextField name="designer" label="Design DRI" value={j ? v("designer") : defaults.designer} list="tr-people" />
           </div>
         ) : (
           <>
@@ -769,9 +766,8 @@ function JobForm({
               <TextField name="length" label="Length" value={v("length")} placeholder='18.5"' />
               <TextField name="tapped" label="Tapped?" value={v("tapped")} list="tr-tapped" />
               <TextField name="machine" label="Machine" value={v("machine")} list="tr-machine" />
-              <TextField name="designer" label="Design DRI" value={v("designer")} list="tr-people" />
-              <TextField name="dri" label="DRI" value={v("dri")} />
-            </div>
+              <TextField name="designer" label="Design DRI" value={j ? v("designer") : defaults.designer} list="tr-people" />
+              </div>
             {(kind === "" || isLengthKind(kind)) && <LengthFitField key={j?.id ?? "new"} value={j?.length_spec ?? null} />}
             <Field label="Cut from (on the rack)" hint="Matched from the material and dims automatically; pick one to lock it. Stock is taken off the rack when the part goes In Progress / Finished.">
               <select name="material_id" className="input" defaultValue={j?.material_locked ? (j.material_id ?? "") : "auto"}>

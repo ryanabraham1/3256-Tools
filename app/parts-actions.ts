@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireWorkUser } from "@/lib/work-auth";
 import { getFabSettings, getMaterial, getMaterials, getStockPieces } from "@/lib/fab-data";
-import { FILES_BUCKET, getMachines, getPartsSettings, toPart } from "@/lib/parts-data";
+import { FILES_BUCKET, getMachines, getPartsSettings, getPerson, toPart } from "@/lib/parts-data";
 import { cutLinear, cutSheet, type FabResult } from "@/app/fab-actions";
 import {
   AFTER_CUT,
@@ -95,6 +95,11 @@ async function loadPart(id: string): Promise<FabPart> {
   const { data, error } = await db().from("fab_parts").select("*").eq("id", id).single();
   if (error || !data) throw new Error("Part not found");
   return toPart(data);
+}
+
+/** Who's adding parts right now: the name picked on the tracker, else the signed-in account. */
+async function adder(): Promise<string> {
+  return (await getPerson()) || (await requireWorkUser()).name;
 }
 
 async function logPart(partId: string, type: string, data: Record<string, unknown>) {
@@ -386,6 +391,7 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     } else {
       row.status = "not_started";
       row.bot = design.bot ?? "";
+      row.designer ||= await adder();
       const { data: ins, error: e } = await db().from("fab_parts").insert(row).select("id").single();
       if (e) throw e;
       partId = ins.id as string;
@@ -540,6 +546,7 @@ export async function addPart(fd: FormData): Promise<FabResult<string>> {
       notes: str(fd, "notes"),
     };
     if (materialId) row.material_id = materialId;
+    if (!row.designer) row.designer = await adder();
     if (isLengthKind(kind) && fd.has("length_spec")) row.length_spec = lengthSpecOf(fd);
     for (const k of ["size_l_mm", "size_w_mm", "size_t_mm"]) if (num(fd, k) !== null) row[k] = num(fd, k);
     await fillFromText(row, {});
@@ -844,6 +851,7 @@ export async function importSheet(fd: FormData): Promise<FabResult<{ added: numb
 
     const inserts: Record<string, unknown>[] = [];
     const seen = new Set<string>();
+    const by = await adder();
     let updated = 0;
     for (const r of rows) {
       const key = jobKey(r);
@@ -860,6 +868,7 @@ export async function importSheet(fd: FormData): Promise<FabResult<{ added: numb
       } else {
         row.kind = kindFromMaterial(r.material ?? "", tracker);
         row.status ??= "not_started";
+        row.designer ||= by;
         await fillFromText(row, {});
         inserts.push(row);
       }

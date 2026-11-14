@@ -51,12 +51,11 @@ function missing(j: FabPart): { field: string; label: string }[] {
   const out: { field: string; label: string }[] = [];
   if (!j.quantity) out.push({ field: "quantity", label: "Qty" });
   if (!j.material_text.trim()) out.push({ field: "material", label: "Material" });
+  // machine and drawing file are often left blank on the team sheet, so they're not required
   if (j.kind !== "print") {
     if (isStockKind(j.kind) && !j.stock_dims.trim()) out.push({ field: "stock_dims", label: "Stock dims" });
     if (isLengthKind(j.kind) && !j.length_text.trim()) out.push({ field: "length", label: "Length" });
-    if (!j.machine.trim()) out.push({ field: "machine", label: "Machine" });
   }
-  if (!j.file.trim()) out.push({ field: "file", label: j.kind === "print" ? "STL file" : "Drawing/CAM file" });
   return out;
 }
 const lacks = (j: FabPart, field: string) => missing(j).some((m) => m.field === field);
@@ -313,7 +312,7 @@ export function TrackerTable({
             render: (j: FabPart) => (j.kind === "plate" ? <FabablePill part={j} /> : null),
           },
           { key: "tap", label: "Tapped?", w: 100, render: (j: FabPart) => <DropCell part={j} field="tapped" value={j.tapped} choices={lists.tapped} /> },
-          { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} missing={lacks(j, "machine")} /> },
+          { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
         ]),
     { key: "designer", label: "Design DRI", w: 120, render: (j) => <PersonCell part={j} field="designer" value={j.designer} members={members} /> },
     {
@@ -322,7 +321,7 @@ export function TrackerTable({
       w: 190,
       render: (j) => (
         <span className="flex items-center gap-1">
-          <Cell part={j} field="file" value={j.file} missing={lacks(j, "file")} />
+          <Cell part={j} field="file" value={j.file} />
           {isUrl(j.file) && (
             <a href={j.file} target="_blank" rel="noreferrer" className="text-xs shrink-0 px-1" style={{ color: "var(--purple)" }} aria-label="Open file link">
               ↗

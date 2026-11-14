@@ -146,14 +146,18 @@ export function EntitySelect({
 }
 function IssueComposer({
   preset,
+  title: startTitle = "",
   items,
+  actor,
   pending,
   error,
   onClose,
   onSave,
 }: {
   preset?: WorkData;
+  title?: string;
   items: WorkItem[];
+  actor?: string;
   pending: boolean;
   error: string;
   onClose: () => void;
@@ -163,7 +167,7 @@ function IssueComposer({
     createMore?: boolean,
   ) => Promise<boolean>;
 }) {
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(startTitle);
   const [data, setData] = useState<WorkData>({
     status: "Todo",
     priority: 0,
@@ -220,8 +224,9 @@ function IssueComposer({
           onChange={(e) => onPick(e.target.value)}
         >
           <option value="">{empty}</option>
+          {kind === "member" && actor && <option value={actor}>Me</option>}
           {items
-            .filter((i) => i.kind === kind && !i.archived && !i.deleted_at)
+            .filter((i) => i.kind === kind && !i.archived && !i.deleted_at && !(kind === "member" && i.id === actor))
             .map((i) => (
               <option key={i.id} value={i.id}>
                 {kind === "team" ? i.data.identifier || i.title : i.title}
@@ -325,29 +330,22 @@ function IssueComposer({
               ))}
             </select>
           </label>
-          {choice("Assignee", "member", "member", "assignee", "Assignee")}
+          {choice("Assignee", "member", "member", "assignee", "Nobody yet")}
           {choice("Project", "projects", "project", "project", "Project")}
-          <label className="work-compose-chip work-compose-estimate">
-            <Icon name="insights" size={15} />
+          <label className="work-compose-chip">
+            <Icon name="timeline" size={15} />
             <input
-              aria-label="Estimate (points)"
-              type="number"
-              min={0}
-              max={100}
-              placeholder="Points"
-              value={data.estimate ?? ""}
-              onChange={(e) =>
-                patch(
-                  "estimate",
-                  e.target.value === "" ? undefined : Number(e.target.value),
-                )
-              }
+              aria-label="Due date"
+              type="date"
+              data-empty={!data.due}
+              value={data.due ?? ""}
+              onChange={(e) => patch("due", e.target.value)}
             />
           </label>
           <details className="work-compose-labels">
             <summary className="work-compose-chip">
               <Icon name="label" size={15} />
-              Labels{data.labels?.length ? ` (${data.labels.length})` : ""}
+              Area{data.labels?.length ? ` (${data.labels.length})` : ""}
             </summary>
             <div className="work-compose-label-options">
               {labels.map((i) => (
@@ -401,12 +399,20 @@ function IssueComposer({
                 onChange={(v) => patch("parent", v)}
               />
             </Field>
-            <Field label="Due date">
+            <Field label="Estimate (points)">
               <input
                 className="input"
-                type="date"
-                value={data.due ?? ""}
-                onChange={(e) => patch("due", e.target.value)}
+                type="number"
+                min={0}
+                max={100}
+                placeholder="How big is it?"
+                value={data.estimate ?? ""}
+                onChange={(e) =>
+                  patch(
+                    "estimate",
+                    e.target.value === "" ? undefined : Number(e.target.value),
+                  )
+                }
               />
             </Field>
             <Field label="Repeats">
@@ -459,7 +465,9 @@ export function ItemEditor({
   kind,
   item,
   preset,
+  title: startTitle,
   items,
+  actor,
   pending,
   error,
   onClose,
@@ -468,7 +476,11 @@ export function ItemEditor({
   kind: WorkKind;
   item?: WorkItem;
   preset?: WorkData;
+  /** Starting title for a new item. */
+  title?: string;
   items: WorkItem[];
+  /** The signed-in member, offered first as "Me" when assigning. */
+  actor?: string;
   pending: boolean;
   error: string;
   onClose: () => void;
@@ -478,7 +490,7 @@ export function ItemEditor({
     createMore?: boolean,
   ) => Promise<boolean>;
 }) {
-  const [title, setTitle] = useState(item?.title ?? "");
+  const [title, setTitle] = useState(item?.title ?? startTitle ?? "");
   const [data, setData] = useState<WorkData>(
     item?.data ?? {
       status: kind === "issue" ? "Backlog" : "Planned",
@@ -508,7 +520,9 @@ export function ItemEditor({
     return (
       <IssueComposer
         preset={preset}
+        title={startTitle}
         items={items}
+        actor={actor}
         pending={pending}
         error={error}
         onClose={onClose}

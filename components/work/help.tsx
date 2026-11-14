@@ -31,7 +31,7 @@ export function GettingStarted({ onHelp }: { onHelp: () => void }) {
     <section className="work-tips" aria-labelledby="work-tips-title">
       <div className="work-tips-head">
         <h2 id="work-tips-title">Start here</h2>
-        <p>New to Work? Three things to know.</p>
+        <p>New to Work? Here&apos;s how a build session goes.</p>
         <button className="work-text-button" onClick={dismissTips}>
           Got it, hide this
         </button>
@@ -42,23 +42,23 @@ export function GettingStarted({ onHelp }: { onHelp: () => void }) {
           <div>
             <b>Find your tasks</b>
             <p>
-              Open <b>My work</b> in the sidebar to see what&apos;s assigned to you.
+              What you&apos;re assigned is at the top of this page. Nothing there? Ask a lead what to work on.
             </p>
           </div>
         </li>
         <li>
           <span aria-hidden>2</span>
           <div>
-            <b>Keep the status current</b>
-            <p>Open a task and tap In progress when you start, then Done when it&apos;s finished.</p>
+            <b>Say where it&apos;s at</b>
+            <p>Open the task and tap <b>Done</b> when it&apos;s finished. Waiting on parts or need help? Tap <b>I&apos;m stuck</b> so a lead sees it.</p>
           </div>
         </li>
         <li>
           <span aria-hidden>3</span>
           <div>
-            <b>Add or ask</b>
+            <b>Report what you find</b>
             <p>
-              Use <b>New task</b> (or press <kbd>C</kbd>) to add work, and comment on a task if you&apos;re stuck.{" "}
+              Something wrong with the robot? Use <b>Report an issue</b> under <b>Robot issues</b>. Questions go in a task&apos;s comments.{" "}
               <button className="work-text-button" onClick={onHelp}>
                 Full guide
               </button>
@@ -72,10 +72,13 @@ export function GettingStarted({ onHelp }: { onHelp: () => void }) {
 
 const TERMS: [string, string][] = [
   ["Task", "One piece of work, like “Replace the intake belt”."],
+  ["Robot issue", "Something wrong with the robot, reported from the shop or the pit. A lead turns it into a task to fix it."],
+  ["Blocked", "A task that can't move until something else happens, like parts arriving. Say why so a lead can help."],
   ["Project", "A bigger piece of work made of many tasks, with a start and target date."],
-  ["Initiative", "A season-long goal that groups several projects together."],
+  ["Initiative", "A bigger goal, like an event or training program, that groups several projects."],
   ["Milestone", "A checkpoint inside a project, like “Drive base done”."],
-  ["Status", "Where a task is: Backlog → To do → In progress → In review → Done."],
+  ["Status", "Where a task is: Backlog (ideas) → To do (ready) → In progress → In review → Done."],
+  ["Labels", "Tags for the subsystem or area a task belongs to, like Intake or Software."],
   ["View", "A saved set of filters you can come back to with one click."],
 ];
 const KEYS: [string, string][] = [

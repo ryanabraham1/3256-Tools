@@ -17,6 +17,7 @@ import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { MultiPicker, PropertyPicker } from "./property-picker";
 import { useItemMenuShow } from "./item-menu";
 import { Icon, PriorityIcon, StatusIcon, statusLabel } from "./icons";
+import { BlockedBadge } from "./task-actions";
 export function Labels({ item, items, byId }: { item: WorkItem; items: WorkItem[]; byId?: Map<string, WorkItem> }) {
   return (
     <span className="work-labels">
@@ -190,6 +191,7 @@ export function IssueRow({
       <button className="work-row-title" onClick={() => actions.onOpen(item)}>
         {item.title}
       </button>
+      <BlockedBadge item={item} />
       <Labels item={item} items={items} byId={lookup.byId} />
       {showProject && (
         <span className="work-row-project">
@@ -372,6 +374,7 @@ export function IssueBoard({
                 >
                   <span className="work-code">{issueCode(item, lookup.byId)}</span>
                   <h3>{item.title}</h3>
+                  <BlockedBadge item={item} />
                   <Labels item={item} items={items} byId={lookup.byId} />
                   <div className="work-card-foot">
                     <span

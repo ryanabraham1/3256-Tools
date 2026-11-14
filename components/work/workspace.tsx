@@ -35,6 +35,8 @@ import { useMilestoneMenu } from "./milestone-menu";
 import { ItemMenuProvider, itemRoute, useItemMenu, usePageMenu } from "./item-menu";
 import { WorkLink } from "./work-link";
 import { useWork } from "./work-provider";
+import type { PitProblem } from "@/lib/pit";
+import { ReportIssueDialog, RobotIssues } from "./robot-issues";
 const NAV = [
   { heading: "", links: [["home", "Home"]] },
   {
@@ -48,6 +50,7 @@ const NAV = [
     heading: "Workspace",
     links: [
       ["issues", "Tasks"],
+      ["robot", "Robot issues"],
       ["projects", "Projects"],
       ["initiatives", "Initiatives"],
       ["updates", "Team"],
@@ -98,6 +101,10 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
     kind: "project",
     blurb: "Big goals for the season. Each project groups the tasks that get it done.",
   },
+  robot: {
+    title: "Robot issues",
+    blurb: "Anything wrong with the robot, from the shop or the pit. Report it here so a lead can get it fixed.",
+  },
   initiatives: {
     title: "Initiatives",
     kind: "initiative",
@@ -132,7 +139,7 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
 const route = itemRoute;
 type Toast = { text: string; tone?: "error"; undo?: () => void };
 export function WorkWorkspace() {
-  const { snapshot, user, access, items, save, saving, refresh } = useWork();
+  const { snapshot, user, access, items, save, saving, refresh, problems } = useWork();
   const router = useRouter();
   // The page to show. Everything Work shows is already in the browser, so a click (or Back) switches
   // pages at once by setting `target`; the router's own navigation catches up behind it.
@@ -163,6 +170,8 @@ export function WorkWorkspace() {
     kind: WorkKind;
     item?: WorkItem;
     preset?: WorkData;
+    /** Starting title for a new item, e.g. a task made from a robot issue. */
+    title?: string;
   } | null>(null);
   // A dialog (new item, edit, save view, import) is waiting on its save.
   const [busy, setBusy] = useState(false);
@@ -170,7 +179,7 @@ export function WorkWorkspace() {
   const [commandQuery, setCommandQuery] = useState("");
   const [error, setError] = useState("");
   const [toast, setToast] = useState<Toast | null>(null);
-  const [dialog, setDialog] = useState<"view" | "import" | "help" | null>(null);
+  const [dialog, setDialog] = useState<"view" | "import" | "help" | "report" | null>(null);
   const [viewName, setViewName] = useState("");
   const [importText, setImportText] = useState("");
   const [settingsTab, setSettingsTab] = useState<WorkKind | "access">(
@@ -276,7 +285,7 @@ export function WorkWorkspace() {
     router.push(url, { scroll: false });
     requestAnimationFrame(() => requestAnimationFrame(() => scrollTo(spot)));
   }
-  function create(kind: WorkKind = info?.kind ?? "issue", preset?: WorkData) {
+  function create(kind: WorkKind = info?.kind ?? "issue", preset?: WorkData, title?: string) {
     if (readOnly) {
       setError("Your account has view-only access.");
       return;
@@ -286,6 +295,7 @@ export function WorkWorkspace() {
     const given = Object.fromEntries(Object.entries(preset ?? {}).filter(([, v]) => v !== undefined));
     setEditor({
       kind,
+      title,
       preset: { ...(kind === "issue" ? soleTeamPreset : {}), ...given },
     });
   }
@@ -431,6 +441,25 @@ export function WorkWorkspace() {
     (!current && ["issues", "my-issues"].includes(section)) ||
     current?.kind === "view";
   const activeIssues = live.filter((i) => i.kind === "issue" && !done(i));
+  const openProblems = problems.filter((p) => p.status === "open").length;
+  /** A lead turns a robot issue into a task: worse problems start at higher priority, in the matching subsystem label. */
+  function makeTask(p: PitProblem) {
+    const label = live.find((i) => i.kind === "label" && !!p.area && i.title.toLowerCase() === p.area.toLowerCase());
+    const where = p.event_id ? snapshot.pitEvents?.find((e) => e.id === p.event_id)?.name ?? "a competition" : "the shop";
+    create(
+      "issue",
+      {
+        problem: p.id,
+        status: "Todo",
+        priority: ({ critical: 1, major: 2, minor: 3 } as const)[p.severity],
+        ...(label ? { labels: [label.id] } : {}),
+        description: [p.details, p.follow_up && `To do before next time: ${p.follow_up}`, `Reported by ${p.reported_by || "the team"} at ${where}.`]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+      `Fix: ${p.title}`,
+    );
+  }
   function exportData() {
     const link = document.createElement("a");
     link.href = "/api/work/export";
@@ -493,6 +522,9 @@ export function WorkWorkspace() {
                   )}
                   {path === "inbox" && inbox.length > 0 && (
                     <span className="work-nav-count">{inbox.length}</span>
+                  )}
+                  {path === "robot" && openProblems > 0 && (
+                    <span className="work-nav-count" data-tone="bad">{openProblems}</span>
                   )}
                 </WorkLink>
               ))}
@@ -665,6 +697,11 @@ export function WorkWorkspace() {
                       New {KIND_NAMES[info.kind].toLowerCase()}
                     </button>
                   )}
+                  {section === "robot" && (
+                    <button className="btn btn-primary" disabled={readOnly} onClick={() => setDialog("report")}>
+                      <Icon name="plus" size={16} /> Report an issue
+                    </button>
+                  )}
                   {section === "views" && (
                     <button
                       className="btn btn-primary"
@@ -699,6 +736,7 @@ export function WorkWorkspace() {
                 onNavigate={navigate}
                 onCreate={() => create("issue")}
                 onHelp={() => setDialog("help")}
+                onReport={() => setDialog("report")}
                 readOnly={readOnly}
               />
             ) : issueView ? (
@@ -736,6 +774,7 @@ export function WorkWorkspace() {
                 onComment={(body, type) => comment(current, body, type)}
                 onArchive={() => (current.archived ? restoreItem(current) : archiveItem(current))}
                 onDelete={() => trashItem(current)}
+                onNavigate={navigate}
               />
             ) : section === "projects" ? (
               <div className="work-project-browser">
@@ -978,6 +1017,8 @@ export function WorkWorkspace() {
                   />
                 )}
               </div>
+            ) : section === "robot" ? (
+              <RobotIssues items={items} readOnly={readOnly} onOpen={open} onReport={() => setDialog("report")} onMakeTask={makeTask} />
             ) : section === "insights" ? (
               <Insights items={live} now={snapshot.now} />
             ) : section === "archive" ? (
@@ -1084,7 +1125,9 @@ export function WorkWorkspace() {
           kind={editor.kind}
           item={editor.item}
           preset={editor.preset}
+          title={editor.title}
           items={items}
+          actor={actor}
           pending={busy || readOnly}
           error={error}
           onClose={() => setEditor(null)}
@@ -1182,6 +1225,7 @@ export function WorkWorkspace() {
           </div>
         </Modal>
       )}
+      {dialog === "report" && <ReportIssueDialog items={items} onClose={() => setDialog(null)} />}
       {dialog === "help" && (
         <Modal title="Guide & shortcuts" onClose={() => setDialog(null)}>
           <HelpGuide />

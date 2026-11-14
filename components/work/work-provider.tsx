@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import type { PitProblem, ProblemStatus, RobotIssueInput } from "@/lib/pit";
 import type { WorkItem, WorkSnapshot } from "@/lib/work";
 import { applyChanges, createSaveQueue, mergeItems, type SaveReply, type SaveResult, type WorkChange } from "@/lib/work-store";
 import type { WorkUser, WorkAccess } from "@/lib/work-auth";
@@ -19,7 +20,27 @@ type WorkContext = {
   saving: boolean;
   /** Re-reads the workspace in the background. */
   refresh: () => void;
+  /** Robot issues (the shared pit problem log) with this browser's saves applied. */
+  problems: PitProblem[];
+  /** Reports a robot issue, at the active competition when `atEvent`. */
+  reportProblem: (issue: RobotIssueInput & { atEvent?: boolean }) => Promise<{ ok: boolean; error?: string }>;
+  /** Shows the new status at once; puts it back if the server refuses. */
+  setProblemStatus: (problem: PitProblem, status: ProblemStatus) => Promise<{ ok: boolean; error?: string }>;
 };
+
+async function sendProblem(body: Record<string, unknown>): Promise<{ ok: boolean; error?: string; problem?: PitProblem }> {
+  try {
+    const response = await fetch("/api/work/robot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (response.status === 401) return { ok: false, error: "You've been signed out. Reload the page and sign in again." };
+    return await response.json();
+  } catch {
+    return { ok: false, error: "Couldn't reach the server. Check your connection and try again." };
+  }
+}
 const Context = createContext<WorkContext | null>(null);
 
 async function sendChanges(changes: WorkChange[]): Promise<SaveReply> {
@@ -80,7 +101,7 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
       ?.channel("board")
       .on("broadcast", { event: "changed" }, (message) => {
         const table = (message.payload as { table?: string } | undefined)?.table;
-        if (!table || table.startsWith("work_")) soon();
+        if (!table || table.startsWith("work_") || table === "pit_problems") soon();
       })
       .subscribe();
     const onVisible = () => { if (document.visibilityState === "visible") soon(); };
@@ -126,7 +147,37 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
     return result;
   }, [refresh]);
 
-  const value = useMemo(() => ({ snapshot, user, access, items, save, saving: inFlight > 0, refresh }), [snapshot, user, access, items, save, inFlight, refresh]);
+  // Saved robot issues show until the next snapshot, which already includes them.
+  const [problemEdits, setProblemEdits] = useState<{ at: string; rows: Map<string, PitProblem> }>({ at: "", rows: new Map() });
+  const problems = useMemo(() => {
+    const base = snapshot.problems ?? [];
+    if (problemEdits.at !== snapshot.now) return base;
+    const known = new Set(base.map((p) => p.id));
+    const added = [...problemEdits.rows.values()].filter((p) => !known.has(p.id));
+    return [...added, ...base.map((p) => problemEdits.rows.get(p.id) ?? p)];
+  }, [snapshot, problemEdits]);
+  const showProblem = useCallback((problem: PitProblem) => {
+    setProblemEdits((have) => ({
+      at: snapshot.now,
+      rows: new Map([...(have.at === snapshot.now ? have.rows : []), [problem.id, problem]]),
+    }));
+  }, [snapshot.now]);
+  const reportProblem = useCallback(async (issue: RobotIssueInput & { atEvent?: boolean }) => {
+    const result = await sendProblem({ action: "report", ...issue });
+    if (result.ok && result.problem) showProblem(result.problem);
+    return result;
+  }, [showProblem]);
+  const setProblemStatus = useCallback(async (problem: PitProblem, status: ProblemStatus) => {
+    showProblem({ ...problem, status });
+    const result = await sendProblem({ action: "status", id: problem.id, status });
+    showProblem(result.ok && result.problem ? result.problem : problem);
+    return result;
+  }, [showProblem]);
+
+  const value = useMemo(
+    () => ({ snapshot, user, access, items, save, saving: inFlight > 0, refresh, problems, reportProblem, setProblemStatus }),
+    [snapshot, user, access, items, save, inFlight, refresh, problems, reportProblem, setProblemStatus],
+  );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 export function useWork() {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   validateWorkInput,
   filterIssues,
+  isBlocked,
   issueCode,
   progress,
 } from "../lib/work.ts";
@@ -261,4 +262,31 @@ test("a teammate's simultaneous edit is merged when fields differ and reported w
   const offline = createSaveQueue({ snapshot: () => mine, onRows: () => {}, send: async () => { throw new Error("offline"); } });
   assert.match((await offline([{ id: "a", data: { status: "Done" } }])).error, /reach the server/);
   assert.equal((await offline([{ id: "a", data: { status: "Done" } }])).ok, false);
+});
+
+test("blocked needs a reason and ends when the task is done", () => {
+  assert.equal(isBlocked(issue("a", { status: "In progress", blocked: "Waiting on parts" })), true);
+  assert.equal(isBlocked(issue("b", { status: "In progress", blocked: "  " })), false);
+  assert.equal(isBlocked(issue("c", { status: "Done", blocked: "Waiting on parts" })), false);
+  assert.deepEqual(
+    filterIssues([issue("a", { status: "Todo", blocked: "Parts" }), issue("b", { status: "Todo" })], { status: "blocked" }).map((i) => i.id),
+    ["a"],
+  );
+  assert.equal(validateWorkInput("issue", "t", { blocked: "Waiting on parts" }).data.blocked, "Waiting on parts");
+  assert.throws(() => validateWorkInput("issue", "t", { blocked: 5 }));
+});
+
+test("robot issues need a description and a known severity", async () => {
+  const { validateRobotIssue } = await import("../lib/pit.ts");
+  assert.deepEqual(validateRobotIssue({ title: "  Intake jams on bumper ", area: "Intake", severity: "major" }), {
+    title: "Intake jams on bumper",
+    details: "",
+    area: "Intake",
+    severity: "major",
+  });
+  assert.equal(validateRobotIssue({ title: "Loose bolt" }).severity, "minor");
+  assert.throws(() => validateRobotIssue({ title: "   " }));
+  assert.throws(() => validateRobotIssue({ title: "x", severity: "apocalyptic" }));
+  assert.equal(validateWorkInput("issue", "Fix intake", { problem: "33333333-3333-4333-8333-333333333333" }).data.problem, "33333333-3333-4333-8333-333333333333");
+  assert.throws(() => validateWorkInput("issue", "Fix intake", { problem: "not-an-id" }));
 });

@@ -1,3 +1,4 @@
+import type { PitEvent, PitProblem } from "./pit";
 export const WORK_KINDS = [
   "issue",
   "project",
@@ -53,6 +54,10 @@ export type WorkData = {
   };
   description?: string;
   status?: string;
+  /** Why the task is stuck ("Waiting on 3/8 bolts"). Empty or missing means it isn't blocked. */
+  blocked?: string;
+  /** The robot issue (a pit_problems row) this task fixes. */
+  problem?: string;
   priority?: number;
   team?: string;
   assignee?: string;
@@ -125,6 +130,9 @@ export type WorkFilter = {
 export type WorkSnapshot = {
   items: WorkItem[];
   events: WorkEvent[];
+  /** Robot issues: the same problem log the Pit pages use, newest first. */
+  problems?: PitProblem[];
+  pitEvents?: Pick<PitEvent, "id" | "name" | "active">[];
   now: string;
   receipts: {
     event_id: string;
@@ -138,6 +146,10 @@ export function uniqueStatuses(statuses: string[]) {
 }
 export function done(item: WorkItem) {
   return ["done", "completed", "canceled", "cancelled", "duplicate"].includes((item.data.status ?? "").toLowerCase());
+}
+/** Stuck on something outside the task (parts, a decision, another task). Finished work is never blocked. */
+export function isBlocked(item: WorkItem) {
+  return !!item.data.blocked?.trim() && !done(item);
 }
 /** `items` may be the full list or an id lookup (long lists build one once instead of searching per row). */
 export function issueCode(item: WorkItem, items: WorkItem[] | Map<string, WorkItem>) {
@@ -182,7 +194,9 @@ export function filterIssues(items: WorkItem[], filter: WorkFilter) {
       (!filter.project || i.data.project === filter.project) &&
       (!filter.cycle || i.data.cycle === filter.cycle) &&
       (!filter.status ||
-        (filter.status === "open" ? !done(i) : (i.data.status || "Backlog").toLowerCase() === filter.status.toLowerCase())) &&
+        (filter.status === "open" ? !done(i)
+          : filter.status === "blocked" ? isBlocked(i)
+            : (i.data.status || "Backlog").toLowerCase() === filter.status.toLowerCase())) &&
       matchesDue(i, filter.due) &&
       (!filter.label || i.data.labels?.includes(filter.label)) &&
       (!filter.priority || String(i.data.priority ?? 0) === filter.priority),
@@ -241,6 +255,7 @@ export function validateWorkInput(
     "release",
     "parentInitiative",
     "parentTeam",
+    "problem",
   ]) {
     if (d[k] !== undefined) {
       if (
@@ -254,6 +269,7 @@ export function validateWorkInput(
   for (const k of [
     "description",
     "status",
+    "blocked",
     "identifier",
     "health",
     "color",

@@ -46,6 +46,7 @@ const paths: Record<string, string> = {
   cube: "M12 3l8 4v10l-8 4-8-4V7zM4 7l8 4 8-4M12 11v10",
   battery: "M3 8h16v8H3zM19 11h2v2h-2zM6 11v2M9 11v2",
   bot: "M5 8h14v11H5zM12 4v4M9 13h.01M15 13h.01M9 17h6",
+  robot: "M5 8h14v11H5zM12 4v4M9 13h.01M15 13h.01M9 17h6",
   heart: "M12 20s-8-5-8-11a4.5 4.5 0 0 1 8-2 4.5 4.5 0 0 1 8 2c0 6-8 11-8 11z",
   flame: "M12 3s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-8z",
   trophy: "M7 4h10v6a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 15v4M8 21h8",

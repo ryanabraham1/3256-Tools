@@ -23,6 +23,10 @@ import { CommitInput, EntitySelect, Field } from "./editor";
 import { Icon, PriorityIcon, StatusIcon, statusLabel, statusTone } from "./icons";
 import type { MilestoneActions } from "./milestone-menu";
 import { ProjectDetail } from "./project-detail";
+import { TaskActions } from "./task-actions";
+import { SeverityPill } from "./robot-issues";
+import { WorkLink } from "./work-link";
+import { useWork } from "./work-provider";
 import type { IssueActions } from "./issue-menu";
 import { itemRoute, useItemMenuShow } from "./item-menu";
 import { InlineEdit, PropertyPicker } from "./property-picker";
@@ -31,6 +35,21 @@ export function RichText({ text }: { text: string }) {
     <div className="work-rich-text">
       <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
     </div>
+  );
+}
+/** The robot issue a task was made to fix, linking back to the Robot issues page. */
+function FixesIssue({ id, onNavigate }: { id: string; onNavigate: (path: string) => void }) {
+  const { problems } = useWork();
+  const problem = problems.find((p) => p.id === id);
+  if (!problem) return null;
+  return (
+    <WorkLink className="work-fixes-issue" href="/work/robot" onGo={() => onNavigate("robot")}>
+      <Icon name="bot" size={16} />
+      <span>Fixes robot issue</span>
+      <b>{problem.title}</b>
+      <SeverityPill severity={problem.severity} />
+      {problem.status !== "open" && <span className="pill pill-good">Fixed</span>}
+    </WorkLink>
   );
 }
 /** "set status to Done, assigned Sam" rather than a bare "updated this task". */
@@ -44,6 +63,7 @@ function describeUpdate(e: WorkEvent, item: WorkItem, items: WorkItem[]) {
   const parts: string[] = [];
   if (before.title !== after.title && after.title) parts.push(`renamed it to “${after.title}”`);
   if (a.status !== b.status) parts.push(`set status to ${statusLabel(b.status)}`);
+  if ((a.blocked ?? "") !== (b.blocked ?? "")) parts.push(b.blocked ? `marked it blocked: ${b.blocked}` : "unblocked it");
   if ((a.priority ?? 0) !== (b.priority ?? 0)) parts.push(b.priority ? `set priority to ${PRIORITIES[b.priority]}` : "cleared the priority");
   if (a.assignee !== b.assignee) parts.push(b.assignee ? `assigned ${name(b.assignee) ?? "someone"}` : "removed the assignee");
   if (a.due !== b.due) parts.push(b.due ? `set the due date to ${dateLabel(b.due)}` : "cleared the due date");
@@ -68,6 +88,7 @@ export function ItemDetail({
   onCreate,
   onArchive,
   onDelete,
+  onNavigate,
   milestoneActions,
   issueActions,
 }: {
@@ -87,6 +108,8 @@ export function ItemDetail({
   onCreate: (kind: WorkKind, preset?: WorkData) => void;
   onArchive: () => void;
   onDelete: () => void;
+  /** Switches to another Work page, e.g. Robot issues from a task that fixes one. */
+  onNavigate: (path: string) => void;
 }) {
   const [copyState, setCopyState] = useState<"" | "copied" | "failed">("");
   const [showAllHistory, setShowAllHistory] = useState(false);
@@ -176,6 +199,8 @@ export function ItemDetail({
         </div>
         <InlineEdit label="Title" value={item.title} disabled={readOnly} onSave={title => milestoneActions.onSave(item, { title })}><h1>{item.title}</h1></InlineEdit>
         {issue && item.data.parent && <button className="work-issue-parent" onClick={() => { const parent = items.find(i => i.id === item.data.parent); if (parent) onOpen(parent); }}><span>Sub-task of</span><StatusIcon status={items.find(i => i.id === item.data.parent)?.data.status}/>{items.find(i => i.id === item.data.parent)?.title}</button>}
+        {issue && item.data.problem && <FixesIssue id={item.data.problem} onNavigate={onNavigate} />}
+        {issue && <TaskActions item={item} items={items} actor={actor} readOnly={readOnly} onPatch={onPatch} />}
         {issue && (
           <div className="work-status-choice" role="radiogroup" aria-label="Status">
             {["Backlog", "Todo", "In progress", "Done"].map((s) => {

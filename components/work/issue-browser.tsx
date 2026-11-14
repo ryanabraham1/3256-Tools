@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
-import { filterIssues, type WorkData, type WorkFilter, type WorkItem } from "@/lib/work";
+import { filterIssues, isBlocked, type WorkData, type WorkFilter, type WorkItem } from "@/lib/work";
 import { Empty, IssueBoard, IssueList } from "./collections";
 import { IssueFilterFields, type FilterKey } from "./filter-fields";
 import { Icon, statusLabel } from "./icons";
@@ -10,7 +10,11 @@ import { PropertyPicker } from "./property-picker";
 export type IssueView = { filter: WorkFilter; layout: "list" | "board"; group: string; sort: string };
 export const DEFAULT_ISSUE_VIEW: IssueView = { filter: {}, layout: "list", group: "status", sort: "priority" };
 
-const STATUS_TABS = ["In progress", "Todo", "Backlog", "Done"];
+/** "blocked" is the filter's own value (see filterIssues); the rest are statuses. */
+const STATUS_TABS: [string, string][] = [["In progress", "In progress"], ["Todo", "To do"], ["blocked", "Blocked"], ["Backlog", "Backlog"], ["Done", "Done"]];
+const tabCount = (rows: WorkItem[], value: string) =>
+  value === "blocked" ? rows.filter(isBlocked).length
+      : rows.filter((i) => (i.data.status || "Backlog").toLowerCase() === value.toLowerCase()).length;
 const SORTS: Record<string, string> = { priority: "Priority", created: "Newest", due: "Due date", title: "Title" };
 const GROUPS: Record<string, string> = { status: "Status", project: "Project", none: "None" };
 const BULK_STATUSES = ["Backlog", "Todo", "In progress", "In review", "Done", "Canceled"];
@@ -104,7 +108,7 @@ export function IssueBrowser({
   return (
     <div className="work-issue-browser" data-embedded={embedded}>
       <div className="work-status-tabs" role="tablist" aria-label="Show tasks by status">
-        {[{ value: "", label: "All", count: statusBase.length }, ...STATUS_TABS.map((st) => ({ value: st, label: statusLabel(st), count: statusBase.filter((i) => (i.data.status || "Backlog").toLowerCase() === st.toLowerCase()).length }))].map(({ value, label, count }) => (
+        {[{ value: "", label: "All", count: statusBase.length }, ...STATUS_TABS.map(([value, label]) => ({ value, label, count: tabCount(statusBase, value) }))].map(({ value, label, count }) => (
           <button
             key={label}
             role="tab"
@@ -214,8 +218,8 @@ export function IssueBrowser({
       )}
       {!issues.length ? (
         <Empty
-          title={filtersActive ? "No matching tasks" : empty?.title ?? "No tasks"}
-          description={filtersActive ? "Try adjusting your filters or search." : empty?.description ?? "Create a task to get started."}
+          title={filter.status === "blocked" && activeCount === 1 && !filter.query ? "Nothing is blocked" : filtersActive ? "No matching tasks" : empty?.title ?? "No tasks"}
+          description={filter.status === "blocked" && activeCount === 1 && !filter.query ? "No one is stuck right now." : filtersActive ? "Try adjusting your filters or search." : empty?.description ?? "Create a task to get started."}
           // Full pages already have New task in their heading; only the embedded list needs its own.
           onCreate={readOnly || filtersActive || !embedded ? undefined : () => create()}
         />

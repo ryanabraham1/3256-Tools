@@ -183,3 +183,15 @@ export function problemsByArea(problems: PitProblem[]): [string, number][] {
 export function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
+
+export type RobotIssueInput = { title: string; details: string; area: string; severity: Severity };
+/** Checks a robot issue reported from Work (the pit form has its own FormData path in pit-actions). */
+export function validateRobotIssue(input: unknown): RobotIssueInput {
+  const d = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const text = (k: string, max: number) => (typeof d[k] === "string" ? (d[k] as string).trim().slice(0, max) : "");
+  const title = text("title", 200);
+  if (!title) throw new Error("Say what's wrong with the robot.");
+  const severity = text("severity", 20) || "minor";
+  if (!(SEVERITIES as readonly string[]).includes(severity)) throw new Error("Pick how bad it is.");
+  return { title, details: text("details", 2000), area: text("area", 60), severity: severity as Severity };
+}

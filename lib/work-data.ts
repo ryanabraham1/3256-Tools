@@ -1,6 +1,7 @@
 import "server-only";
 import { getWorkUser, requireWorkUser } from "./work-auth";
 import { supabaseAdmin } from "./supabase";
+import type { PitProblem } from "./pit";
 import type { WorkSnapshot } from "./work";
 import { compactWorkSnapshot } from "./work-snapshot";
 async function collect<T>(
@@ -24,12 +25,24 @@ async function collect<T>(
   }
   return all;
 }
+/** The pit problem log, shared with Work as "Robot issues". A missing table leaves the page empty rather than failing Work. */
+async function robotIssues(): Promise<Pick<WorkSnapshot, "problems" | "pitEvents">> {
+  const db = supabaseAdmin();
+  const [problems, events] = await Promise.all([
+    db.from("pit_problems").select("*").order("occurred_at", { ascending: false }).limit(2000),
+    db.from("pit_events").select("id,name,active").order("starts_on", { ascending: false, nullsFirst: false }),
+  ]);
+  return {
+    problems: (problems.data ?? []) as PitProblem[],
+    pitEvents: (events.data ?? []) as WorkSnapshot["pitEvents"],
+  };
+}
 export async function getWork(full = false): Promise<WorkSnapshot> {
   const user = await requireWorkUser();
   try {
     const db = supabaseAdmin();
     // Recurring-task upkeep runs alongside the reads; anything it creates shows on the next refresh.
-    const [maintenance, items, events, receipts] = await Promise.all([
+    const [maintenance, items, events, receipts, robot] = await Promise.all([
       db.rpc("advance_work"),
       collect<WorkSnapshot["items"][number]>((from, to) =>
         db.from("work_items").select("*").order("number").range(from, to),
@@ -52,9 +65,10 @@ export async function getWork(full = false): Promise<WorkSnapshot> {
           .order("event_id")
           .range(from, to),
       ),
+      robotIssues(),
     ]);
     if (maintenance.error) throw maintenance.error;
-    const snapshot = { now: new Date().toISOString(), items, events, receipts };
+    const snapshot = { now: new Date().toISOString(), items, events, receipts, ...robot };
     return full ? snapshot : compactWorkSnapshot(snapshot);
   } catch (e) {
     const message =

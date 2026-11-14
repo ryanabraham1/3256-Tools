@@ -366,6 +366,12 @@ select.cell:hover, select.cell:focus {
 .sheet-table tbody tr:hover td { background: var(--paper); }
 .sheet-table .pin { position: sticky; z-index: 1; background: var(--surface); }
 .sheet-table tbody tr:hover .pin { background: var(--paper); }
+/* the whole tracker scrolls inside one box like the sheet: header row and pinned columns stay put */
+.sheet-scroll { max-height: calc(100dvh - 96px); }
+.sheet-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--line); }
+.sheet-table thead th.pin { z-index: 3; }
+.sheet-table .group-row td { padding: 14px 0 6px; background: var(--paper); border-top: 1px solid var(--line); }
+.sheet-table tbody tr.group-row:hover td { background: var(--paper); }
 
 /* Phone controls stay legible and reachable, including when the keyboard opens. */
 :where(a, button, input, select, textarea, summary):focus-visible {

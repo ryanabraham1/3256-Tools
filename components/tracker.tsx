@@ -358,6 +358,7 @@ export function TrackerTable({
       const a = at(x);
       const b = at(y);
       return (
+        Number(isDone(a.status)) - Number(isDone(b.status)) ||
         (a.priority ?? 9) - (b.priority ?? 9) ||
         order.indexOf(a.status) - order.indexOf(b.status) ||
         a.bot.localeCompare(b.bot) ||
@@ -402,82 +403,98 @@ export function TrackerTable({
     }
   }
 
-  /** A group's rows: cards on phones, the sheet's columns on desktop, then a blank row that adds to it. */
-  function renderRows(name: string, rows: FabJob[], addLabel: string, onAdd: (names: string[]) => void) {
+  /** A group on phones: its cards, then a blank row that adds to it. */
+  function phoneRows(name: string, rows: FabJob[], addLabel: string, onAdd: (names: string[]) => void) {
     return (
-      <>
-        {/* phones: cards */}
-        <ul className="md:hidden flex flex-col gap-2">
-          {rows.map((j) => (
-            <li key={j.id} className="card p-3">
-              <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
+      <ul className="md:hidden flex flex-col gap-2">
+        {rows.map((j) => (
+          <li key={j.id} className="card p-3">
+            <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
+          </li>
+        ))}
+        {pending
+          .filter((x) => x.group === name)
+          .map((x) => (
+            <li key={x.key} className="card p-3 text-sm">
+              <span className="font-medium">{x.name}</span> <span style={{ color: "var(--muted)" }}>· adding…</span>
             </li>
           ))}
-          {pending
-            .filter((x) => x.group === name)
-            .map((x) => (
-              <li key={x.key} className="card p-3 text-sm">
-                <span className="font-medium">{x.name}</span> <span style={{ color: "var(--muted)" }}>· adding…</span>
-              </li>
-            ))}
-          <li className="card p-1">
-            <QuickAdd className="cell cell-add" placeholder={addLabel} onAdd={onAdd} onSheet={setImportText} />
-          </li>
+        <li className="card p-1">
+          <QuickAdd className="cell cell-add" placeholder={addLabel} onAdd={onAdd} onSheet={setImportText} />
+        </li>
+        {addErrors[name] && <ErrorText error={addErrors[name]} />}
+      </ul>
+    );
+  }
+
+  /** A group on desktop: a divider row (when titled), its rows, then a blank row that adds to it. */
+  function deskRows(name: string, title: string | null, rows: FabJob[], addLabel: string, onAdd: (names: string[]) => void) {
+    return [
+      title && (
+        <tr key={`h-${name}`} className="group-row">
+          <td colSpan={cols.length}>
+            <span className="eyebrow inline-flex items-center gap-2 px-2" style={{ position: "sticky", left: 0, color: "var(--muted)" }}>
+              {title} <span className="mono">{rows.length}</span>
+            </span>
+          </td>
+        </tr>
+      ),
+      ...rows.map((j) => (
+        <tr key={j.id} className="border-t" style={{ borderColor: "var(--line)", opacity: isDone(j.status) ? 0.6 : 1 }}>
+          {cols.map((c) => (
+            <td key={c.key} className={`px-1 py-1 ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
+              {c.render(j)}
+            </td>
+          ))}
+        </tr>
+      )),
+      ...pending
+        .filter((x) => x.group === name)
+        .map((x) => (
+          <tr key={x.key} className="border-t" style={{ borderColor: "var(--line)" }}>
+            <td className="pin px-1 py-1" style={{ left: 0 }} />
+            <td className="pin px-1 py-1" style={{ left: 150 }}>
+              <span className="block px-1 font-medium truncate">{x.name}</span>
+            </td>
+            <td colSpan={cols.length - 2} className="px-2 py-1 text-xs" style={{ color: "var(--muted)" }}>
+              adding…
+            </td>
+          </tr>
+        )),
+      <tr key={`add-${name}`} className="border-t" style={{ borderColor: "var(--line)" }}>
+        <td className="pin px-1 py-1" style={{ left: 0 }} />
+        <td className="pin px-1 py-1" style={{ left: 150 }}>
+          <QuickAdd className="cell cell-add" placeholder={addLabel} onAdd={onAdd} onSheet={setImportText} />
+        </td>
+        <td colSpan={cols.length - 2} className="px-2 py-1">
           {addErrors[name] && <ErrorText error={addErrors[name]} />}
-        </ul>
-        {/* desktop: the sheet's columns */}
-        <div className="hidden md:block card overflow-x-auto">
-          <table className="sheet-table text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
-            <colgroup>
+        </td>
+      </tr>,
+    ];
+  }
+
+  /** The sheet on desktop: one table that scrolls inside itself, with the header row and Status / Part columns frozen. */
+  function deskTable(body: React.ReactNode, scroll: boolean) {
+    return (
+      <div className={`hidden md:block card overflow-auto ${scroll ? "sheet-scroll" : ""}`}>
+        <table className="sheet-table text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+          <colgroup>
+            {cols.map((c) => (
+              <col key={c.key} style={{ width: c.w }} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr className="text-left eyebrow" style={{ color: "var(--muted)" }}>
               {cols.map((c) => (
-                <col key={c.key} style={{ width: c.w }} />
+                <th key={c.key} className={`px-2 py-2 font-medium whitespace-nowrap ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
+                  {c.label}
+                </th>
               ))}
-            </colgroup>
-            <thead>
-              <tr className="text-left eyebrow" style={{ color: "var(--muted)" }}>
-                {cols.map((c) => (
-                  <th key={c.key} className={`px-2 py-2 font-medium whitespace-nowrap ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
-                    {c.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((j) => (
-                <tr key={j.id} className="border-t" style={{ borderColor: "var(--line)", opacity: isDone(j.status) ? 0.6 : 1 }}>
-                  {cols.map((c) => (
-                    <td key={c.key} className={`px-1 py-1 ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
-                      {c.render(j)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {pending
-                .filter((x) => x.group === name)
-                .map((x) => (
-                  <tr key={x.key} className="border-t" style={{ borderColor: "var(--line)" }}>
-                    <td className="pin px-1 py-1" style={{ left: 0 }} />
-                    <td className="pin px-1 py-1" style={{ left: 150 }}>
-                      <span className="block px-1 font-medium truncate">{x.name}</span>
-                    </td>
-                    <td colSpan={cols.length - 2} className="px-2 py-1 text-xs" style={{ color: "var(--muted)" }}>
-                      adding…
-                    </td>
-                  </tr>
-                ))}
-              <tr className="border-t" style={{ borderColor: "var(--line)" }}>
-                <td className="pin px-1 py-1" style={{ left: 0 }} />
-                <td className="pin px-1 py-1" style={{ left: 150 }}>
-                  <QuickAdd className="cell cell-add" placeholder={addLabel} onAdd={onAdd} onSheet={setImportText} />
-                </td>
-                <td colSpan={cols.length - 2} className="px-2 py-1">
-                  {addErrors[name] && <ErrorText error={addErrors[name]} />}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </>
+            </tr>
+          </thead>
+          <tbody>{body}</tbody>
+        </table>
+      </div>
     );
   }
 
@@ -593,7 +610,8 @@ export function TrackerTable({
               Done, put them in the list
             </button>
           </h2>
-          {renderRows(JUST_ADDED, justRows, "+ Another part (same as the bar above)", addFromBar)}
+          {phoneRows(JUST_ADDED, justRows, "+ Another part (same as the bar above)", addFromBar)}
+          {deskTable(deskRows(JUST_ADDED, null, justRows, "+ Another part (same as the bar above)", addFromBar), false)}
         </section>
       )}
 
@@ -625,16 +643,22 @@ export function TrackerTable({
           )}
         </Empty>
       ) : (
-        <div className="flex flex-col gap-4">
-          {groups.map(([name, rows]) => (
-            <section key={name}>
-              <h2 className="eyebrow mb-2 flex items-center gap-2" style={{ color: "var(--muted)" }}>
-                {name} <span className="mono">{rows.length}</span>
-              </h2>
-              {renderRows(name, rows, `+ Add a part to ${name}`, (names) => addNames(name, rows, names))}
-            </section>
-          ))}
-        </div>
+        <>
+          <div className="md:hidden flex flex-col gap-4">
+            {groups.map(([name, rows]) => (
+              <section key={name}>
+                <h2 className="eyebrow mb-2 flex items-center gap-2" style={{ color: "var(--muted)" }}>
+                  {name} <span className="mono">{rows.length}</span>
+                </h2>
+                {phoneRows(name, rows, `+ Add a part to ${name}`, (names) => addNames(name, rows, names))}
+              </section>
+            ))}
+          </div>
+          {deskTable(
+            groups.flatMap(([name, rows]) => deskRows(name, name, rows, `+ Add a part to ${name}`, (names) => addNames(name, rows, names))),
+            true,
+          )}
+        </>
       )}
 
       <Sheet open={edit !== null} onClose={() => setEdit(null)} eyebrow={TRACKER_LABEL[tracker]} title={edit === "new" ? "Add part" : "Edit part"}>

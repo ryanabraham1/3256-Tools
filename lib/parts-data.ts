@@ -114,6 +114,21 @@ export async function getMachines(): Promise<FabMachine[]> {
 }
 
 /** Everyone who's been assigned anything, for the name picker. */
+/** Everyone who has joined the workspace (signed in, not disabled), by their member name. */
+export async function getJoinedPeople(): Promise<string[]> {
+  const { data: access, error } = await supabaseAdmin().from("work_access").select("member_id").eq("disabled", false).not("user_id", "is", null).not("member_id", "is", null);
+  if (error || !access?.length) return [];
+  const { data: members } = await supabaseAdmin()
+    .from("work_items")
+    .select("title")
+    .eq("kind", "member")
+    .in(
+      "id",
+      access.map((a) => a.member_id as string),
+    );
+  return [...new Set((members ?? []).map((m) => String(m.title ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
 export function knownPeople(parts: FabPart[]): string[] {
   const s = new Set<string>();
   for (const p of parts) for (const a of p.assignees) s.add(a);

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { addPart, autoMatchParts, deletePart, importSheet, setPartStatus, updatePart } from "@/app/parts-actions";
 import { isLengthKind, isStockKind, KIND_LABEL, LENGTH_SPEC_SHORT, LENGTH_SPECS, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
 import {
@@ -22,7 +23,7 @@ import { timeAgo } from "@/lib/format";
 import { Sheet } from "./sheet";
 import { Empty } from "./ui";
 import { ErrorText, Field, SubmitButton, useFabAction } from "./fab-ui";
-import { FabablePill, LengthFitField } from "./parts-ui";
+import { FabablePill, LengthFitField, PersonChip } from "./parts-ui";
 
 type Stock = Record<string, { name: string; onHand: string; low: boolean }>;
 type FabJob = FabPart;
@@ -61,12 +62,15 @@ export function TrackerTable({
   stock,
   copies,
   person,
+  members,
 }: {
   tracker: Tracker;
   parts: FabPart[];
   stock: Stock;
   copies: Record<string, number>;
   person: string;
+  /** Everyone who has joined the workspace. */
+  members: string[];
 }) {
   const print = tracker === "print";
   const [status, setStatus] = useState<StatusFilter>("open");
@@ -101,7 +105,7 @@ export function TrackerTable({
     stock_dims: options(SUGGEST.stock_dims, jobs, "stock_dims"),
     machine: options(SUGGEST.machine, jobs, "machine"),
     tapped: options(SUGGEST.tapped, jobs, "tapped"),
-    people: [...new Set(jobs.flatMap((j) => [...j.assignees, j.designer]).concat(person ? [person] : []).filter(Boolean))].sort(),
+    people: [...new Set([...members, ...jobs.map((j) => j.designer), person].map((p) => p.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
   };
 
   /** The sheet's columns, in its order. Status and Part stay put while the rest scrolls. */
@@ -174,7 +178,7 @@ export function TrackerTable({
           { key: "tap", label: "Tapped?", w: 100, render: (j: FabPart) => <DropCell part={j} field="tapped" value={j.tapped} choices={lists.tapped} /> },
           { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
         ]),
-    { key: "designer", label: "Design DRI", w: 120, render: (j) => <Cell part={j} field="designer" value={j.designer} list="tr-people" /> },
+    { key: "designer", label: "Design DRI", w: 120, render: (j) => <PersonCell part={j} field="designer" value={j.designer} members={members} /> },
     {
       key: "file",
       label: print ? "STL File" : "Drawing/CAM File",
@@ -444,6 +448,143 @@ function Cell({ part, field, value, list, numeric }: { part: FabPart; field: str
         if (v !== value.trim()) a.call({ id: part.id, [field]: v });
       }}
     />
+  );
+}
+
+/**
+ * A searchable people dropdown: the workspace's members first, then type to
+ * filter. Enter picks the highlighted one (or whatever was typed), Esc closes.
+ */
+function PersonCell({ part, field, value, members }: { part: FabPart; field: string; value: string; members: string[] }) {
+  const a = useFabAction(updatePart);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [q, setQ] = useState("");
+  const [hi, setHi] = useState(0);
+  const needle = q.trim().toLowerCase();
+  const shown = members.filter((m) => !needle || m.toLowerCase().includes(needle));
+  const typed = q.trim() && !members.some((m) => m.toLowerCase() === needle) ? q.trim() : "";
+  const opts = [...shown, ...(typed ? [typed] : [])];
+
+  function open() {
+    const r = btn.current!.getBoundingClientRect();
+    setAt({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 220) });
+    setQ("");
+    setHi(Math.max(0, members.findIndex((m) => m.toLowerCase() === value.toLowerCase())));
+  }
+  function pick(v: string) {
+    setAt(null);
+    if (v !== value) a.call({ id: part.id, [field]: v });
+    btn.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!at) return;
+    const close = (e: Event) => {
+      if (!pop.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) setAt(null);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [at]);
+
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        className="cell text-left"
+        data-error={!!a.error}
+        style={{ opacity: a.pending ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+        title={a.error ?? (value || undefined)}
+        aria-label={`Design DRI for ${part.name}`}
+        aria-haspopup="listbox"
+        aria-expanded={!!at}
+        onClick={() => (at ? setAt(null) : open())}
+      >
+        {value && <PersonChip name={value} size={18} />}
+        <span className="truncate">{value}</span>
+      </button>
+      {at &&
+        createPortal(
+          <div
+            ref={pop}
+            className="fade-in"
+            style={{
+              position: "fixed",
+              left: Math.min(at.left, window.innerWidth - at.width - 8),
+              top: at.top,
+              width: at.width,
+              zIndex: 60,
+              background: "var(--surface)",
+              border: "1px solid var(--line)",
+              borderRadius: 10,
+              boxShadow: "var(--shadow-md)",
+              padding: 6,
+            }}
+          >
+            <input
+              autoFocus
+              className="input text-sm"
+              placeholder="Search people…"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setHi(0);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setHi((h) => Math.min(h + 1, opts.length - 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setHi((h) => Math.max(h - 1, 0));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (opts[hi]) pick(opts[hi]);
+                } else if (e.key === "Escape") {
+                  setAt(null);
+                  btn.current?.focus();
+                }
+              }}
+            />
+            <div role="listbox" className="mt-1 flex flex-col overflow-y-auto" style={{ maxHeight: 260 }}>
+              {opts.map((m, i) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="option"
+                  aria-selected={m === value}
+                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left"
+                  style={{ background: i === hi ? "var(--paper)" : undefined, fontWeight: m === value ? 600 : undefined }}
+                  onMouseEnter={() => setHi(i)}
+                  onClick={() => pick(m)}
+                >
+                  <PersonChip name={m} size={20} />
+                  <span className="truncate">{m === typed ? `Use “${m}”` : m}</span>
+                </button>
+              ))}
+              {!opts.length && (
+                <span className="px-2 py-1.5 text-sm" style={{ color: "var(--muted)" }}>
+                  No one joined matches
+                </span>
+              )}
+              {value && (
+                <button type="button" className="mt-1 px-2 py-1.5 text-sm text-left rounded-md" style={{ color: "var(--muted)", borderTop: "1px solid var(--line)" }} onClick={() => pick("")}>
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 

@@ -183,7 +183,7 @@ export function IssueRow({
         />
       )}
       <div className="work-row-prop work-row-priority"><PropertyPicker label={`Priority for ${item.title}`} value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => actions.onPatch(item, { priority: Number(v) })}
-        display={<span className="work-priority" data-priority={item.data.priority ?? 0} title={PRIORITIES[item.data.priority ?? 0]}><PriorityIcon priority={item.data.priority} /></span>}
+        display={<span className="work-sr-only">{PRIORITIES[item.data.priority ?? 0]}</span>}
         options={PRIORITY_OPTIONS} /></div>
       <span className="work-code">{issueCode(item, lookup.byId)}</span>
       <div className="work-row-status-picker"><PropertyPicker label={`Status for ${item.title}`} value={lookup.statusValue.get(status.toLowerCase()) ?? status} disabled={readOnly} onChange={status => actions.onPatch(item, { status })}

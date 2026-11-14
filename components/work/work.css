@@ -2191,6 +2191,8 @@
 .work-row-status-picker { width:24px; flex-shrink:0; }
 .work-row-status-picker .work-property-button { padding:3px; min-height:25px; width:24px; justify-content:center; }
 .work-row-status-picker .work-property-button > span:not(.work-status), .work-row-status-picker .work-picker-chevron { display:none; }
+/* Row pickers show only their icon (the chosen option's); the name stays for screen readers. */
+.work-row-priority .work-picker-chevron { display:none; }
 .work-chip { border-radius:20px; padding:3px 7px; }
 .work-row-title { font-weight:450; font-size:14.5px; }
 .work-issue-card { border-color:var(--line); border-radius:8px; box-shadow:none; }

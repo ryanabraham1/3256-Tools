@@ -75,7 +75,7 @@ const TERMS: [string, string][] = [
   ["Project", "A bigger piece of work made of many tasks, with a start and target date."],
   ["Initiative", "A season-long goal that groups several projects together."],
   ["Milestone", "A checkpoint inside a project, like “Drive base done”."],
-  ["Status", "Where a task is: Backlog → Todo → In progress → In review → Done."],
+  ["Status", "Where a task is: Backlog → To do → In progress → In review → Done."],
   ["View", "A saved set of filters you can come back to with one click."],
 ];
 const KEYS: [string, string][] = [

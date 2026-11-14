@@ -9,7 +9,7 @@ import {
   type WorkItem,
   type WorkKind,
 } from "@/lib/work";
-import { Icon } from "./icons";
+import { Icon, statusLabel } from "./icons";
 import { PropertyPicker } from "./property-picker";
 export function Modal({
   title,
@@ -28,6 +28,9 @@ export function Modal({
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
+    // React's autoFocus fires while the dialog is still closed, so showModal() would land on the
+    // close button instead. Fields marked data-autofocus get focus once the dialog is open.
+    dialog?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     return () => dialog?.close();
   }, []);
   return (
@@ -277,12 +280,12 @@ function IssueComposer({
         <div className="work-compose-writing">
           <input
             ref={titleRef}
-            autoFocus
+            data-autofocus
             required
             maxLength={300}
             className="work-title-input"
             aria-label="Title"
-            placeholder="Issue title"
+            placeholder="Task title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
@@ -304,7 +307,7 @@ function IssueComposer({
               onChange={(e) => patch("status", e.target.value)}
             >
               {statuses.map((s) => (
-                <option key={s}>{s}</option>
+                <option key={s} value={s}>{statusLabel(s)}</option>
               ))}
             </select>
           </label>
@@ -554,7 +557,7 @@ export function ItemEditor({
             </Field>
           )}
           <input
-            autoFocus
+            data-autofocus
             className="work-title-input"
             aria-label="Title"
             placeholder={
@@ -581,7 +584,7 @@ export function ItemEditor({
             {(issue || plan) && (
               <>
                 <Field label="Status">
-                  <PropertyPicker label="Status" value={data.status ?? (issue ? "Backlog" : "Planned")} disabled={pending} onChange={status => patch("status",status)} options={statuses.map(s => ({value:s,label:s}))}/>
+                  <PropertyPicker label="Status" value={data.status ?? (issue ? "Backlog" : "Planned")} disabled={pending} onChange={status => patch("status",status)} options={statuses.map(s => ({value:s,label:statusLabel(s)}))}/>
                 </Field>
                 <Field label="Priority">
                   <PropertyPicker label="Priority" value={String(data.priority ?? 0)} disabled={pending} onChange={v => patch("priority",Number(v))} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/>
@@ -775,7 +778,7 @@ export function ItemEditor({
               </Field>
             )}
             {kind === "team" && (
-              <Field label="Issue identifier">
+              <Field label="Task ID prefix">
                 <input
                   className="input"
                   placeholder="MECH"

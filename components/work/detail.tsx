@@ -33,6 +33,27 @@ export function RichText({ text }: { text: string }) {
     </div>
   );
 }
+/** "set status to Done, assigned Sam" rather than a bare "updated this task". */
+function describeUpdate(e: WorkEvent, item: WorkItem, items: WorkItem[]) {
+  const before = (e.data.before as WorkItem | undefined) ?? undefined;
+  const after = (e.data.after as WorkItem | undefined) ?? undefined;
+  const fallback = `updated this ${KIND_NAMES[item.kind].toLowerCase()}`;
+  if (!before || !after) return fallback;
+  const a = before.data ?? {}, b = after.data ?? {};
+  const name = (id?: string) => items.find((i) => i.id === id)?.title;
+  const parts: string[] = [];
+  if (before.title !== after.title && after.title) parts.push(`renamed it to “${after.title}”`);
+  if (a.status !== b.status) parts.push(`set status to ${statusLabel(b.status)}`);
+  if ((a.priority ?? 0) !== (b.priority ?? 0)) parts.push(b.priority ? `set priority to ${PRIORITIES[b.priority]}` : "cleared the priority");
+  if (a.assignee !== b.assignee) parts.push(b.assignee ? `assigned ${name(b.assignee) ?? "someone"}` : "removed the assignee");
+  if (a.due !== b.due) parts.push(b.due ? `set the due date to ${dateLabel(b.due)}` : "cleared the due date");
+  if (a.project !== b.project) parts.push(b.project ? `moved it to ${name(b.project) ?? "a project"}` : "removed it from its project");
+  if (a.milestone !== b.milestone) parts.push(b.milestone ? `set the milestone to ${name(b.milestone) ?? "a milestone"}` : "cleared the milestone");
+  if ((a.labels ?? []).join() !== (b.labels ?? []).join()) parts.push("changed the labels");
+  if ((a.description ?? "") !== (b.description ?? "")) parts.push("edited the description");
+  if ((a.estimate ?? 0) !== (b.estimate ?? 0)) parts.push(b.estimate ? `set the estimate to ${b.estimate}` : "cleared the estimate");
+  return parts.length ? parts.join(", ") : fallback;
+}
 export function ItemDetail({
   item,
   items,
@@ -168,7 +189,6 @@ export function ItemDetail({
             })}
           </div>
         )}
-        {!issue && <LabelPicker item={item} items={items} disabled={readOnly} onChange={labels => onPatch({ labels })} />}
         <InlineEdit label="Description" multiline value={item.data.description ?? ""} disabled={readOnly} placeholder="Add a description…" onSave={description => onPatch({ description })}>
           {item.data.description ? <RichText text={item.data.description} /> : <span className="work-description-placeholder">Add a description…</span>}
         </InlineEdit>
@@ -322,18 +342,10 @@ export function ItemDetail({
                   ) : (
                     <p className="work-muted">
                       {e.type === "status"
-                        ? `Status → ${e.body}`
-                        : `${e.type} this ${item.kind}`}
-                      {e.type === "updated" &&
-                        (() => {
-                          const before = (e.data.before as WorkItem | undefined)
-                              ?.data,
-                            after = (e.data.after as WorkItem | undefined)
-                              ?.data;
-                          return before?.status !== after?.status
-                            ? ` · ${before?.status ?? "None"} → ${after?.status ?? "None"}`
-                            : "";
-                        })()}
+                        ? `set status to ${statusLabel(e.body)}`
+                        : e.type === "updated"
+                          ? describeUpdate(e, item, items)
+                          : `${e.type} this ${KIND_NAMES[item.kind].toLowerCase()}`}
                     </p>
                   )}
                 </div>
@@ -377,7 +389,7 @@ export function ItemDetail({
         <h2>Properties</h2>
         <Field label="Status">
           <PropertyPicker label="Status" value={item.data.status ?? "Planned"} disabled={readOnly} onChange={status => onPatch({status})}
-            options={uniqueStatuses([item.data.status ?? "Planned", ...(issue ? STATUSES : ["Planned", "In progress", "Done", "Canceled"])]).map(s => ({value:s,label:s,icon:<StatusIcon status={s}/>}))}/>
+            options={uniqueStatuses([item.data.status ?? "Planned", ...(issue ? STATUSES : ["Planned", "In progress", "Done", "Canceled"])]).map(s => ({value:s,label:statusLabel(s),icon:<StatusIcon status={s}/>}))}/>
         </Field>
         <Field label="Priority">
           <PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({priority:Number(v)})} icon={<Icon name="insights" size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/>
@@ -392,7 +404,7 @@ export function ItemDetail({
             empty="Unassigned"
           />
         </Field>
-        {issue && <section className="work-detail-labels"><h2>Labels</h2><LabelPicker item={item} items={items} disabled={readOnly} onChange={labels => onPatch({ labels })}/></section>}
+        <Field label="Labels"><LabelPicker item={item} items={items} disabled={readOnly} onChange={labels => onPatch({ labels })}/></Field>
         {issue && (
           <>
             <Field label="Project">
@@ -412,6 +424,7 @@ export function ItemDetail({
                 className="input"
                 type="date"
                 aria-label="Due date"
+                data-empty={!item.data.due}
                 disabled={readOnly}
                 value={item.data.due ?? ""}
                 onCommit={(due) => onPatch({ due })}
@@ -432,7 +445,7 @@ export function ItemDetail({
             </Field>
           </>
         )}
-        {item.kind === "milestone" && <><Field label="Project"><EntitySelect disabled={readOnly} kind="project" items={items} value={item.data.project} onChange={project => onPatch({project})}/></Field><Field label="Target date"><CommitInput className="input" type="date" aria-label="Milestone target date" disabled={readOnly} value={item.data.due || ""} onCommit={due => onPatch({due})}/></Field></>}
+        {item.kind === "milestone" && <><Field label="Project"><EntitySelect disabled={readOnly} kind="project" items={items} value={item.data.project} onChange={project => onPatch({project})}/></Field><Field label="Target date"><CommitInput className="input" type="date" aria-label="Milestone target date" data-empty={!item.data.due} disabled={readOnly} value={item.data.due || ""} onCommit={due => onPatch({due})}/></Field></>}
         {!["issue", "document"].includes(item.kind) && (
           <div className="work-detail-progress">
             <div className="work-progress">

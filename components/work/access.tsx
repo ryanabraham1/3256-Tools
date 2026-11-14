@@ -37,8 +37,8 @@ export function AccessPanel({
     });
   }
   return (
-    <div className="p-0">
-      <h2 className="text-lg font-semibold mb-5">People</h2>
+    <div className="work-access">
+      <h2 className="text-lg font-semibold mb-4">People</h2>
       <form
         className="flex flex-wrap items-end gap-3 mb-3"
         onSubmit={(e) => {
@@ -96,7 +96,7 @@ export function AccessPanel({
               </span>
             </div>
             <select
-              className="input w-auto min-w-28 text-sm"
+              className="input text-sm"
               aria-label={`Role for ${a.email}`}
               value={a.role}
               disabled={pending || a.email.toLowerCase() === currentEmail.toLowerCase()}

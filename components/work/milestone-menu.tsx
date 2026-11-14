@@ -91,7 +91,7 @@ function MilestoneDialog({ milestone, disabled, onClose, onSave, onTrash }: {
   const [confirming, setConfirming] = useState(false);
   return <Modal title="Edit milestone" onClose={onClose}>
     <form className="work-milestone-form" onSubmit={e => { e.preventDefault(); if (title.trim()) onSave(title.trim(), due); }}>
-      <label>Name<input autoFocus className="input" required aria-label="Milestone name" value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} /></label>
+      <label>Name<input data-autofocus className="input" required aria-label="Milestone name" value={title} disabled={disabled} onChange={e => setTitle(e.target.value)} /></label>
       <label>Target date<span className="work-milestone-form-date"><input className="input" type="date" aria-label="Milestone target date" value={due} disabled={disabled} onChange={e => setDue(e.target.value)} />{due && <button type="button" className="work-text-button" onClick={() => setDue("")}>Clear</button>}</span></label>
       <div className="work-milestone-form-actions">
         {confirming

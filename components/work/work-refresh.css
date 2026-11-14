@@ -53,7 +53,7 @@
 .work-shell .work-nav-group { margin-top: 18px; }
 .work-shell .work-nav-group > p { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); margin: 0 12px 6px; }
 .work-shell .work-nav-link {
-  min-height: 44px;
+  min-height: 40px;
   font-size: 15px;
   font-weight: 500;
   border-radius: 10px;
@@ -67,7 +67,9 @@
 .work-nav-link > svg { opacity: 1; }
 .work-shell .work-nav-count { font-size: 13px; font-weight: 600; min-width: 24px; text-align: center; background: transparent; color: var(--muted); border-radius: 999px; padding: 1px 6px; }
 .work-shell .work-nav-link[data-active="true"] .work-nav-count { color: var(--purple-dark); }
-.work-sidebar-bottom { padding-top: 24px; }
+.work-shell .work-sidebar { overflow: hidden; }
+.work-shell .work-sidebar nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-inline: -4px; padding-inline: 4px; scrollbar-width: thin; }
+.work-sidebar-bottom { padding-top: 12px; flex-shrink: 0; }
 .work-shell .work-profile { padding: 14px 8px 0; margin-top: 8px; gap: 12px; border-top: 1px solid var(--line); }
 .work-signed-in b { font-size: 14px; font-weight: 600; }
 .work-signed-in span { font-size: 13px; color: var(--muted); }
@@ -107,6 +109,7 @@
   color: var(--ink);
 }
 .work-shell .work-control:hover { background: var(--surface); border-color: color-mix(in srgb, var(--purple) 40%, var(--line)); }
+.work-shell .work-control[data-active="true"] { background: var(--purple-soft); border-color: color-mix(in srgb, var(--purple) 45%, var(--line)); color: var(--purple-dark); }
 .work-search-field { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .work-search-field:focus-within { border-color: var(--purple); box-shadow: 0 0 0 3px var(--purple-soft); }
 .work-search-field .work-inline-search { width: 200px; height: 40px; font-size: 15px; background: transparent; }
@@ -262,6 +265,7 @@
 
 /* ---- Task detail ---- */
 .work-shell .work-detail { background: var(--paper); }
+.work-shell .work-detail,
 .work-shell .work-detail[data-kind="issue"] { grid-template-columns: minmax(0, 1fr) 320px; }
 .work-shell .work-detail-main { padding: 32px clamp(24px, 4vw, 56px); }
 .work-shell .work-detail-main h1 { font-size: 30px; line-height: 1.25; letter-spacing: -.5px; font-weight: 700; }
@@ -288,6 +292,14 @@
 .work-shell .work-properties .work-detail-section > h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
 .work-shell .work-properties .work-detail-section { margin-top: 10px; padding: 0; border: 0; background: transparent; }
 .work-shell .work-properties .work-field > span { font-size: 14px; color: var(--muted); }
+/* Every detail page lays properties out the same way as a project's: label left, value right. */
+.work-shell .work-properties .work-field { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 40px; margin: 0; }
+.work-shell .work-properties .work-field > :not(span) { min-width: 0; }
+.work-shell .work-properties > h2 { margin-bottom: 8px; }
+.work-shell .work-properties .work-field > span { align-self: start; padding-top: 10px; }
+.work-shell .work-properties .work-danger-zone { margin-top: 12px; padding-top: 14px; border: 0; border-top: 1px solid var(--line); border-radius: 0; display: flex; flex-direction: row; align-items: center; gap: 20px; flex-wrap: wrap; }
+.work-shell .work-access .btn { min-width: 96px; }
+.work-shell input[type="date"][data-empty="true"] { color: var(--muted); }
 .work-shell .work-properties .work-property-button { font-size: 14px; min-height: 40px; }
 .work-shell .work-properties .input { min-height: 40px; font-size: 14px; padding: 8px 10px; }
 .work-shell .work-text-button { font-size: 14px; font-weight: 600; color: var(--purple-dark); }
@@ -299,7 +311,12 @@
 .work-shell .work-inbox,
 .work-shell .work-settings-list,
 .work-shell .work-updates { margin: 0 32px 32px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
-.work-shell .work-settings-tabs { padding: 0 32px 16px; gap: 8px; }
+.work-shell .work-updates { padding: 0; background: transparent; border: 0; border-radius: 0; overflow: visible; display: grid; gap: 12px; }
+.work-shell .work-updates article { margin: 0; padding: 20px 24px; background: var(--surface); border-radius: 16px; }
+.work-shell .work-updates article > .work-text-button { margin: 8px 0 4px; }
+.work-shell .work-settings-tabs { padding: 0 32px 16px; gap: 8px; border-bottom: 0; }
+.work-shell .work-access { margin: 0 32px 32px; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.work-shell .work-access select.input { width: 128px; }
 .work-shell .work-muted { color: var(--muted); }
 
 /* ---- Overlays ---- */
@@ -364,7 +381,7 @@
 .work-card-progress-head span { color: var(--muted); }
 .work-shell .work-progress-split { display: flex; overflow: hidden; }
 .work-shell .work-progress-split > span { border-radius: 0; }
-.work-shell .work-progress-split > span[data-doing] { background: var(--warn); opacity: .75; }
+.work-shell .work-progress-split > span[data-doing] { background: color-mix(in srgb, var(--warn) 40%, transparent); }
 .work-card-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
 .work-card-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .work-card-legend span::before { content: ""; width: 9px; height: 9px; border-radius: 5px; background: var(--line); }
@@ -419,13 +436,15 @@
   .work-shell .work-board { padding: 4px 12px 16px; }
   .work-shell .work-collection { padding: 4px 12px 16px; grid-template-columns: minmax(0, 1fr); }
   .work-shell .work-project-columns,
+  .work-shell .work-detail,
   .work-shell .work-detail[data-kind="issue"] { grid-template-columns: minmax(0, 1fr); }
   .work-shell .work-project-content,
   .work-shell .work-detail-main { padding: 20px 12px; }
   .work-shell .work-project-sidebar { padding: 0 12px 16px; }
   .work-shell .work-detail[data-kind="issue"] .work-properties,
   .work-shell .work-properties { margin: 0 12px 16px; }
-  .work-shell .work-inbox, .work-shell .work-settings-list, .work-shell .work-updates { margin: 0 12px 16px; }
+  .work-shell .work-inbox, .work-shell .work-settings-list, .work-shell .work-updates, .work-shell .work-access { margin: 0 12px 16px; }
+  .work-shell .work-access { padding: 16px; }
   .work-shell .work-filter-panel, .work-shell .work-bulk { margin-inline: 12px; }
   .work-shell .work-project-property-card .work-property-button,
   .work-project-dates .work-inline-date { font-size: 16px; }
@@ -490,3 +509,8 @@
 .work-toast[data-tone="error"] .work-toast-check { color: inherit; }
 .work-toast .work-toast-action { margin-left: 6px; padding: 2px 6px; font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 3px; border-radius: 6px; }
 .work-toast .work-toast-action:hover { background: #fff2; }
+
+/* ---- Small fixes ---- */
+/* The big borderless title fields show the caret; a focus box around them looks like a stray border. */
+.work-shell .work-title-input:focus-visible { outline: none; }
+.work-shell .work-rich-text hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }

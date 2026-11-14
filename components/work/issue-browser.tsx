@@ -32,6 +32,7 @@ export function IssueBrowser({
   extraActive = 0,
   onClear,
   embedded = false,
+  empty,
 }: {
   items: WorkItem[];
   /** Filters this page always applies (a saved view, a project). The person's own filters go on top. */
@@ -50,6 +51,8 @@ export function IssueBrowser({
   onClear?: () => void;
   /** Sits inside another page's padding instead of filling the workspace. */
   embedded?: boolean;
+  /** What to say when there are no tasks at all (before filters). */
+  empty?: { title: string; description: string };
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -180,7 +183,7 @@ export function IssueBrowser({
               Change status…
             </option>
             {BULK_STATUSES.map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>{statusLabel(s)}</option>
             ))}
           </select>
           <select
@@ -211,9 +214,10 @@ export function IssueBrowser({
       )}
       {!issues.length ? (
         <Empty
-          title={filtersActive ? "No matching tasks" : "No tasks"}
-          description={filtersActive ? "Try adjusting your filters or search." : "Create a task to get started."}
-          onCreate={readOnly ? undefined : () => create()}
+          title={filtersActive ? "No matching tasks" : empty?.title ?? "No tasks"}
+          description={filtersActive ? "Try adjusting your filters or search." : empty?.description ?? "Create a task to get started."}
+          // Full pages already have New task in their heading; only the embedded list needs its own.
+          onCreate={readOnly || filtersActive || !embedded ? undefined : () => create()}
         />
       ) : view.layout === "board" ? (
         <IssueBoard rows={issues} items={items} issueActions={actions} onCreate={create} />

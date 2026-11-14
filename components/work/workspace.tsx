@@ -21,7 +21,7 @@ import { Timeline } from "./timeline";
 import { ProjectDetail } from "./project-detail";
 import { ItemDetail, RichText } from "./detail";
 import { Field, ItemEditor, Modal } from "./editor";
-import { Icon } from "./icons";
+import { Icon, statusLabel } from "./icons";
 import { AccessPanel } from "./access";
 import { HelpGuide } from "./help";
 import { WorkHome } from "./home";
@@ -628,7 +628,7 @@ export function WorkWorkspace() {
                   <PropertyPicker
                     label="More task pages"
                     value={pageGroup.more.some(([path]) => path === section) ? section : ""}
-                    display="More"
+                    display={pageGroup.more.find(([path]) => path === section)?.[1] ?? "More"}
                     onChange={navigate}
                     options={pageGroup.more.map(([value, label]) => ({ value, label }))}
                   />
@@ -713,6 +713,7 @@ export function WorkWorkspace() {
                 onClear={() => {
                   if (current?.kind === "view") navigate("issues");
                 }}
+                empty={section === "my-issues" ? { title: "Nothing assigned to you", description: "Tasks assigned to you show up here. Pick something from To do, or ask a lead what to work on." } : undefined}
               />
             ) : current ? (
               <ItemDetail
@@ -741,7 +742,7 @@ export function WorkWorkspace() {
                 <div className="work-project-browser-main">
                 <div className="work-toolbar">
                   <span className="work-toolbar-count">
-                    {live.filter((i) => i.kind === "project").length} projects
+                    {(() => { const n = live.filter((i) => i.kind === "project").length; return `${n} ${n === 1 ? "project" : "projects"}`; })()}
                   </span>
                   <div className="work-toolbar-right work-layout-toggle">
                     <button
@@ -890,16 +891,17 @@ export function WorkWorkspace() {
               </>
             ) : section === "inbox" ? (
               <>
-                <div className="work-toolbar">
-                  <span>{inbox.length} unread</span>
-                  <button
-                    className="work-text-button"
-                    disabled={!inbox.length}
-                    onClick={() => markRead(inbox.map((e) => e.id))}
-                  >
-                    Mark all read
-                  </button>
-                </div>
+                {inbox.length > 0 && (
+                  <div className="work-toolbar">
+                    <span className="work-toolbar-count">{inbox.length} unread</span>
+                    <button
+                      className="work-text-button"
+                      onClick={() => markRead(inbox.map((e) => e.id))}
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+                )}
                 {inbox.length ? (
                   <div className="work-inbox">
                     {inbox.map((e) => (
@@ -937,8 +939,8 @@ export function WorkWorkspace() {
                   </div>
                 ) : (
                   <Empty
-                    title={"No unread notifications"}
-                    description=""
+                    title="No unread notifications"
+                    description="You'll hear here when someone assigns you a task, mentions you, or changes something you follow."
                     icon="inbox"
                   />
                 )}
@@ -996,18 +998,20 @@ export function WorkWorkspace() {
                     Trash
                   </button>
                 </div>
+                {(() => {
+                  const rows = items.filter((i) =>
+                    archiveTab === "trash"
+                      ? !!i.deleted_at
+                      : i.archived && !i.deleted_at,
+                  );
+                  return rows.length ? (
                 <div className="work-settings-list">
-                  {items
-                    .filter((i) =>
-                      archiveTab === "trash"
-                        ? !!i.deleted_at
-                        : i.archived && !i.deleted_at,
-                    )
+                  {rows
                     .map((i) => (
                       <div key={i.id} onContextMenu={(e) => itemMenu.show(i, e)}>
                         <Icon name="archive" />
                         <b>{i.title}</b>
-                        <span className="work-muted">{i.kind}</span>
+                        <span className="work-muted">{KIND_NAMES[i.kind]}</span>
                         <button
                           className="work-text-button"
                           disabled={readOnly}
@@ -1018,6 +1022,14 @@ export function WorkWorkspace() {
                       </div>
                     ))}
                 </div>
+                  ) : (
+                    <Empty
+                      title={archiveTab === "trash" ? "Trash is empty" : "Nothing archived"}
+                      description={archiveTab === "trash" ? "Things you move to trash show up here until you restore them." : "Archived tasks and projects show up here."}
+                      icon="archive"
+                    />
+                  );
+                })()}
               </>
             ) : section === "views" ? (
               <div className="work-collection">
@@ -1033,8 +1045,7 @@ export function WorkWorkspace() {
                       <Icon name="views" />
                       <h3>{i.title}</h3>
                       <p>
-                        {filterIssues(items, i.data.filter ?? {}).length}{" "}
-                        matching issues
+                        {(() => { const n = filterIssues(items, i.data.filter ?? {}).length; return `${n} matching ${n === 1 ? "task" : "tasks"}`; })()}
                       </p>
                       <span className="work-muted">
                         {i.data.layout || "list"} · {i.data.group || "status"}
@@ -1099,7 +1110,7 @@ export function WorkWorkspace() {
           <div className="work-command">
             <input
               className="input"
-              autoFocus
+              data-autofocus
               aria-label="Search workspace"
               placeholder="Search tasks, projects, documents…"
               value={commandQuery}
@@ -1166,7 +1177,7 @@ export function WorkWorkspace() {
                 ))}
             </div>
             <p className="work-muted">
-              ⌘ / Ctrl K to search · C to create an issue · Esc to close
+              ⌘ / Ctrl K to search · C to create a task · Esc to close
             </p>
           </div>
         </Modal>
@@ -1192,7 +1203,7 @@ export function WorkWorkspace() {
             <Field label="View name">
               <input
                 className="input"
-                autoFocus
+                data-autofocus
                 required
                 value={viewName}
                 onChange={(e) => setViewName(e.target.value)}
@@ -1245,14 +1256,14 @@ export function WorkWorkspace() {
           >
             <p className="work-muted">
               Import up to 200 issues from JSON. Existing project, label, and
-              member IDs can be included in properties. Each imported issue gets
+              member IDs can be included in properties. Each imported task gets
               a new identifier.
             </p>
             <textarea
               className="input mt-4"
-              autoFocus
+              data-autofocus
               rows={10}
-              aria-label="Issue import JSON"
+              aria-label="Task import JSON"
               placeholder={
                 '[{"title":"Inspect drivetrain","data":{"status":"Todo","priority":2}}]'
               }
@@ -1342,7 +1353,7 @@ function Insights({
               ).length;
               return (
                 <div className="work-chart-row" key={s}>
-                  <span>{s}</span>
+                  <span>{statusLabel(s)}</span>
                   <div className="work-chart-bar">
                     <span
                       style={{

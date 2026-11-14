@@ -26,6 +26,7 @@ const paths: Record<string, string> = {
   star: "M12 3l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z",
   filter: "M3 5h18M6 12h12M9 19h6",
   board: "M3 4h5v16H3zM10 4h5v11h-5zM17 4h4v7h-4z",
+  sidebar: "M3 4h18v16H3zM15 4v16",
   timeline: "M3 4v17M3 8h10M8 13h13M5 18h11",
   label: "M3 3h8l10 10-8 8L3 11zM7 7h.01",
   member: "M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8M4 21v-3a8 8 0 0 1 16 0v3",

@@ -16,7 +16,7 @@ import {
 import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { MultiPicker, PropertyPicker } from "./property-picker";
 import { useItemMenuShow } from "./item-menu";
-import { Icon, StatusIcon } from "./icons";
+import { Icon, StatusIcon, statusLabel } from "./icons";
 export function Labels({ item, items, byId }: { item: WorkItem; items: WorkItem[]; byId?: Map<string, WorkItem> }) {
   return (
     <span className="work-labels">
@@ -128,7 +128,7 @@ export function useIssueLookup(items: WorkItem[]): IssueLookup {
     ]);
     return {
       byId: new Map(items.map((i) => [i.id, i])),
-      statusOptions: statuses.map((s) => ({ value: s, label: s, icon: <StatusIcon status={s} /> })),
+      statusOptions: statuses.map((s) => ({ value: s, label: statusLabel(s), icon: <StatusIcon status={s} /> })),
       statusValue: new Map(statuses.map((s) => [s.toLowerCase(), s])),
       memberOptions: [{ value: "", label: "Unassigned" }, ...live.filter((i) => i.kind === "member").map((m) => ({ value: m.id, label: m.title }))],
       today: today(),
@@ -186,7 +186,7 @@ export function IssueRow({
         options={PRIORITY_OPTIONS} /></div>
       <span className="work-code">{issueCode(item, lookup.byId)}</span>
       <div className="work-row-status-picker"><PropertyPicker label={`Status for ${item.title}`} value={lookup.statusValue.get(status.toLowerCase()) ?? status} disabled={readOnly} onChange={status => actions.onPatch(item, { status })}
-        icon={<StatusIcon status={status} />} display={<span className="work-sr-only">{status}</span>} options={lookup.statusOptions} /></div>
+        icon={<StatusIcon status={status} />} display={<span className="work-sr-only">{statusLabel(status)}</span>} options={lookup.statusOptions} /></div>
       <button className="work-row-title" onClick={() => actions.onOpen(item)}>
         {item.title}
       </button>
@@ -290,7 +290,7 @@ export function IssueList({
                 <button className="work-group-toggle" aria-expanded={!closed} onClick={() => setCollapsed((c) => (closed ? c.filter((k) => k !== g.key) : [...c, g.key]))}>
                   <span className="work-group-caret" data-closed={closed} aria-hidden>▾</span>
                   {group === "status" && <StatusIcon status={g.title} />}
-                  {g.title}
+                  {group === "status" ? statusLabel(g.title) : g.title}
                   <span className="work-group-count">{g.rows.length}</span>
                 </button>
               </h3>
@@ -346,7 +346,7 @@ export function IssueBoard({
           >
             <div className="work-group-heading">
               <StatusIcon status={status} />
-              <h3>{status}</h3>
+              <h3>{statusLabel(status)}</h3>
               <span>{list.length}</span>
               {!readOnly && (
                 <button

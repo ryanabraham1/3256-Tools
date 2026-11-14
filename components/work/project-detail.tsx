@@ -94,10 +94,10 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
   }
   return <div className="work-project-detail" data-preview={preview}>
     {!preview && <nav className="work-project-tabs" aria-label="Project views">
-      {(["Overview", "Activity", "Issues", "Updates"] as Tab[]).map(t => <button key={t} aria-current={tab === t ? "page" : undefined} data-active={tab === t} onClick={() => setTab(t)}>{t}{t === "Issues" && <span>{issues.length}</span>}</button>)}
+      {(["Overview", "Activity", "Issues", "Updates"] as Tab[]).map(t => <button key={t} aria-current={tab === t ? "page" : undefined} data-active={tab === t} onClick={() => setTab(t)}>{t === "Issues" ? "Tasks" : t}{t === "Issues" && <span>{issues.length}</span>}</button>)}
       <div className="work-project-tab-actions">
         <button className="work-text-button" disabled={readOnly} onClick={() => setComposer(true)}><Icon name="updates" size={15} /> Write update</button>
-        <button className="work-icon-button" aria-label="Toggle project details" aria-pressed={showProperties} onClick={() => setShowProperties(v => !v)}><Icon name="board" size={17} /></button>
+        <button className="work-icon-button" aria-label="Toggle project details" aria-pressed={showProperties} onClick={() => setShowProperties(v => !v)}><Icon name="sidebar" size={17} /></button>
       </div>
     </nav>}
     <div className="work-project-columns" data-sidebar={showProperties}>
@@ -137,7 +137,8 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
           <Field label="Status"><PropertyPicker label="Status" value={item.data.status || "Planned"} disabled={readOnly} onChange={status => onPatch({ status })} options={uniqueStatuses([item.data.status || "Planned", "Planned", "In progress", "Done", "Canceled"]).map(s => ({ value: s, label: s, icon: <StatusIcon status={s}/> }))}/></Field>
           <Field label="Priority"><PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({ priority: Number(v) })} icon={<Icon name="insights" size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/></Field>
           <Field label="Lead"><EntitySelect disabled={readOnly} kind="member" items={items} value={item.data.assignee} onChange={assignee => onPatch({assignee})} empty="Assign lead" /></Field>
-          <Field label="Dates"><div className="work-project-dates"><CommitInput className="work-inline-date" type="date" aria-label="Project start date" disabled={readOnly} value={item.data.start || ""} onCommit={start => onPatch({start})}/> <span>→</span><CommitInput className="work-inline-date" type="date" aria-label="Project target date" disabled={readOnly} value={item.data.due || ""} onCommit={due => onPatch({due})}/></div></Field>
+          <Field label="Start"><CommitInput className="work-inline-date" type="date" aria-label="Project start date" data-empty={!item.data.start} disabled={readOnly} value={item.data.start || ""} onCommit={start => onPatch({start})}/></Field>
+          <Field label="Target"><CommitInput className="work-inline-date" type="date" aria-label="Project target date" data-empty={!item.data.due} disabled={readOnly} value={item.data.due || ""} onCommit={due => onPatch({due})}/></Field>
           <Field label="Team"><EntitySelect disabled={readOnly} kind="team" items={items} value={item.data.team} onChange={team => onPatch({team})}/></Field>
           <Field label="Initiative"><EntitySelect disabled={readOnly} kind="initiative" items={items} value={item.data.initiative} onChange={initiative => onPatch({initiative})}/></Field>
           <Field label="Labels"><div className="work-project-label-controls"><LabelPicker item={item} items={items} disabled={readOnly} onChange={labels => onPatch({ labels })}/></div></Field>
@@ -151,6 +152,6 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
       </aside>}
     </div>
     {milestoneMenu.element}
-    {composer && <Modal title="Project update" onClose={() => setComposer(false)}><form className="work-update-composer" onSubmit={async e => { e.preventDefault(); if (await onComment(body, "update")) { setBody(""); setComposer(false); } }}><h2>{item.title}</h2><textarea autoFocus className="input" aria-label="Project update" placeholder="Share progress, blockers, and next steps…" rows={8} required value={body} onChange={e => setBody(e.target.value)}/><div><span className="work-muted">Markdown supported</span><button className="btn btn-primary" disabled={posting || !body.trim()}>{posting ? "Posting…" : "Post update"}</button></div></form></Modal>}
+    {composer && <Modal title="Project update" onClose={() => setComposer(false)}><form className="work-update-composer" onSubmit={async e => { e.preventDefault(); if (await onComment(body, "update")) { setBody(""); setComposer(false); } }}><h2>{item.title}</h2><textarea data-autofocus className="input" aria-label="Project update" placeholder="Share progress, blockers, and next steps…" rows={8} required value={body} onChange={e => setBody(e.target.value)}/><div><span className="work-muted">Markdown supported</span><button className="btn btn-primary" disabled={posting || !body.trim()}>{posting ? "Posting…" : "Post update"}</button></div></form></Modal>}
   </div>;
 }

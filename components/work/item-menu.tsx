@@ -2,6 +2,7 @@
 import { createContext, useContext, type MouseEvent } from "react";
 import { copyText, useContextMenu, type MenuEntry } from "../context-menu";
 import { issueCode, KIND_NAMES, uniqueStatuses, type WorkData, type WorkItem, type WorkKind } from "@/lib/work";
+import { statusLabel } from "./icons";
 
 export function itemRoute(item: WorkItem) {
   return `/work/${({ issue: "issues", project: "projects", milestone: "projects", initiative: "initiatives", document: "documents", view: "views" } as Record<string, string>)[item.kind] ?? "settings"}/${item.id}`;
@@ -65,7 +66,7 @@ export function useItemMenu(items: WorkItem[], a: ItemActions) {
         {
           label: "Status", icon: "◐",
           children: uniqueStatuses([status, ...PLAN_STATUSES]).map(s => ({
-            label: s, checked: s === status, disabled: readOnly, onSelect: () => a.onPatch(item, { status: s }),
+            label: statusLabel(s), checked: s === status, disabled: readOnly, onSelect: () => a.onPatch(item, { status: s }),
           })),
         },
         {

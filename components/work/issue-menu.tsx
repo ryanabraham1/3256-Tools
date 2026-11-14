@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { issueCode, PRIORITIES, STATUSES, uniqueStatuses, type WorkData, type WorkItem } from "@/lib/work";
 import { copyText, useContextMenu } from "../context-menu";
-import { Icon, StatusIcon } from "./icons";
+import { Icon, StatusIcon, statusLabel } from "./icons";
 
 export type IssueActions = {
   onPatch: (issue: WorkItem, data: WorkData) => void;
@@ -88,7 +88,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
     else if (panel === "status") body = <>{back}
       {uniqueStatuses([status, ...STATUSES]).map(s =>
         <button role="menuitemradio" disabled={readOnly} aria-checked={s === status} key={s} onClick={() => run(() => actions.onPatch(issue, { status: s }))}>
-          <StatusIcon status={s} />{s}{s === status && <Icon name="check" size={14} />}
+          <StatusIcon status={s} />{statusLabel(s)}{s === status && <Icon name="check" size={14} />}
         </button>)}
     </>;
     else if (panel === "priority") body = <>{back}

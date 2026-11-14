@@ -61,7 +61,8 @@ export function WorkHome({
     .filter((e) => byId.has(e.item_id))
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 6);
-  const first = name?.split(/\s+/)[0];
+  // An account without a member name falls back to its email; don't greet anyone by address.
+  const first = name?.includes("@") ? undefined : name?.split(/\s+/)[0];
 
   return (
     <div className="work-home">

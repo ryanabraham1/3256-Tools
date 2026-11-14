@@ -2210,14 +2210,6 @@
 .work-detail[data-kind=issue] { grid-template-columns:minmax(0,1fr) 290px; height:calc(100dvh - 146px); }
 .work-detail[data-kind=issue] .work-detail-main { padding:32px 40px; overflow:auto; }
 .work-detail[data-kind=issue] .work-properties { overflow:auto; background:var(--surface); border-left:0; padding:32px 24px; gap:12px; }
-.work-detail[data-kind=issue] .work-properties > h2, .work-detail-labels > h2 { color:var(--muted); font-size:14.5px; margin-bottom:8px; }
-.work-detail[data-kind=issue] .work-properties .work-field[aria-label=Status] > span,
-.work-detail[data-kind=issue] .work-properties .work-field[aria-label=Priority] > span,
-.work-detail[data-kind=issue] .work-properties .work-field[aria-label=Assignee] > span { display:none; }
-.work-detail-labels { margin-block:16px; }
-.work-detail-labels .work-labels { margin-top:10px; }
-.work-detail[data-kind=issue] .work-properties .work-field[aria-label=Milestone] { margin-left:15px; padding-left:10px; border-left:1px solid var(--line); }
-.work-detail[data-kind=issue] .work-properties .work-field[aria-label=Milestone] > span { display:none; }
 .work-issue-parent { display:flex; align-items:center; gap:8px; margin-bottom:24px; font-size:14.5px; }
 .work-issue-parent > span:first-child { color:var(--muted); }
 .work-issue-relations summary { color:var(--muted); cursor:pointer; font-size:14px; }

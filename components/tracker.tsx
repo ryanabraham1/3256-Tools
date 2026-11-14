@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { addPart, autoMatchParts, deletePart, importSheet, setPartStatus, updatePart } from "@/app/parts-actions";
 import { isLengthKind, isStockKind, KIND_LABEL, LENGTH_SPEC_SHORT, LENGTH_SPECS, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
@@ -43,6 +43,41 @@ function col(j: FabPart, k: string): string {
 }
 type StatusFilter = "open" | "all" | JobStatus;
 
+/** What an in-place edit of a form field looks like on the part, so it shows before the server answers. */
+function optimistic(field: string, v: string): Partial<FabPart> {
+  switch (field) {
+    case "priority": {
+      const n = v.replace("#", "") ? Number(v.replace("#", "")) : null;
+      return n === null || (Number.isInteger(n) && n >= 0 && n <= 4) ? { priority: n } : {};
+    }
+    case "quantity":
+    case "spare_qty": {
+      const n = Number(v);
+      return v && Number.isFinite(n) ? { [field]: Math.max(0, Math.round(n)) } : {};
+    }
+    case "length_spec":
+      return { length_spec: (v || null) as FabPart["length_spec"] };
+    case "status":
+      return { status: v as JobStatus, status_changed_at: new Date().toISOString() };
+    case "material":
+      return { material_text: v };
+    case "length":
+      return { length_text: v };
+    default:
+      return { [field]: v };
+  }
+}
+
+/**
+ * In-place edits: `save` shows the change at once and saves in the background
+ * (nothing greys out or waits); a refused save puts the value back and the
+ * cell shows why. `errors` / `notes` are keyed `id:field` / part id.
+ */
+type Saver = { save: (part: FabPart, field: string, value: string) => void; errors: Record<string, string>; notes: Record<string, string> };
+const SaveContext = createContext<Saver | null>(null);
+const omit = <T,>(o: Record<string, T>, k: string) => Object.fromEntries(Object.entries(o).filter(([x]) => x !== k));
+const useSave = () => useContext(SaveContext)!;
+
 const byOrder = (list: string[]) => (a: string, b: string) => {
   const i = list.findIndex((x) => x.toLowerCase() === a.toLowerCase());
   const j = list.findIndex((x) => x.toLowerCase() === b.toLowerCase());
@@ -58,7 +93,7 @@ function options(base: string[], jobs: FabJob[], key: string): string[] {
 
 export function TrackerTable({
   tracker,
-  parts: jobs,
+  parts: serverJobs,
   stock,
   copies,
   person,
@@ -81,6 +116,79 @@ export function TrackerTable({
   const [edit, setEdit] = useState<FabJob | "new" | null>(null);
   const [importing, setImporting] = useState(false);
 
+  // edits waiting on (or just back from) the server, laid over the server's rows
+  const [over, setOver] = useState<Record<string, Partial<FabPart>>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const latest = useRef<Record<string, number>>({});
+  // part id → the fields of saves that have finished, dropped once fresh rows arrive
+  const settled = useRef(new Map<string, string[]>());
+  const seq = useRef(0);
+  // rows edited in place stay where they were (same group, order and filter) until the view changes
+  const view = [status, bot, subsystem, machine, q].join("\u0000");
+  const [stay, setStay] = useState<{ view: string; rows: Map<string, FabPart> }>({ view, rows: new Map() });
+  const stayed = stay.view === view ? stay.rows : null;
+
+  const jobs = useMemo(() => {
+    if (!Object.keys(over).length) return serverJobs;
+    return serverJobs.map((j) => (over[j.id] ? { ...j, ...over[j.id] } : j));
+  }, [serverJobs, over]);
+
+  // fresh server rows replace edits that have saved
+  useEffect(() => {
+    if (!settled.current.size) return;
+    const done = [...settled.current];
+    settled.current.clear();
+    setOver((o) => done.reduce((next, [id, keys]) => drop(next, id, keys), o));
+  }, [serverJobs]);
+
+  function drop(o: Record<string, Partial<FabPart>>, id: string, keys: string[]) {
+    if (!o[id]) return o;
+    const rest = { ...o[id] };
+    for (const k of keys) delete rest[k as keyof FabPart];
+    return Object.keys(rest).length ? { ...o, [id]: rest } : omit(o, id);
+  }
+
+  const saver: Saver = {
+    errors,
+    notes,
+    save(part, field, value) {
+      const key = `${part.id}:${field}`;
+      const n = ++seq.current;
+      latest.current[key] = n;
+      const patch = optimistic(field, value);
+      const keys = Object.keys(patch);
+      // an earlier save of this field that finished mustn't clear this one
+      const was = settled.current.get(part.id);
+      if (was) settled.current.set(part.id, was.filter((k) => !keys.includes(k)));
+      setOver((o) => ({ ...o, [part.id]: { ...o[part.id], ...patch } }));
+      setErrors((x) => omit(x, key));
+      if (field === "status") setNotes((x) => omit(x, part.id));
+      setStay((s) => {
+        const rows = new Map(s.view === view ? s.rows : []);
+        if (!rows.has(part.id)) rows.set(part.id, part);
+        return { view, rows };
+      });
+      const fd = new FormData();
+      fd.set("id", part.id);
+      fd.set(field, value);
+      if (field === "status") fd.set("by", person);
+      (field === "status" ? setPartStatus : updatePart)(fd)
+        .catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Couldn't save — check your connection" }))
+        .then((r) => {
+          if (latest.current[key] !== n) return; // a newer edit of this cell is on its way
+          if (r.ok) {
+            if (field === "status" && r.data) setNotes((x) => ({ ...x, [part.id]: r.data! }));
+            settled.current.set(part.id, [...(settled.current.get(part.id) ?? []), ...keys]);
+            return;
+          }
+          // refused: put it back
+          setErrors((x) => ({ ...x, [key]: r.error }));
+          setOver((o) => drop(o, part.id, keys));
+        });
+    },
+  };
+
   const machineKey = print ? "material" : "machine";
   const bots = useMemo(() => options([], jobs, "bot").sort(byOrder(SUGGEST.bot)), [jobs]);
   const subsystems = useMemo(() => options([], jobs, "subsystem").sort(byOrder(SUGGEST.subsystem)), [jobs]);
@@ -91,12 +199,13 @@ export function TrackerTable({
     const needle = q.trim().toLowerCase();
     return jobs.filter(
       (j) =>
-        (!bot || j.bot.toLowerCase() === bot.toLowerCase()) &&
+        !!stayed?.has(j.id) ||
+        ((!bot || j.bot.toLowerCase() === bot.toLowerCase()) &&
         (!subsystem || j.subsystem.toLowerCase() === subsystem.toLowerCase()) &&
         (!machine || col(j, machineKey).toLowerCase() === machine.toLowerCase()) &&
-        (!needle || [j.name, j.notes, j.material_text, j.file, j.assignees.join(" "), j.designer, j.part_number].some((v) => v.toLowerCase().includes(needle))),
+        (!needle || [j.name, j.notes, j.material_text, j.file, j.assignees.join(" "), j.designer, j.part_number].some((v) => v.toLowerCase().includes(needle)))),
     );
-  }, [jobs, bot, subsystem, machine, machineKey, q]);
+  }, [jobs, bot, subsystem, machine, machineKey, q, stayed]);
   const need = (j: FabPart) => needed(j, j.design_id ? (copies[j.design_id] ?? 1) : 1);
   const lists = {
     bot: options(SUGGEST.bot, jobs, "bot"),
@@ -110,7 +219,7 @@ export function TrackerTable({
 
   /** The sheet's columns, in its order. Status and Part stay put while the rest scrolls. */
   const cols: { key: string; label: string; w: number; pin?: number; render: (j: FabPart) => React.ReactNode }[] = [
-    { key: "status", label: "Status", w: 150, pin: 0, render: (j) => <StatusSelect key={`${j.id}-${j.status}`} job={j} person={person} /> },
+    { key: "status", label: "Status", w: 150, pin: 0, render: (j) => <StatusSelect job={j} /> },
     {
       key: "part",
       label: "Part #_Name",
@@ -210,29 +319,34 @@ export function TrackerTable({
   }, [base]);
 
   const groups = useMemo(() => {
-    const shown = base.filter((j) => (status === "all" ? true : status === "open" ? !isDone(j.status) : j.status === status));
+    // a row edited in place is placed by how it was before the edit
+    const at = (j: FabJob) => stayed?.get(j.id) ?? j;
+    const shown = base.filter((j) => stayed?.has(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : j.status === status));
     const order = STATUSES[tracker];
-    shown.sort(
-      (a, b) =>
+    shown.sort((x, y) => {
+      const a = at(x);
+      const b = at(y);
+      return (
         (a.priority ?? 9) - (b.priority ?? 9) ||
         order.indexOf(a.status) - order.indexOf(b.status) ||
         a.bot.localeCompare(b.bot) ||
-        a.name.localeCompare(b.name, undefined, { numeric: true }),
-    );
+        a.name.localeCompare(b.name, undefined, { numeric: true })
+      );
+    });
     const map = new Map<string, FabJob[]>();
     for (const j of shown) {
-      const k = j.subsystem.trim() || "No subsystem";
+      const k = at(j).subsystem.trim() || "No subsystem";
       map.set(k, [...(map.get(k) ?? []), j]);
     }
     return [...map.entries()].sort(([a], [b]) => byOrder(SUGGEST.subsystem)(a, b));
-  }, [base, status, tracker]);
+  }, [base, status, tracker, stayed]);
 
   const total = jobs.length;
   const done = jobs.filter((j) => isDone(j.status)).length;
   const filtered = bot || subsystem || machine || q;
 
   return (
-    <>
+    <SaveContext.Provider value={saver}>
       {/* the sheet's dropdown lists, for every editable cell (and the edit form) */}
       {Object.entries(lists).map(([k, opts]) => (
         <datalist key={k} id={`tr-${k}`}>
@@ -327,7 +441,7 @@ export function TrackerTable({
               <ul className="md:hidden flex flex-col gap-2">
                 {rows.map((j) => (
                   <li key={j.id} className="card p-3">
-                    <JobCard job={j} print={print} stock={stock} need={need(j)} person={person} onOpen={() => setEdit(j)} />
+                    <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
                   </li>
                 ))}
               </ul>
@@ -382,7 +496,7 @@ export function TrackerTable({
       <Sheet open={importing} onClose={() => setImporting(false)} eyebrow={TRACKER_LABEL[tracker]} title="Import from sheet">
         {importing && <ImportForm tracker={tracker} onDone={() => setImporting(false)} />}
       </Sheet>
-    </>
+    </SaveContext.Provider>
   );
 }
 
@@ -424,7 +538,8 @@ function AutoMatchButton() {
  * it (Enter saves, Esc puts it back).
  */
 function Cell({ part, field, value, list, numeric }: { part: FabPart; field: string; value: string; list?: string; numeric?: boolean }) {
-  const a = useFabAction(updatePart);
+  const { save, errors } = useSave();
+  const error = errors[`${part.id}:${field}`];
   return (
     <input
       key={value}
@@ -433,9 +548,8 @@ function Cell({ part, field, value, list, numeric }: { part: FabPart; field: str
       inputMode={numeric ? "numeric" : undefined}
       aria-label={`${field.replace("_", " ")} for ${part.name}`}
       className={`cell ${numeric ? "mono text-right" : ""}`}
-      data-error={!!a.error}
-      style={{ opacity: a.pending ? 0.5 : 1 }}
-      title={a.error ?? (value || undefined)}
+      data-error={!!error}
+      title={error ?? (value || undefined)}
       onKeyDown={(e) => {
         if (e.key === "Enter") e.currentTarget.blur();
         if (e.key === "Escape") {
@@ -445,7 +559,7 @@ function Cell({ part, field, value, list, numeric }: { part: FabPart; field: str
       }}
       onBlur={(e) => {
         const v = e.currentTarget.value.trim();
-        if (v !== value.trim()) a.call({ id: part.id, [field]: v });
+        if (v !== value.trim()) save(part, field, v);
       }}
     />
   );
@@ -456,7 +570,8 @@ function Cell({ part, field, value, list, numeric }: { part: FabPart; field: str
  * filter. Enter picks the highlighted one (or whatever was typed), Esc closes.
  */
 function PersonCell({ part, field, value, members }: { part: FabPart; field: string; value: string; members: string[] }) {
-  const a = useFabAction(updatePart);
+  const { save, errors } = useSave();
+  const error = errors[`${part.id}:${field}`];
   const btn = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
   const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -475,7 +590,7 @@ function PersonCell({ part, field, value, members }: { part: FabPart; field: str
   }
   function pick(v: string) {
     setAt(null);
-    if (v !== value) a.call({ id: part.id, [field]: v });
+    if (v !== value) save(part, field, v);
     btn.current?.focus();
   }
 
@@ -500,9 +615,9 @@ function PersonCell({ part, field, value, members }: { part: FabPart; field: str
         ref={btn}
         type="button"
         className="cell text-left"
-        data-error={!!a.error}
-        style={{ opacity: a.pending ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
-        title={a.error ?? (value || undefined)}
+        data-error={!!error}
+        style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+        title={error ?? (value || undefined)}
         aria-label={`Design DRI for ${part.name}`}
         aria-haspopup="listbox"
         aria-expanded={!!at}
@@ -614,7 +729,8 @@ function DropCell({
   required?: boolean;
   save?: (v: string) => string;
 }) {
-  const a = useFabAction(updatePart);
+  const { save: saveField, errors } = useSave();
+  const error = errors[`${part.id}:${field}`];
   const [typing, setTyping] = useState(false);
   const shown = value;
   const opts = shown && !choices.some((c) => c.toLowerCase() === shown.toLowerCase()) ? [shown, ...choices] : choices;
@@ -632,7 +748,7 @@ function DropCell({
         onBlur={(e) => {
           const v = e.currentTarget.value.trim();
           setTyping(false);
-          if (v !== value) a.call({ id: part.id, [field]: save(v) });
+          if (v !== value) saveField(part, field, save(v));
         }}
       />
     );
@@ -644,9 +760,9 @@ function DropCell({
       aria-label={`${field} for ${part.name}`}
       className="cell"
       data-empty={!shown}
-      data-error={!!a.error}
-      title={a.error ?? ((labels?.[shown] ?? shown) || undefined)}
-      style={{ opacity: a.pending ? 0.5 : 1, color: field === "priority" && shown === "#0" ? "var(--bad)" : undefined }}
+      data-error={!!error}
+      title={error ?? ((labels?.[shown] ?? shown) || undefined)}
+      style={{ color: field === "priority" && shown === "#0" ? "var(--bad)" : undefined }}
       onChange={(e) => {
         const v = e.target.value;
         if (v === OTHER) {
@@ -654,7 +770,7 @@ function DropCell({
           setTyping(true);
           return;
         }
-        a.call({ id: part.id, [field]: save(v) });
+        saveField(part, field, save(v));
       }}
     >
       {(!required || !shown) && <option value="">—</option>}
@@ -685,28 +801,20 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
  * Status as a pill you can change in place. Moving a stock part to In
  * Progress / Finished takes its stock off the rack; the note says what.
  */
-function StatusSelect({ job, person }: { job: FabJob; person: string }) {
-  const [note, setNote] = useState<string | null>(null);
-  const a = useFabAction(setPartStatus, (n) => setNote(n || null));
-  const [picked, setShown] = useState(job.status);
-  // a failed save falls back to what the server has
-  const shown = a.error ? job.status : picked;
-  const tone = STATUS_TONE[shown];
+function StatusSelect({ job }: { job: FabJob }) {
+  const { save, errors, notes } = useSave();
+  const error = errors[`${job.id}:status`];
+  const note = notes[job.id];
+  const tone = STATUS_TONE[job.status];
   const list = STATUSES[job.kind === "print" ? "print" : "machining"];
   const opts = list.includes(job.status) ? list : [job.status, ...list];
   return (
     <span className="inline-flex flex-col gap-0.5">
       <select
         className={`pill pill-${tone} cursor-pointer`}
-        style={{ appearance: "auto", border: 0, opacity: a.pending ? 0.6 : 1 }}
-        value={shown}
-        disabled={a.pending}
-        onChange={(e) => {
-          const s = e.target.value as JobStatus;
-          setShown(s);
-          setNote(null);
-          a.call({ id: job.id, status: s, by: person });
-        }}
+        style={{ appearance: "auto", border: 0 }}
+        value={job.status}
+        onChange={(e) => save(job, "status", e.target.value)}
         aria-label={`Status of ${job.name}`}
         title={`Since ${timeAgo(job.status_changed_at)}`}
       >
@@ -716,9 +824,9 @@ function StatusSelect({ job, person }: { job: FabJob; person: string }) {
           </option>
         ))}
       </select>
-      {a.error && (
+      {error && (
         <span className="text-xs" style={{ color: "var(--bad)" }}>
-          {a.error}
+          {error}
         </span>
       )}
       {note && (
@@ -730,7 +838,7 @@ function StatusSelect({ job, person }: { job: FabJob; person: string }) {
   );
 }
 
-function JobCard({ job: j, print, stock, need, person, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; person: string; onOpen: () => void }) {
+function JobCard({ job: j, print, stock, need, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; onOpen: () => void }) {
   const details = print
     ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`]
     : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, isLengthKind(j.kind) && `Length: ${j.length_spec ? LENGTH_SPEC_SHORT[j.length_spec] : "fit not set"}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`];
@@ -752,7 +860,7 @@ function JobCard({ job: j, print, stock, need, person, onOpen }: { job: FabJob; 
             {j.cut_qty > 0 && isStockKind(j.kind) && j.cut_qty < need && ` · cut ${j.cut_qty}/${need}`}
           </span>
         </button>
-        <StatusSelect key={`${j.id}-${j.status}`} job={j} person={person} />
+        <StatusSelect job={j} />
       </div>
       <button type="button" className="flex flex-wrap gap-1.5 text-left" onClick={onOpen}>
         {details.filter(Boolean).map((d, i) => (

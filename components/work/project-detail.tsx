@@ -7,7 +7,7 @@ import { Avatar, LabelPicker, Labels, Empty } from "./collections";
 import { DEFAULT_ISSUE_VIEW, IssueBrowser, type IssueView } from "./issue-browser";
 import { RichText } from "./detail";
 import { CommitInput, EntitySelect, Field, Modal } from "./editor";
-import { Icon, MilestoneIcon, PROJECT_ICONS, StatusIcon } from "./icons";
+import { Icon, MilestoneIcon, PriorityIcon, PROJECT_ICONS, StatusIcon } from "./icons";
 import type { IssueActions } from "./issue-menu";
 import { useItemMenuShow } from "./item-menu";
 import { useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
@@ -135,7 +135,7 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
       {showProperties && <aside className="work-project-sidebar">
         <section className="work-project-property-card"><h2>Properties</h2>
           <Field label="Status"><PropertyPicker label="Status" value={item.data.status || "Planned"} disabled={readOnly} onChange={status => onPatch({ status })} options={uniqueStatuses([item.data.status || "Planned", "Planned", "In progress", "Done", "Canceled"]).map(s => ({ value: s, label: s, icon: <StatusIcon status={s}/> }))}/></Field>
-          <Field label="Priority"><PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({ priority: Number(v) })} icon={<Icon name="insights" size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/></Field>
+          <Field label="Priority"><PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({ priority: Number(v) })} icon={<PriorityIcon priority={item.data.priority} size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p,icon:<PriorityIcon priority={n}/>}))}/></Field>
           <Field label="Lead"><EntitySelect disabled={readOnly} kind="member" items={items} value={item.data.assignee} onChange={assignee => onPatch({assignee})} empty="Assign lead" /></Field>
           <Field label="Start"><CommitInput className="work-inline-date" type="date" aria-label="Project start date" data-empty={!item.data.start} disabled={readOnly} value={item.data.start || ""} onCommit={start => onPatch({start})}/></Field>
           <Field label="Target"><CommitInput className="work-inline-date" type="date" aria-label="Project target date" data-empty={!item.data.due} disabled={readOnly} value={item.data.due || ""} onCommit={due => onPatch({due})}/></Field>

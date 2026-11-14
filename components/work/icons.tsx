@@ -103,6 +103,34 @@ export function statusTone(status = "Backlog") {
 export function statusLabel(status = "Backlog") {
   return status === "Todo" ? "To do" : status;
 }
+/**
+ * Priority as signal bars: High fills three, Medium two, Low one. Urgent is a red "!" badge and
+ * no priority is a dash, so every level reads differently at a glance.
+ */
+export function PriorityIcon({ priority = 0, size = 16 }: { priority?: number; size?: number }) {
+  if (priority === 1)
+    return (
+      <svg className="work-priority-icon" data-priority={1} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="currentColor" />
+        <path d="M8 4.5v4.5M8 11.2v.3" stroke="var(--surface)" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  if (!priority)
+    return (
+      <svg className="work-priority-icon" data-priority={0} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  const filled = 5 - priority; // High 3, Medium 2, Low 1
+  return (
+    <svg className="work-priority-icon" data-priority={priority} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      {[0, 1, 2].map((n) => (
+        <rect key={n} x={2 + n * 4.5} y={10 - n * 3.5} width="3" height={4.5 + n * 3.5} rx="1"
+          fill={n < filled ? "currentColor" : "var(--line)"} />
+      ))}
+    </svg>
+  );
+}
 export function StatusPill({ status = "Backlog" }: { status?: string }) {
   return <span className={`pill pill-${statusTone(status)} work-status-pill`}>{statusLabel(status)}</span>;
 }

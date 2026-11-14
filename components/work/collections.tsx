@@ -16,7 +16,7 @@ import {
 import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { MultiPicker, PropertyPicker } from "./property-picker";
 import { useItemMenuShow } from "./item-menu";
-import { Icon, StatusIcon, statusLabel } from "./icons";
+import { Icon, PriorityIcon, StatusIcon, statusLabel } from "./icons";
 export function Labels({ item, items, byId }: { item: WorkItem; items: WorkItem[]; byId?: Map<string, WorkItem> }) {
   return (
     <span className="work-labels">
@@ -108,7 +108,7 @@ export function Empty({
 }
 /** Active work first, so the list opens on what people are doing now. */
 const LIST_ORDER = uniqueStatuses(["In progress", "In review", "Todo", "Backlog", "Done", ...STATUSES]);
-const PRIORITY_OPTIONS = PRIORITIES.map((p, n) => ({ value: String(n), label: p }));
+const PRIORITY_OPTIONS = PRIORITIES.map((p, n) => ({ value: String(n), label: p, icon: <PriorityIcon priority={n} /> }));
 
 /** Per-list lookups, built once so a long list doesn't search every item for every row. */
 export type IssueLookup = {
@@ -182,7 +182,7 @@ export function IssueRow({
         />
       )}
       <div className="work-row-prop work-row-priority"><PropertyPicker label={`Priority for ${item.title}`} value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => actions.onPatch(item, { priority: Number(v) })}
-        display={<span className="work-priority" data-priority={item.data.priority}>{item.data.priority === 1 ? "!" : item.data.priority ? "▥" : "—"}</span>}
+        display={<span className="work-priority" data-priority={item.data.priority ?? 0} title={PRIORITIES[item.data.priority ?? 0]}><PriorityIcon priority={item.data.priority} /></span>}
         options={PRIORITY_OPTIONS} /></div>
       <span className="work-code">{issueCode(item, lookup.byId)}</span>
       <div className="work-row-status-picker"><PropertyPicker label={`Status for ${item.title}`} value={lookup.statusValue.get(status.toLowerCase()) ?? status} disabled={readOnly} onChange={status => actions.onPatch(item, { status })}

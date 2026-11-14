@@ -9,7 +9,7 @@ import {
   type WorkItem,
   type WorkKind,
 } from "@/lib/work";
-import { Icon, statusLabel } from "./icons";
+import { Icon, PriorityIcon, statusLabel } from "./icons";
 import { PropertyPicker } from "./property-picker";
 export function Modal({
   title,
@@ -312,7 +312,7 @@ function IssueComposer({
             </select>
           </label>
           <label className="work-compose-chip">
-            <Icon name="filter" size={15} />
+            <PriorityIcon priority={data.priority} size={15} />
             <select
               aria-label="Priority"
               value={data.priority ?? 0}

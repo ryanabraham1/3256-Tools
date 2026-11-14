@@ -20,7 +20,7 @@ import {
 } from "@/lib/work";
 import { Avatar, IssueRows, LabelPicker } from "./collections";
 import { CommitInput, EntitySelect, Field } from "./editor";
-import { Icon, StatusIcon, statusLabel, statusTone } from "./icons";
+import { Icon, PriorityIcon, StatusIcon, statusLabel, statusTone } from "./icons";
 import type { MilestoneActions } from "./milestone-menu";
 import { ProjectDetail } from "./project-detail";
 import type { IssueActions } from "./issue-menu";
@@ -392,7 +392,7 @@ export function ItemDetail({
             options={uniqueStatuses([item.data.status ?? "Planned", ...(issue ? STATUSES : ["Planned", "In progress", "Done", "Canceled"])]).map(s => ({value:s,label:statusLabel(s),icon:<StatusIcon status={s}/>}))}/>
         </Field>
         <Field label="Priority">
-          <PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({priority:Number(v)})} icon={<Icon name="insights" size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/>
+          <PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({priority:Number(v)})} icon={<PriorityIcon priority={item.data.priority} size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p,icon:<PriorityIcon priority={n}/>}))}/>
         </Field>
         <Field label={issue ? "Assignee" : "Lead"}>
           <EntitySelect

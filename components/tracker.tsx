@@ -138,6 +138,8 @@ export function TrackerTable({
   }, [adding, serverJobs]);
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [importText, setImportText] = useState<string | null>(null);
+  // the subsystem the top add bar puts new parts into (the filter's, else the one picked, else the first group)
+  const [addInto, setAddInto] = useState("");
 
   const jobs = useMemo(() => {
     if (!Object.keys(over).length) return serverJobs;
@@ -350,6 +352,8 @@ export function TrackerTable({
     return [...map.entries()].sort(([a], [b]) => byOrder(SUGGEST.subsystem)(a, b));
   }, [base, status, tracker, stayed, freshIds, subsystem]);
 
+  const addTo = subsystem || addInto || groups[0]?.[0] || SUGGEST.subsystem[0] || NO_SUBSYSTEM;
+
   /** Add parts by name into a group: they show at once, saved in the background, with the group's bot and subsystem. */
   function addNames(group: string, rows: FabJob[], names: string[]) {
     const fields = { tracker, subsystem: group === NO_SUBSYSTEM ? "" : group, bot: bot || rows.at(-1)?.bot || "", ...(print ? { kind: "print" } : {}) };
@@ -437,6 +441,25 @@ export function TrackerTable({
         <input className="input col-span-2 sm:col-span-1" placeholder="Search parts, notes, people…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the tracker" />
       </div>
 
+      {/* add parts by name, like typing a row into the sheet */}
+      <div className="card p-2 mb-4 flex flex-col sm:flex-row gap-2">
+        <QuickAdd
+          className="input flex-1"
+          placeholder="+ Add parts: type a name and press Enter (or paste a list)"
+          onAdd={(names) => addNames(addTo, groups.find(([g]) => g === addTo)?.[1] ?? [], names)}
+          onSheet={setImportText}
+        />
+        <select className="input sm:w-56" value={addTo} onChange={(e) => setAddInto(e.target.value)} aria-label="Subsystem for new parts">
+          {[...new Set([...lists.subsystem, ...groups.map(([g]) => g)])].map((s) => (
+            <option key={s} value={s}>
+              {s === NO_SUBSYSTEM ? "No subsystem" : `Into ${s}`}
+            </option>
+          ))}
+          {!lists.subsystem.includes(NO_SUBSYSTEM) && !groups.some(([g]) => g === NO_SUBSYSTEM) && <option value={NO_SUBSYSTEM}>No subsystem</option>}
+        </select>
+      </div>
+      {addErrors[addTo] && !groups.some(([g]) => g === addTo) && <ErrorText error={addErrors[addTo]} />}
+
       {total === 0 ? (
         <Empty>
           Nothing on the {TRACKER_LABEL[tracker].toLowerCase()} tracker yet. Copy the rows (with the header) out of the team sheet and use Import from sheet, add parts one at a time, or{" "}
@@ -486,7 +509,7 @@ export function TrackerTable({
                     </li>
                   ))}
                 <li className="card p-1">
-                  <QuickAdd onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
+                  <QuickAdd className="cell cell-add" placeholder={`+ Add a part to ${name}`} onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
                 </li>
                 {addErrors[name] && <ErrorText error={addErrors[name]} />}
               </ul>
@@ -533,7 +556,7 @@ export function TrackerTable({
                     <tr className="border-t" style={{ borderColor: "var(--line)" }}>
                       <td className="pin px-1 py-1" style={{ left: 0 }} />
                       <td className="pin px-1 py-1" style={{ left: 150 }}>
-                        <QuickAdd onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
+                        <QuickAdd className="cell cell-add" placeholder={`+ Add a part to ${name}`} onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
                       </td>
                       <td colSpan={cols.length - 2} className="px-2 py-1">
                         {addErrors[name] && <ErrorText error={addErrors[name]} />}
@@ -622,12 +645,12 @@ function AutoMatchButton() {
  * then fill its other cells in place. Pasting a list of names adds each one;
  * pasting rows copied from the team sheet opens Import with them.
  */
-function QuickAdd({ onAdd, onSheet }: { onAdd: (names: string[]) => void; onSheet: (text: string) => void }) {
+function QuickAdd({ className, placeholder, onAdd, onSheet }: { className: string; placeholder: string; onAdd: (names: string[]) => void; onSheet: (text: string) => void }) {
   const [v, setV] = useState("");
   return (
     <input
-      className="cell cell-add"
-      placeholder="+ Add a part…"
+      className={className}
+      placeholder={placeholder}
       aria-label="Add a part: type its name and press Enter"
       title="Type a name and press Enter. Paste a list of names to add them all."
       value={v}

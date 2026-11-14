@@ -104,6 +104,39 @@ export async function savePitItem(fd: FormData) {
   });
 }
 
+/** Add one check per line (pasting a list adds them all), at the end of the phase. */
+export async function addPitItems(fd: FormData) {
+  return run(async () => {
+    const phase = str(fd, "phase");
+    if (!isPhase(phase)) throw new Error("Pick when this check happens");
+    const titles = str(fd, "titles", 50_000)
+      .split("\n")
+      .map((t) => t.replace(/^\s*(?:[-*•]|\[[ x]?\]|\d+[.)])\s*/i, "").trim().slice(0, 200))
+      .filter(Boolean);
+    must(titles[0], "Say what to check");
+    if (titles.length > 500) throw new Error("That's more than 500 checks — use Import from doc");
+    const section = str(fd, "section", 60);
+    const last = await ok(supabaseAdmin().from("pit_items").select("sort").eq("phase", phase).order("sort", { ascending: false }).limit(1));
+    const base = (last?.[0]?.sort as number) ?? 0;
+    await ok(
+      supabaseAdmin()
+        .from("pit_items")
+        .insert(titles.map((title, n) => ({ phase, section, title, how: "", critical: false, sort: base + (n + 1) * 10 }))),
+    );
+  });
+}
+
+/** Change just the fields sent (inline edits on the setup list). */
+export async function patchPitItem(fd: FormData) {
+  return run(async () => {
+    const patch: Partial<Pick<PitItem, "title" | "section" | "critical">> = {};
+    if (fd.has("title")) patch.title = must(str(fd, "title", 200), "Say what to check");
+    if (fd.has("section")) patch.section = str(fd, "section", 60);
+    if (fd.has("critical")) patch.critical = fd.get("critical") === "true";
+    await ok(supabaseAdmin().from("pit_items").update(patch).in("id", ids(fd)));
+  });
+}
+
 export async function archivePitItem(fd: FormData) {
   return run(async () => {
     const archived = fd.get("archived") !== "false";
@@ -111,9 +144,16 @@ export async function archivePitItem(fd: FormData) {
       supabaseAdmin()
         .from("pit_items")
         .update({ archived_at: archived ? new Date().toISOString() : null })
-        .eq("id", must(id(fd, "id"), "No item")),
+        .in("id", ids(fd)),
     );
   });
+}
+
+/** Every valid `id` sent (one or many). */
+function ids(fd: FormData): string[] {
+  const all = fd.getAll("id").filter((v): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v));
+  if (all.length === 0) throw new Error("No item");
+  return all;
 }
 
 /** Swap an item with its neighbour in the same phase. */

@@ -43,6 +43,7 @@ function col(j: FabPart, k: string): string {
 }
 type StatusFilter = "open" | "all" | "missing" | JobStatus;
 const NO_SUBSYSTEM = "No subsystem";
+const JUST_ADDED = "__just_added__";
 
 /** What a part still needs before someone can make it (form field → label). Finished parts need nothing. */
 function missing(j: FabPart): { field: string; label: string }[] {
@@ -156,6 +157,10 @@ export function TrackerTable({
   const [importText, setImportText] = useState<string | null>(null);
   // the subsystem the top add bar puts new parts into (the filter's, else the one picked, else the first group)
   const [addInto, setAddInto] = useState("");
+  // what the top add bar fills in on each new part; kept between adds, like copying a row down in the sheet
+  const [draft, setDraft] = useState({ quantity: "1", material: "", stock_dims: "", machine: "" });
+  // parts added from the top bar, shown right under it (in the order typed) so you can finish filling them in
+  const [justAdded, setJustAdded] = useState<string[]>([]);
 
   const jobs = useMemo(() => {
     if (!Object.keys(over).length) return serverJobs;
@@ -345,7 +350,7 @@ export function TrackerTable({
   const groups = useMemo(() => {
     // a row edited in place is placed by how it was before the edit
     const at = (j: FabJob) => stayed?.get(j.id) ?? j;
-    const shown = base.filter((j) => stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : j.status === status));
+    const shown = base.filter((j) => !justAdded.includes(j.id) && (stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : j.status === status)));
     const order = STATUSES[tracker];
     shown.sort((x, y) => {
       const fx = freshIds.indexOf(x.id);
@@ -368,18 +373,18 @@ export function TrackerTable({
     // a subsystem filter with nothing in it yet still gets a row to add into
     if (subsystem && !map.size) map.set(subsystem, []);
     return [...map.entries()].sort(([a], [b]) => byOrder(SUGGEST.subsystem)(a, b));
-  }, [base, status, tracker, stayed, freshIds, subsystem]);
+  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded]);
 
   const addTo = subsystem || addInto || groups[0]?.[0] || SUGGEST.subsystem[0] || NO_SUBSYSTEM;
 
   /** Add parts by name into a group: they show at once, saved in the background, with the group's bot and subsystem. */
-  function addNames(group: string, rows: FabJob[], names: string[]) {
-    const fields = { tracker, subsystem: group === NO_SUBSYSTEM ? "" : group, bot: bot || rows.at(-1)?.bot || "", ...(print ? { kind: "print" } : {}) };
-    setAddErrors((x) => omit(x, group));
+  function addNames(group: string, rows: FabJob[], names: string[], extra: Record<string, string> = {}, place = group) {
+    const fields = { tracker, subsystem: group === NO_SUBSYSTEM ? "" : group, bot: bot || rows.at(-1)?.bot || "", ...(print ? { kind: "print" } : {}), ...extra };
+    setAddErrors((x) => omit(x, place));
     for (const name of names) {
       const key = ++seq.current;
       // drop placeholders whose real rows already came in
-      setAdding((a) => [...a.filter((x) => !x.id || !serverJobs.some((j) => j.id === x.id)), { key, name, group }]);
+      setAdding((a) => [...a.filter((x) => !x.id || !serverJobs.some((j) => j.id === x.id)), { key, name, group: place }]);
       const fd = new FormData();
       for (const [k, v] of Object.entries({ ...fields, name })) fd.set(k, v);
       addPart(fd)
@@ -387,15 +392,101 @@ export function TrackerTable({
         .then((r) => {
           if (!r.ok) {
             setAdding((a) => a.filter((x) => x.key !== key));
-            setAddErrors((x) => ({ ...x, [group]: `Couldn't add ${name}: ${r.error}` }));
+            setAddErrors((x) => ({ ...x, [place]: `Couldn't add ${name}: ${r.error}` }));
             return;
           }
           const id = r.data!;
           setAdding((a) => a.map((x) => (x.key === key ? { ...x, id } : x)));
-          setFresh((f) => ({ view, ids: [...(f.view === view ? f.ids : []), id] }));
+          if (place === JUST_ADDED) setJustAdded((x) => [...x, id]);
+          else setFresh((f) => ({ view, ids: [...(f.view === view ? f.ids : []), id] }));
         });
     }
   }
+
+  /** A group's rows: cards on phones, the sheet's columns on desktop, then a blank row that adds to it. */
+  function renderRows(name: string, rows: FabJob[], addLabel: string, onAdd: (names: string[]) => void) {
+    return (
+      <>
+        {/* phones: cards */}
+        <ul className="md:hidden flex flex-col gap-2">
+          {rows.map((j) => (
+            <li key={j.id} className="card p-3">
+              <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
+            </li>
+          ))}
+          {pending
+            .filter((x) => x.group === name)
+            .map((x) => (
+              <li key={x.key} className="card p-3 text-sm">
+                <span className="font-medium">{x.name}</span> <span style={{ color: "var(--muted)" }}>· adding…</span>
+              </li>
+            ))}
+          <li className="card p-1">
+            <QuickAdd className="cell cell-add" placeholder={addLabel} onAdd={onAdd} onSheet={setImportText} />
+          </li>
+          {addErrors[name] && <ErrorText error={addErrors[name]} />}
+        </ul>
+        {/* desktop: the sheet's columns */}
+        <div className="hidden md:block card overflow-x-auto">
+          <table className="sheet-table text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+            <colgroup>
+              {cols.map((c) => (
+                <col key={c.key} style={{ width: c.w }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr className="text-left eyebrow" style={{ color: "var(--muted)" }}>
+                {cols.map((c) => (
+                  <th key={c.key} className={`px-2 py-2 font-medium whitespace-nowrap ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((j) => (
+                <tr key={j.id} className="border-t" style={{ borderColor: "var(--line)", opacity: isDone(j.status) ? 0.6 : 1 }}>
+                  {cols.map((c) => (
+                    <td key={c.key} className={`px-1 py-1 ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
+                      {c.render(j)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {pending
+                .filter((x) => x.group === name)
+                .map((x) => (
+                  <tr key={x.key} className="border-t" style={{ borderColor: "var(--line)" }}>
+                    <td className="pin px-1 py-1" style={{ left: 0 }} />
+                    <td className="pin px-1 py-1" style={{ left: 150 }}>
+                      <span className="block px-1 font-medium truncate">{x.name}</span>
+                    </td>
+                    <td colSpan={cols.length - 2} className="px-2 py-1 text-xs" style={{ color: "var(--muted)" }}>
+                      adding…
+                    </td>
+                  </tr>
+                ))}
+              <tr className="border-t" style={{ borderColor: "var(--line)" }}>
+                <td className="pin px-1 py-1" style={{ left: 0 }} />
+                <td className="pin px-1 py-1" style={{ left: 150 }}>
+                  <QuickAdd className="cell cell-add" placeholder={addLabel} onAdd={onAdd} onSheet={setImportText} />
+                </td>
+                <td colSpan={cols.length - 2} className="px-2 py-1">
+                  {addErrors[name] && <ErrorText error={addErrors[name]} />}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  }
+
+  const justRows = justAdded.map((id) => jobs.find((j) => j.id === id)).filter((j): j is FabJob => !!j);
+  const addFromBar = (names: string[]) => {
+    const extra = Object.fromEntries(Object.entries(draft).filter(([k, v]) => v.trim() && (!print || k === "quantity" || k === "material")));
+    addNames(addTo, groups.find(([g]) => g === addTo)?.[1] ?? [], names, extra, JUST_ADDED);
+  };
 
   const total = jobs.length;
   const done = jobs.filter((j) => isDone(j.status)).length;
@@ -460,24 +551,52 @@ export function TrackerTable({
         <input className="input col-span-2 sm:col-span-1" placeholder="Search parts, notes, people…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the tracker" />
       </div>
 
-      {/* add parts by name, like typing a row into the sheet */}
-      <div className="card p-2 mb-4 flex flex-col sm:flex-row gap-2">
-        <QuickAdd
-          className="input flex-1"
-          placeholder="+ Add parts: type a name and press Enter (or paste a list)"
-          onAdd={(names) => addNames(addTo, groups.find(([g]) => g === addTo)?.[1] ?? [], names)}
-          onSheet={setImportText}
-        />
-        <select className="input sm:w-56" value={addTo} onChange={(e) => setAddInto(e.target.value)} aria-label="Subsystem for new parts">
-          {[...new Set([...lists.subsystem, ...groups.map(([g]) => g)])].map((s) => (
-            <option key={s} value={s}>
-              {s === NO_SUBSYSTEM ? "No subsystem" : `Into ${s}`}
-            </option>
-          ))}
-          {!lists.subsystem.includes(NO_SUBSYSTEM) && !groups.some(([g]) => g === NO_SUBSYSTEM) && <option value={NO_SUBSYSTEM}>No subsystem</option>}
-        </select>
+      {/* add parts like typing a row into the sheet: the name, plus the few things picked from a list */}
+      <div className="card p-2 mb-4">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+          <QuickAdd className="input col-span-2 sm:flex-1 sm:min-w-[240px]" placeholder="+ Part name, then Enter (or paste a list)" onAdd={addFromBar} onSheet={setImportText} />
+          <input
+            className="input mono sm:w-20"
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={draft.quantity}
+            onChange={(e) => setDraft((d) => ({ ...d, quantity: e.target.value }))}
+            aria-label="Qty for new parts"
+            title="Qty"
+          />
+          <BarSelect label="Material" value={draft.material} options={lists.material} onChange={(v) => setDraft((d) => ({ ...d, material: v }))} />
+          {!print && (
+            <>
+              <BarSelect label="Stock dims" value={draft.stock_dims} options={lists.stock_dims} onChange={(v) => setDraft((d) => ({ ...d, stock_dims: v }))} />
+              <BarSelect label="Machine" value={draft.machine} options={lists.machine} onChange={(v) => setDraft((d) => ({ ...d, machine: v }))} />
+            </>
+          )}
+          <select className="input sm:w-48" value={addTo} onChange={(e) => setAddInto(e.target.value)} aria-label="Subsystem for new parts">
+            {[...new Set([...lists.subsystem, ...groups.map(([g]) => g)])].map((s) => (
+              <option key={s} value={s}>
+                {s === NO_SUBSYSTEM ? "No subsystem" : `Into ${s}`}
+              </option>
+            ))}
+            {!lists.subsystem.includes(NO_SUBSYSTEM) && !groups.some(([g]) => g === NO_SUBSYSTEM) && <option value={NO_SUBSYSTEM}>No subsystem</option>}
+          </select>
+        </div>
+        {addErrors[JUST_ADDED] && !justRows.length && <ErrorText error={addErrors[JUST_ADDED]} />}
       </div>
-      {addErrors[addTo] && !groups.some(([g]) => g === addTo) && <ErrorText error={addErrors[addTo]} />}
+      {(justRows.length > 0 || pending.some((x) => x.group === JUST_ADDED)) && (
+        <section className="mb-6">
+          <h2 className="eyebrow mb-2 flex items-center gap-2" style={{ color: "var(--purple)" }}>
+            Just added <span className="mono">{justRows.length}</span>
+            <span className="normal-case tracking-normal font-normal" style={{ color: "var(--muted)" }}>
+              · fill in what&apos;s outlined
+            </span>
+            <button type="button" className="ml-auto btn btn-ghost text-xs py-1" onClick={() => setJustAdded([])}>
+              Done, put them in the list
+            </button>
+          </h2>
+          {renderRows(JUST_ADDED, justRows, "+ Another part (same as the bar above)", addFromBar)}
+        </section>
+      )}
 
       {total === 0 ? (
         <Empty>
@@ -513,77 +632,7 @@ export function TrackerTable({
               <h2 className="eyebrow mb-2 flex items-center gap-2" style={{ color: "var(--muted)" }}>
                 {name} <span className="mono">{rows.length}</span>
               </h2>
-              {/* phones: cards */}
-              <ul className="md:hidden flex flex-col gap-2">
-                {rows.map((j) => (
-                  <li key={j.id} className="card p-3">
-                    <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
-                  </li>
-                ))}
-                {pending
-                  .filter((x) => x.group === name)
-                  .map((x) => (
-                    <li key={x.key} className="card p-3 text-sm">
-                      <span className="font-medium">{x.name}</span> <span style={{ color: "var(--muted)" }}>· adding…</span>
-                    </li>
-                  ))}
-                <li className="card p-1">
-                  <QuickAdd className="cell cell-add" placeholder={`+ Add a part to ${name}`} onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
-                </li>
-                {addErrors[name] && <ErrorText error={addErrors[name]} />}
-              </ul>
-              {/* desktop: the sheet's columns */}
-              <div className="hidden md:block card overflow-x-auto">
-                <table className="sheet-table text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
-                  <colgroup>
-                    {cols.map((c) => (
-                      <col key={c.key} style={{ width: c.w }} />
-                    ))}
-                  </colgroup>
-                  <thead>
-                    <tr className="text-left eyebrow" style={{ color: "var(--muted)" }}>
-                      {cols.map((c) => (
-                        <th key={c.key} className={`px-2 py-2 font-medium whitespace-nowrap ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
-                          {c.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((j) => (
-                      <tr key={j.id} className="border-t" style={{ borderColor: "var(--line)", opacity: isDone(j.status) ? 0.6 : 1 }}>
-                        {cols.map((c) => (
-                          <td key={c.key} className={`px-1 py-1 ${c.pin !== undefined ? "pin" : ""}`} style={c.pin !== undefined ? { left: c.pin } : undefined}>
-                            {c.render(j)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                    {pending
-                      .filter((x) => x.group === name)
-                      .map((x) => (
-                        <tr key={x.key} className="border-t" style={{ borderColor: "var(--line)" }}>
-                          <td className="pin px-1 py-1" style={{ left: 0 }} />
-                          <td className="pin px-1 py-1" style={{ left: 150 }}>
-                            <span className="block px-1 font-medium truncate">{x.name}</span>
-                          </td>
-                          <td colSpan={cols.length - 2} className="px-2 py-1 text-xs" style={{ color: "var(--muted)" }}>
-                            adding…
-                          </td>
-                        </tr>
-                      ))}
-                    <tr className="border-t" style={{ borderColor: "var(--line)" }}>
-                      <td className="pin px-1 py-1" style={{ left: 0 }} />
-                      <td className="pin px-1 py-1" style={{ left: 150 }}>
-                        <QuickAdd className="cell cell-add" placeholder={`+ Add a part to ${name}`} onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
-                      </td>
-                      <td colSpan={cols.length - 2} className="px-2 py-1">
-                        {addErrors[name] && <ErrorText error={addErrors[name]} />}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              {renderRows(name, rows, `+ Add a part to ${name}`, (names) => addNames(name, rows, names))}
             </section>
           ))}
         </div>
@@ -950,6 +999,46 @@ function DropCell({
         </option>
       ))}
       {!strict && <option value={OTHER}>Other…</option>}
+    </select>
+  );
+}
+
+/** A pick on the add bar: blank until chosen, "Other…" to type one. */
+function BarSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+  const [typing, setTyping] = useState(false);
+  if (typing)
+    return (
+      <input
+        autoFocus
+        className="input sm:w-44"
+        placeholder={label}
+        defaultValue={value}
+        aria-label={`${label} for new parts`}
+        onBlur={(e) => {
+          onChange(e.currentTarget.value.trim());
+          setTyping(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+        }}
+      />
+    );
+  const opts = value && !options.includes(value) ? [value, ...options] : options;
+  return (
+    <select
+      className="input sm:w-44"
+      value={value}
+      onChange={(e) => (e.target.value === OTHER ? setTyping(true) : onChange(e.target.value))}
+      aria-label={`${label} for new parts`}
+      style={{ color: value ? undefined : "var(--muted)" }}
+    >
+      <option value="">{label}</option>
+      {opts.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+      <option value={OTHER}>Other…</option>
     </select>
   );
 }

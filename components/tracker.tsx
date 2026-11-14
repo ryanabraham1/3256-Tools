@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { addPart, autoMatchParts, deletePart, importSheet, setPartStatus, updatePart } from "@/app/parts-actions";
-import { isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
+import { isLengthKind, isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
 import {
   isDone,
   isUrl,
@@ -41,8 +41,24 @@ function col(j: FabPart, k: string): string {
       return String((j as unknown as Record<string, unknown>)[k] ?? "");
   }
 }
-type StatusFilter = "open" | "all" | JobStatus;
+type StatusFilter = "open" | "all" | "missing" | JobStatus;
 const NO_SUBSYSTEM = "No subsystem";
+
+/** What a part still needs before someone can make it (form field → label). Finished parts need nothing. */
+function missing(j: FabPart): { field: string; label: string }[] {
+  if (isDone(j.status)) return [];
+  const out: { field: string; label: string }[] = [];
+  if (!j.quantity) out.push({ field: "quantity", label: "Qty" });
+  if (!j.material_text.trim()) out.push({ field: "material", label: "Material" });
+  if (j.kind !== "print") {
+    if (isStockKind(j.kind) && !j.stock_dims.trim()) out.push({ field: "stock_dims", label: "Stock dims" });
+    if (isLengthKind(j.kind) && !j.length_text.trim()) out.push({ field: "length", label: "Length" });
+    if (!j.machine.trim()) out.push({ field: "machine", label: "Machine" });
+  }
+  if (!j.file.trim()) out.push({ field: "file", label: j.kind === "print" ? "STL file" : "Drawing/CAM file" });
+  return out;
+}
+const lacks = (j: FabPart, field: string) => missing(j).some((m) => m.field === field);
 
 /** What an in-place edit of a form field looks like on the part, so it shows before the server answers. */
 function optimistic(field: string, v: string): Partial<FabPart> {
@@ -246,6 +262,7 @@ export function TrackerTable({
           <button type="button" className="text-xs px-1 shrink-0" style={{ color: "var(--muted)" }} onClick={() => setEdit(j)} aria-label={`Edit everything for ${j.name}`} title="All fields">
             ✎
           </button>
+          <NeedsPill job={j} />
           {j.cut_qty > 0 && isStockKind(j.kind) && j.cut_qty < need(j) && (
             <span className="chip shrink-0" title="Cut so far">
               {j.cut_qty}/{need(j)}
@@ -257,11 +274,11 @@ export function TrackerTable({
     { key: "pri", label: "Priority", w: 72, render: (j) => <DropCell part={j} field="priority" value={j.priority === null ? "" : `#${j.priority}`} choices={PRIORITIES.map((p) => `#${p}`)} save={(v) => v.replace("#", "")} strict /> },
     { key: "bot", label: "Bot", w: 110, render: (j) => <DropCell part={j} field="bot" value={j.bot} choices={lists.bot} /> },
     { key: "sub", label: "Subsystem", w: 140, render: (j) => <DropCell part={j} field="subsystem" value={j.subsystem} choices={lists.subsystem} /> },
-    { key: "qty", label: "Qty", w: 56, render: (j) => <Cell part={j} field="quantity" value={String(j.quantity)} numeric /> },
+    { key: "qty", label: "Qty", w: 56, render: (j) => <Cell part={j} field="quantity" value={String(j.quantity)} numeric missing={lacks(j, "quantity")} /> },
     { key: "spare", label: "Spare", w: 60, render: (j) => <Cell part={j} field="spare_qty" value={j.spare_qty ? String(j.spare_qty) : ""} numeric /> },
     ...(print
       ? [
-          { key: "mat", label: "Material", w: 170, render: (j: FabPart) => <DropCell part={j} field="material" value={j.material_text} choices={lists.material} /> },
+          { key: "mat", label: "Material", w: 170, render: (j: FabPart) => <DropCell part={j} field="material" value={j.material_text} choices={lists.material} missing={lacks(j, "material")} /> },
           { key: "infill", label: "Infill", w: 80, render: (j: FabPart) => <Cell part={j} field="infill" value={j.infill} /> },
         ]
       : [
@@ -277,13 +294,13 @@ export function TrackerTable({
             w: 250,
             render: (j: FabPart) => (
               <span className="block">
-                <DropCell part={j} field="material" value={j.material_text} choices={lists.material} />
+                <DropCell part={j} field="material" value={j.material_text} choices={lists.material} missing={lacks(j, "material")} />
                 <StockNote job={j} stock={stock} />
               </span>
             ),
           },
-          { key: "dims", label: "Stock Dimensions", w: 160, render: (j: FabPart) => <DropCell part={j} field="stock_dims" value={j.stock_dims} choices={lists.stock_dims} /> },
-          { key: "len", label: "Length", w: 90, render: (j: FabPart) => <Cell part={j} field="length" value={j.length_text} /> },
+          { key: "dims", label: "Stock Dimensions", w: 160, render: (j: FabPart) => <DropCell part={j} field="stock_dims" value={j.stock_dims} choices={lists.stock_dims} missing={lacks(j, "stock_dims")} /> },
+          { key: "len", label: "Length", w: 90, render: (j: FabPart) => <Cell part={j} field="length" value={j.length_text} missing={lacks(j, "length")} /> },
           {
             key: "fab",
             label: "Fab-able?",
@@ -291,7 +308,7 @@ export function TrackerTable({
             render: (j: FabPart) => (j.kind === "plate" ? <FabablePill part={j} /> : null),
           },
           { key: "tap", label: "Tapped?", w: 100, render: (j: FabPart) => <DropCell part={j} field="tapped" value={j.tapped} choices={lists.tapped} /> },
-          { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
+          { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} missing={lacks(j, "machine")} /> },
         ]),
     { key: "designer", label: "Design DRI", w: 120, render: (j) => <PersonCell part={j} field="designer" value={j.designer} members={members} /> },
     {
@@ -300,7 +317,7 @@ export function TrackerTable({
       w: 190,
       render: (j) => (
         <span className="flex items-center gap-1">
-          <Cell part={j} field="file" value={j.file} />
+          <Cell part={j} field="file" value={j.file} missing={lacks(j, "file")} />
           {isUrl(j.file) && (
             <a href={j.file} target="_blank" rel="noreferrer" className="text-xs shrink-0 px-1" style={{ color: "var(--purple)" }} aria-label="Open file link">
               ↗
@@ -319,6 +336,7 @@ export function TrackerTable({
     ]);
     for (const j of base) {
       c.set(j.status, (c.get(j.status) ?? 0) + 1);
+      if (missing(j).length) c.set("missing", (c.get("missing") ?? 0) + 1);
       if (!isDone(j.status)) c.set("open", c.get("open")! + 1);
     }
     return c;
@@ -327,7 +345,7 @@ export function TrackerTable({
   const groups = useMemo(() => {
     // a row edited in place is placed by how it was before the edit
     const at = (j: FabJob) => stayed?.get(j.id) ?? j;
-    const shown = base.filter((j) => stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : j.status === status));
+    const shown = base.filter((j) => stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : j.status === status));
     const order = STATUSES[tracker];
     shown.sort((x, y) => {
       const fx = freshIds.indexOf(x.id);
@@ -422,12 +440,13 @@ export function TrackerTable({
 
       {/* status chips */}
       <div className="hscroll no-scrollbar flex gap-2 mb-3 -mx-4 px-4">
-        {(["open", "all", ...STATUSES[tracker]] as StatusFilter[]).map((s) => {
+        {(["open", "all", "missing", ...STATUSES[tracker]] as StatusFilter[]).map((s) => {
           const n = counts.get(s) ?? 0;
           if (s !== "open" && s !== "all" && !n && status !== s) return null;
           return (
             <button key={s} type="button" className="tile tile-chip text-sm" data-selected={status === s} onClick={() => setStatus(s)}>
-              {s === "open" ? "Still to make" : s === "all" ? "All" : STATUS_LABEL[s]} <span className="font-semibold" style={{ color: "var(--muted)" }}>{n}</span>
+              {s === "open" ? "Still to make" : s === "all" ? "All" : s === "missing" ? "Needs info" : STATUS_LABEL[s]}{" "}
+              <span className="font-semibold" style={{ color: s === "missing" ? "var(--warn)" : "var(--muted)" }}>{n}</span>
             </button>
           );
         })}
@@ -682,7 +701,7 @@ function QuickAdd({ className, placeholder, onAdd, onSheet }: { className: strin
  * A spreadsheet cell: reads like text, edits in place, saves when you leave
  * it (Enter saves, Esc puts it back).
  */
-function Cell({ part, field, value, list, numeric }: { part: FabPart; field: string; value: string; list?: string; numeric?: boolean }) {
+function Cell({ part, field, value, list, numeric, missing }: { part: FabPart; field: string; value: string; list?: string; numeric?: boolean; missing?: boolean }) {
   const { save, errors } = useSave();
   const error = errors[`${part.id}:${field}`];
   return (
@@ -693,6 +712,8 @@ function Cell({ part, field, value, list, numeric }: { part: FabPart; field: str
       inputMode={numeric ? "numeric" : undefined}
       aria-label={`${field.replace("_", " ")} for ${part.name}`}
       className={`cell ${numeric ? "mono text-right" : ""}`}
+      placeholder={missing ? "needed" : undefined}
+      data-missing={missing}
       data-error={!!error}
       title={error ?? (value || undefined)}
       onKeyDown={(e) => {
@@ -862,6 +883,7 @@ function DropCell({
   labels,
   strict,
   required,
+  missing,
   save = (v) => v,
 }: {
   part: FabPart;
@@ -872,6 +894,8 @@ function DropCell({
   strict?: boolean;
   /** no blank choice */
   required?: boolean;
+  /** needed before the part can be made */
+  missing?: boolean;
   save?: (v: string) => string;
 }) {
   const { save: saveField, errors } = useSave();
@@ -905,6 +929,7 @@ function DropCell({
       aria-label={`${field} for ${part.name}`}
       className="cell"
       data-empty={!shown}
+      data-missing={missing}
       data-error={!!error}
       title={error ?? ((labels?.[shown] ?? shown) || undefined)}
       style={{ color: field === "priority" && shown === "#0" ? "var(--bad)" : undefined }}
@@ -918,7 +943,7 @@ function DropCell({
         saveField(part, field, save(v));
       }}
     >
-      {(!required || !shown) && <option value="">—</option>}
+      {(!required || !shown) && <option value="">{missing ? "needed" : "—"}</option>}
       {opts.map((o) => (
         <option key={o} value={o}>
           {labels?.[o] ?? o}
@@ -983,6 +1008,17 @@ function StatusSelect({ job }: { job: FabJob }) {
   );
 }
 
+/** "needs 3" on a part that can't be made yet; hover says what. */
+function NeedsPill({ job }: { job: FabJob }) {
+  const m = missing(job);
+  if (!m.length) return null;
+  return (
+    <span className="pill pill-warn shrink-0 text-xs" title={`Still needs: ${m.map((x) => x.label).join(", ")}`}>
+      needs {m.length}
+    </span>
+  );
+}
+
 function JobCard({ job: j, print, stock, need, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; onOpen: () => void }) {
   const details = print
     ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`]
@@ -1020,6 +1056,11 @@ function JobCard({ job: j, print, stock, need, onOpen }: { job: FabJob; print: b
         </span>
       )}
       {!print && <StockNote job={j} stock={stock} />}
+      {missing(j).length > 0 && (
+        <button type="button" className="text-xs text-left font-medium" style={{ color: "var(--warn)" }} onClick={onOpen}>
+          Still needs: {missing(j).map((x) => x.label).join(", ")} →
+        </button>
+      )}
       <div className="flex items-center gap-2 text-xs min-w-0">
         <FileCell file={j.file} />
         <Link href={`/tracker/${j.id}`} className="ml-auto underline shrink-0" style={{ color: "var(--purple)" }}>

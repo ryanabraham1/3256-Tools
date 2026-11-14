@@ -348,6 +348,9 @@ input[type="checkbox"] { width: 20px; height: 20px; }
 .cell:focus { outline: none; border-color: var(--purple); background-color: var(--surface); }
 .cell:focus::placeholder { color: var(--muted); }
 /* the blank row under each group that adds a part */
+/* empty cells a part needs before it can be made */
+.cell[data-missing="true"] { border: 1px dashed var(--warn); background-color: var(--warn-soft); color: var(--warn); }
+.cell[data-missing="true"]::placeholder { color: var(--warn); }
 .cell.cell-add { border: 1px dashed var(--line); color: var(--ink); }
 .cell.cell-add::placeholder { color: var(--muted); }
 select.cell { cursor: pointer; appearance: none; padding-right: 18px; background-repeat: no-repeat; background-position: right 4px center; background-size: 12px; }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { addPart, autoMatchParts, deletePart, importSheet, setPartStatus, updatePart } from "@/app/parts-actions";
-import { isLengthKind, isStockKind, KIND_LABEL, LENGTH_SPEC_SHORT, LENGTH_SPECS, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
+import { isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
 import {
   isDone,
   isUrl,
@@ -23,7 +23,7 @@ import { timeAgo } from "@/lib/format";
 import { Sheet } from "./sheet";
 import { Empty } from "./ui";
 import { ErrorText, Field, SubmitButton, useFabAction } from "./fab-ui";
-import { FabablePill, LengthFitField, PersonChip } from "./parts-ui";
+import { FabablePill, PersonChip } from "./parts-ui";
 
 type Stock = Record<string, { name: string; onHand: string; low: boolean }>;
 type FabJob = FabPart;
@@ -55,8 +55,6 @@ function optimistic(field: string, v: string): Partial<FabPart> {
       const n = Number(v);
       return v && Number.isFinite(n) ? { [field]: Math.max(0, Math.round(n)) } : {};
     }
-    case "length_spec":
-      return { length_spec: (v || null) as FabPart["length_spec"] };
     case "status":
       return { status: v as JobStatus, status_changed_at: new Date().toISOString() };
     case "material":
@@ -276,13 +274,6 @@ export function TrackerTable({
             label: "Fab-able?",
             w: 120,
             render: (j: FabPart) => (j.kind === "plate" ? <FabablePill part={j} /> : null),
-          },
-          {
-            key: "fit",
-            label: "Length fit",
-            w: 160,
-            render: (j: FabPart) =>
-              isLengthKind(j.kind) ? <DropCell part={j} field="length_spec" value={j.length_spec ?? ""} choices={LENGTH_SPECS} labels={LENGTH_SPEC_SHORT} strict /> : null,
           },
           { key: "tap", label: "Tapped?", w: 100, render: (j: FabPart) => <DropCell part={j} field="tapped" value={j.tapped} choices={lists.tapped} /> },
           { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
@@ -841,7 +832,7 @@ function StatusSelect({ job }: { job: FabJob }) {
 function JobCard({ job: j, print, stock, need, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; onOpen: () => void }) {
   const details = print
     ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`]
-    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, isLengthKind(j.kind) && `Length: ${j.length_spec ? LENGTH_SPEC_SHORT[j.length_spec] : "fit not set"}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`];
+    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`];
   return (
     <div className="tracker-job-card flex flex-col gap-2" style={{ opacity: isDone(j.status) ? 0.65 : 1 }}>
       <div className="flex items-start gap-2">
@@ -1017,7 +1008,6 @@ function JobForm({
               <TextField name="machine" label="Machine" value={v("machine")} list="tr-machine" />
               <TextField name="designer" label="Design DRI" value={j ? v("designer") : defaults.designer} list="tr-people" />
               </div>
-            {(kind === "" || isLengthKind(kind)) && <LengthFitField key={j?.id ?? "new"} value={j?.length_spec ?? null} />}
             <Field label="Cut from (on the rack)" hint="Matched from the material and dims automatically; pick one to lock it. Stock is taken off the rack when the part goes In Progress / Finished.">
               <select name="material_id" className="input" defaultValue={j?.material_locked ? (j.material_id ?? "") : "auto"}>
                 <option value="auto">Auto{j?.material_id && !j.material_locked && stock[j.material_id] ? ` (${stock[j.material_id].name})` : ""}</option>

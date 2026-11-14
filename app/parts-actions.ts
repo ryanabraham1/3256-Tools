@@ -97,11 +97,6 @@ async function loadPart(id: string): Promise<FabPart> {
   return toPart(data);
 }
 
-/** Who's adding parts right now: the name picked on the tracker, else the signed-in account. */
-async function adder(): Promise<string> {
-  return (await getPerson()) || (await requireWorkUser()).name;
-}
-
 async function logPart(partId: string, type: string, data: Record<string, unknown>) {
   const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== null && v !== undefined && v !== ""));
   const { error } = await db().from("fab_part_events").insert({ part_id: partId, type, data: clean });
@@ -391,7 +386,7 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     } else {
       row.status = "not_started";
       row.bot = design.bot ?? "";
-      row.designer ||= await adder();
+      row.designer ||= await getPerson();
       const { data: ins, error: e } = await db().from("fab_parts").insert(row).select("id").single();
       if (e) throw e;
       partId = ins.id as string;
@@ -546,7 +541,7 @@ export async function addPart(fd: FormData): Promise<FabResult<string>> {
       notes: str(fd, "notes"),
     };
     if (materialId) row.material_id = materialId;
-    if (!row.designer) row.designer = await adder();
+    if (!row.designer) row.designer = await getPerson();
     if (isLengthKind(kind) && fd.has("length_spec")) row.length_spec = lengthSpecOf(fd);
     for (const k of ["size_l_mm", "size_w_mm", "size_t_mm"]) if (num(fd, k) !== null) row[k] = num(fd, k);
     await fillFromText(row, {});
@@ -851,7 +846,7 @@ export async function importSheet(fd: FormData): Promise<FabResult<{ added: numb
 
     const inserts: Record<string, unknown>[] = [];
     const seen = new Set<string>();
-    const by = await adder();
+    const by = await getPerson();
     let updated = 0;
     for (const r of rows) {
       const key = jobKey(r);

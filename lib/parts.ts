@@ -636,5 +636,3 @@ export function personHue(name: string): number {
   for (const c of name.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) % 360;
   return h;
 }
-
-export const PERSON_COOKIE = "fab_person";

@@ -1,9 +1,8 @@
 import "server-only";
-import { cookies } from "next/headers";
 import { supabaseAdmin } from "./supabase";
+import { getWorkUser } from "./work-auth";
 import {
   DEFAULT_PARTS_SETTINGS,
-  PERSON_COOKIE,
   type FabDesign,
   type FabMachine,
   type FabPart,
@@ -16,10 +15,9 @@ const N = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
 export const FILES_BUCKET = "fab-files";
 
-/** Who this device says it is (for "assign me"); set on the Parts board. */
+/** The signed-in person's name, for "assign me" and who added a part. */
 export async function getPerson(): Promise<string> {
-  const v = (await cookies()).get(PERSON_COOKIE)?.value;
-  return v ? decodeURIComponent(v).slice(0, 40) : "";
+  return (await getWorkUser())?.name ?? "";
 }
 
 export function toPart(r: Record<string, unknown>): FabPart {
@@ -129,8 +127,3 @@ export async function getJoinedPeople(): Promise<string[]> {
   return [...new Set((members ?? []).map((m) => String(m.title ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-export function knownPeople(parts: FabPart[]): string[] {
-  const s = new Set<string>();
-  for (const p of parts) for (const a of p.assignees) s.add(a);
-  return [...s].sort((a, b) => a.localeCompare(b));
-}

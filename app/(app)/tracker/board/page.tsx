@@ -1,12 +1,11 @@
 import { Suspense } from "react";
 import { getMaterials, getUnits } from "@/lib/fab-data";
-import { getDesigns, getMachines, getPartFiles, getParts, getPartsSettings, getPerson, knownPeople } from "@/lib/parts-data";
+import { getDesigns, getMachines, getPartFiles, getParts, getPartsSettings, getPerson } from "@/lib/parts-data";
 import { checkPart } from "@/lib/dfm";
 import { sizeLabel } from "@/lib/fab";
 import { isMade } from "@/lib/parts";
 import { PartsBoard, type BoardPart } from "@/components/parts-board";
 import { PageHead, UnitsToggle } from "@/components/fab-ui";
-import { PersonPicker } from "@/components/parts-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +60,6 @@ export default async function PartsPage() {
   return (
     <>
       <PageHead eyebrow="Fab tracker" title="Board">
-        <PersonPicker person={person} people={knownPeople(parts)} />
         <UnitsToggle units={units} />
       </PageHead>
       <Suspense fallback={null}>

@@ -1,12 +1,11 @@
 import { Suspense } from "react";
 import { getMaterials, getStockPieces, getUnits } from "@/lib/fab-data";
 import { fmtAmount, materialName, summarize } from "@/lib/fab";
-import { getDesigns, getJoinedPeople, getParts, getPerson, knownPeople } from "@/lib/parts-data";
+import { getDesigns, getJoinedPeople, getParts, getPerson } from "@/lib/parts-data";
 import { isMade, trackerOf } from "@/lib/parts";
 import { TRACKER_LABEL, type Tracker } from "@/lib/tracker";
 import { TrackerTable } from "@/components/tracker";
 import { PageHead } from "@/components/fab-ui";
-import { PersonPicker } from "@/components/parts-ui";
 
 /** Shared by /tracker (machining) and /tracker/print: the team's tracker sheets, as parts. */
 export async function TrackerPage({ tracker }: { tracker: Tracker }) {
@@ -30,9 +29,7 @@ export async function TrackerPage({ tracker }: { tracker: Tracker }) {
   const copies = Object.fromEntries(designs.map((d) => [d.id, d.copies]));
   return (
     <>
-      <PageHead eyebrow="Fab tracker" title={TRACKER_LABEL[tracker]}>
-        <PersonPicker person={person} people={[...new Set([...members, ...knownPeople(parts)])].sort((a, b) => a.localeCompare(b))} />
-      </PageHead>
+      <PageHead eyebrow="Fab tracker" title={TRACKER_LABEL[tracker]} />
       <Suspense fallback={null}>
         <TrackerTable
           tracker={tracker}

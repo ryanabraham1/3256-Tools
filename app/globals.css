@@ -347,6 +347,8 @@ input[type="checkbox"] { width: 20px; height: 20px; }
 .cell:hover { border-color: var(--line); background-color: var(--surface); }
 .cell:focus { outline: none; border-color: var(--purple); background-color: var(--surface); }
 .cell:focus::placeholder { color: var(--muted); }
+/* the blank row under each group that adds a part */
+.cell.cell-add::placeholder { color: var(--muted); }
 select.cell { cursor: pointer; appearance: none; padding-right: 18px; background-repeat: no-repeat; background-position: right 4px center; background-size: 12px; }
 select.cell:hover, select.cell:focus {
   background-repeat: no-repeat;

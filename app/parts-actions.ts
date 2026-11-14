@@ -562,6 +562,10 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
       const kind = str(fd, "kind");
       if (!isPartKind(kind)) throw new Error("Pick a kind");
       if (kind !== part.kind) patch.kind = kind;
+    } else if ("material_text" in patch && part.kind !== "print" && part.kind === kindFromMaterial(part.material_text)) {
+      // the kind came from the material (a part added with just a name), so it follows a new material
+      const kind = kindFromMaterial(String(patch.material_text));
+      if (kind !== part.kind) patch.kind = kind;
     }
     if (fd.has("status")) {
       const status = str(fd, "status");

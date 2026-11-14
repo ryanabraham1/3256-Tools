@@ -42,6 +42,7 @@ function col(j: FabPart, k: string): string {
   }
 }
 type StatusFilter = "open" | "all" | JobStatus;
+const NO_SUBSYSTEM = "No subsystem";
 
 /** What an in-place edit of a form field looks like on the part, so it shows before the server answers. */
 function optimistic(field: string, v: string): Partial<FabPart> {
@@ -126,6 +127,17 @@ export function TrackerTable({
   const view = [status, bot, subsystem, machine, q].join("\u0000");
   const [stay, setStay] = useState<{ view: string; rows: Map<string, FabPart> }>({ view, rows: new Map() });
   const stayed = stay.view === view ? stay.rows : null;
+  // parts added from a group's blank row: shown at the bottom of that group, in the order typed, until the view changes
+  const [fresh, setFresh] = useState<{ view: string; ids: string[] }>({ view, ids: [] });
+  const freshIds = useMemo(() => (fresh.view === view ? fresh.ids : []), [fresh, view]);
+  const [adding, setAdding] = useState<{ key: number; name: string; group: string; id?: string }[]>([]);
+  // a new part's placeholder goes once its real row is here
+  const pending = useMemo(() => {
+    const have = new Set(serverJobs.map((j) => j.id));
+    return adding.filter((x) => !x.id || !have.has(x.id));
+  }, [adding, serverJobs]);
+  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
+  const [importText, setImportText] = useState<string | null>(null);
 
   const jobs = useMemo(() => {
     if (!Object.keys(over).length) return serverJobs;
@@ -198,12 +210,13 @@ export function TrackerTable({
     return jobs.filter(
       (j) =>
         !!stayed?.has(j.id) ||
+        freshIds.includes(j.id) ||
         ((!bot || j.bot.toLowerCase() === bot.toLowerCase()) &&
         (!subsystem || j.subsystem.toLowerCase() === subsystem.toLowerCase()) &&
         (!machine || col(j, machineKey).toLowerCase() === machine.toLowerCase()) &&
         (!needle || [j.name, j.notes, j.material_text, j.file, j.assignees.join(" "), j.designer, j.part_number].some((v) => v.toLowerCase().includes(needle)))),
     );
-  }, [jobs, bot, subsystem, machine, machineKey, q, stayed]);
+  }, [jobs, bot, subsystem, machine, machineKey, q, stayed, freshIds]);
   const need = (j: FabPart) => needed(j, j.design_id ? (copies[j.design_id] ?? 1) : 1);
   const lists = {
     bot: options(SUGGEST.bot, jobs, "bot"),
@@ -312,9 +325,12 @@ export function TrackerTable({
   const groups = useMemo(() => {
     // a row edited in place is placed by how it was before the edit
     const at = (j: FabJob) => stayed?.get(j.id) ?? j;
-    const shown = base.filter((j) => stayed?.has(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : j.status === status));
+    const shown = base.filter((j) => stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : j.status === status));
     const order = STATUSES[tracker];
     shown.sort((x, y) => {
+      const fx = freshIds.indexOf(x.id);
+      const fy = freshIds.indexOf(y.id);
+      if (fx >= 0 || fy >= 0) return fx < 0 ? -1 : fy < 0 ? 1 : fx - fy;
       const a = at(x);
       const b = at(y);
       return (
@@ -326,11 +342,38 @@ export function TrackerTable({
     });
     const map = new Map<string, FabJob[]>();
     for (const j of shown) {
-      const k = at(j).subsystem.trim() || "No subsystem";
+      const k = at(j).subsystem.trim() || NO_SUBSYSTEM;
       map.set(k, [...(map.get(k) ?? []), j]);
     }
+    // a subsystem filter with nothing in it yet still gets a row to add into
+    if (subsystem && !map.size) map.set(subsystem, []);
     return [...map.entries()].sort(([a], [b]) => byOrder(SUGGEST.subsystem)(a, b));
-  }, [base, status, tracker, stayed]);
+  }, [base, status, tracker, stayed, freshIds, subsystem]);
+
+  /** Add parts by name into a group: they show at once, saved in the background, with the group's bot and subsystem. */
+  function addNames(group: string, rows: FabJob[], names: string[]) {
+    const fields = { tracker, subsystem: group === NO_SUBSYSTEM ? "" : group, bot: bot || rows.at(-1)?.bot || "", ...(print ? { kind: "print" } : {}) };
+    setAddErrors((x) => omit(x, group));
+    for (const name of names) {
+      const key = ++seq.current;
+      // drop placeholders whose real rows already came in
+      setAdding((a) => [...a.filter((x) => !x.id || !serverJobs.some((j) => j.id === x.id)), { key, name, group }]);
+      const fd = new FormData();
+      for (const [k, v] of Object.entries({ ...fields, name })) fd.set(k, v);
+      addPart(fd)
+        .catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Couldn't save — check your connection" }))
+        .then((r) => {
+          if (!r.ok) {
+            setAdding((a) => a.filter((x) => x.key !== key));
+            setAddErrors((x) => ({ ...x, [group]: `Couldn't add ${name}: ${r.error}` }));
+            return;
+          }
+          const id = r.data!;
+          setAdding((a) => a.map((x) => (x.key === key ? { ...x, id } : x)));
+          setFresh((f) => ({ view, ids: [...(f.view === view ? f.ids : []), id] }));
+        });
+    }
+  }
 
   const total = jobs.length;
   const done = jobs.filter((j) => isDone(j.status)).length;
@@ -435,6 +478,17 @@ export function TrackerTable({
                     <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
                   </li>
                 ))}
+                {pending
+                  .filter((x) => x.group === name)
+                  .map((x) => (
+                    <li key={x.key} className="card p-3 text-sm">
+                      <span className="font-medium">{x.name}</span> <span style={{ color: "var(--muted)" }}>· adding…</span>
+                    </li>
+                  ))}
+                <li className="card p-1">
+                  <QuickAdd onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
+                </li>
+                {addErrors[name] && <ErrorText error={addErrors[name]} />}
               </ul>
               {/* desktop: the sheet's columns */}
               <div className="hidden md:block card overflow-x-auto">
@@ -463,6 +517,28 @@ export function TrackerTable({
                         ))}
                       </tr>
                     ))}
+                    {pending
+                      .filter((x) => x.group === name)
+                      .map((x) => (
+                        <tr key={x.key} className="border-t" style={{ borderColor: "var(--line)" }}>
+                          <td className="pin px-1 py-1" style={{ left: 0 }} />
+                          <td className="pin px-1 py-1" style={{ left: 150 }}>
+                            <span className="block px-1 font-medium truncate">{x.name}</span>
+                          </td>
+                          <td colSpan={cols.length - 2} className="px-2 py-1 text-xs" style={{ color: "var(--muted)" }}>
+                            adding…
+                          </td>
+                        </tr>
+                      ))}
+                    <tr className="border-t" style={{ borderColor: "var(--line)" }}>
+                      <td className="pin px-1 py-1" style={{ left: 0 }} />
+                      <td className="pin px-1 py-1" style={{ left: 150 }}>
+                        <QuickAdd onAdd={(names) => addNames(name, rows, names)} onSheet={setImportText} />
+                      </td>
+                      <td colSpan={cols.length - 2} className="px-2 py-1">
+                        {addErrors[name] && <ErrorText error={addErrors[name]} />}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -484,8 +560,25 @@ export function TrackerTable({
           />
         )}
       </Sheet>
-      <Sheet open={importing} onClose={() => setImporting(false)} eyebrow={TRACKER_LABEL[tracker]} title="Import from sheet">
-        {importing && <ImportForm tracker={tracker} onDone={() => setImporting(false)} />}
+      <Sheet
+        open={importing || importText !== null}
+        onClose={() => {
+          setImporting(false);
+          setImportText(null);
+        }}
+        eyebrow={TRACKER_LABEL[tracker]}
+        title="Import from sheet"
+      >
+        {(importing || importText !== null) && (
+          <ImportForm
+            tracker={tracker}
+            initial={importText ?? ""}
+            onDone={() => {
+              setImporting(false);
+              setImportText(null);
+            }}
+          />
+        )}
       </Sheet>
     </SaveContext.Provider>
   );
@@ -521,6 +614,44 @@ function AutoMatchButton() {
       )}
       <ErrorText error={a.error} />
     </div>
+  );
+}
+
+/**
+ * The blank row under a group: type a part name and press Enter to add it,
+ * then fill its other cells in place. Pasting a list of names adds each one;
+ * pasting rows copied from the team sheet opens Import with them.
+ */
+function QuickAdd({ onAdd, onSheet }: { onAdd: (names: string[]) => void; onSheet: (text: string) => void }) {
+  const [v, setV] = useState("");
+  return (
+    <input
+      className="cell cell-add"
+      placeholder="+ Add a part…"
+      aria-label="Add a part: type its name and press Enter"
+      title="Type a name and press Enter. Paste a list of names to add them all."
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && v.trim()) {
+          e.preventDefault();
+          onAdd([v.trim()]);
+          setV("");
+        }
+        if (e.key === "Escape") {
+          setV("");
+          e.currentTarget.blur();
+        }
+      }}
+      onPaste={(e) => {
+        const text = e.clipboardData.getData("text");
+        if (!text.trim().includes("\n")) return;
+        e.preventDefault();
+        if (text.includes("\t")) return onSheet(text);
+        const names = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        if (names.length) onAdd(names);
+      }}
+    />
   );
 }
 
@@ -1071,8 +1202,8 @@ function JobForm({
   );
 }
 
-function ImportForm({ tracker, onDone }: { tracker: Tracker; onDone: () => void }) {
-  const [text, setText] = useState("");
+function ImportForm({ tracker, initial, onDone }: { tracker: Tracker; initial: string; onDone: () => void }) {
+  const [text, setText] = useState(initial);
   const [result, setResult] = useState<{ added: number; updated: number } | null>(null);
   const a = useFabAction(importSheet, (r) => {
     if (r) setResult(r);

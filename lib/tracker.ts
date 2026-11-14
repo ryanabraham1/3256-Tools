@@ -201,7 +201,7 @@ function headerField(h: string): Col | null {
   if (/^tap/.test(s)) return "tapped";
   if (/^machine/.test(s)) return "machine";
   if (/^infill/.test(s)) return "infill";
-  if (/^designer/.test(s)) return "designer";
+  if (/^design(er| dri)/.test(s)) return "designer";
   if (/^dri/.test(s)) return "dri";
   if (/drawing|cam|step|stl|^file/.test(s)) return "file";
   if (/^notes?$/.test(s)) return "notes";

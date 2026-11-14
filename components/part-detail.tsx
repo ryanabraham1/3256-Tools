@@ -531,7 +531,7 @@ function EditSheet({ open, onClose, part: p, units, need }: { open: boolean; onC
           <div className="grid grid-cols-2 gap-2">
             <T name="material" label="Filament" value={p.material_text} />
             <T name="infill" label="Infill" value={p.infill} />
-            <T name="designer" label="Designer" value={p.designer} />
+            <T name="designer" label="Design DRI" value={p.designer} />
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
@@ -540,6 +540,7 @@ function EditSheet({ open, onClose, part: p, units, need }: { open: boolean; onC
             <T name="length" label="Length (as on the sheet)" value={p.length_text} />
             <T name="tapped" label="Tapped?" value={p.tapped} />
             <T name="machine" label="Machine" value={p.machine} />
+            <T name="designer" label="Design DRI" value={p.designer} />
           </div>
         )}
         <T name="file" label={print ? "STL file" : "Drawing / CAM file"} value={p.file} placeholder="File name or a Drive / Onshape link" />

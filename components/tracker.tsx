@@ -101,7 +101,7 @@ export function TrackerTable({
     stock_dims: options(SUGGEST.stock_dims, jobs, "stock_dims"),
     machine: options(SUGGEST.machine, jobs, "machine"),
     tapped: options(SUGGEST.tapped, jobs, "tapped"),
-    people: [...new Set(jobs.flatMap((j) => j.assignees).concat(person ? [person] : []))].sort(),
+    people: [...new Set(jobs.flatMap((j) => [...j.assignees, j.designer]).concat(person ? [person] : []).filter(Boolean))].sort(),
   };
 
   /** The sheet's columns, in its order. Status and Part stay put while the rest scrolls. */
@@ -137,7 +137,6 @@ export function TrackerTable({
       ? [
           { key: "mat", label: "Material", w: 170, render: (j: FabPart) => <DropCell part={j} field="material" value={j.material_text} choices={lists.material} /> },
           { key: "infill", label: "Infill", w: 80, render: (j: FabPart) => <Cell part={j} field="infill" value={j.infill} /> },
-          { key: "designer", label: "Designer", w: 120, render: (j: FabPart) => <Cell part={j} field="designer" value={j.designer} /> },
         ]
       : [
           {
@@ -175,6 +174,7 @@ export function TrackerTable({
           { key: "tap", label: "Tapped?", w: 100, render: (j: FabPart) => <DropCell part={j} field="tapped" value={j.tapped} choices={lists.tapped} /> },
           { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
         ]),
+    { key: "designer", label: "Design DRI", w: 120, render: (j) => <Cell part={j} field="designer" value={j.designer} list="tr-people" /> },
     { key: "dri", label: "DRI", w: 120, render: (j) => <Cell part={j} field="dri" value={j.assignees.join(", ")} list="tr-people" /> },
     {
       key: "file",
@@ -593,8 +593,8 @@ function StatusSelect({ job, person }: { job: FabJob; person: string }) {
 function JobCard({ job: j, print, stock, need, person, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; person: string; onOpen: () => void }) {
   const dri = j.assignees.join(", ");
   const details = print
-    ? [j.material_text, j.infill && `${j.infill} infill`, j.designer, dri && `DRI ${dri}`]
-    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, isLengthKind(j.kind) && `Length: ${j.length_spec ? LENGTH_SPEC_SHORT[j.length_spec] : "fit not set"}`, j.tapped && `tap: ${j.tapped}`, j.machine, dri && `DRI ${dri}`];
+    ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`, dri && `DRI ${dri}`]
+    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, isLengthKind(j.kind) && `Length: ${j.length_spec ? LENGTH_SPEC_SHORT[j.length_spec] : "fit not set"}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`, dri && `DRI ${dri}`];
   return (
     <div className="tracker-job-card flex flex-col gap-2" style={{ opacity: isDone(j.status) ? 0.65 : 1 }}>
       <div className="flex items-start gap-2">
@@ -748,7 +748,7 @@ function JobForm({
           <div className="grid grid-cols-2 gap-2">
             <TextField name="material" label="Material" value={v("material")} list="tr-material" />
             <TextField name="infill" label="Infill" value={v("infill")} placeholder="40%" />
-            <TextField name="designer" label="Designer" value={v("designer")} />
+            <TextField name="designer" label="Design DRI" value={v("designer")} list="tr-people" />
             <TextField name="dri" label="DRI" value={v("dri")} />
           </div>
         ) : (
@@ -769,6 +769,7 @@ function JobForm({
               <TextField name="length" label="Length" value={v("length")} placeholder='18.5"' />
               <TextField name="tapped" label="Tapped?" value={v("tapped")} list="tr-tapped" />
               <TextField name="machine" label="Machine" value={v("machine")} list="tr-machine" />
+              <TextField name="designer" label="Design DRI" value={v("designer")} list="tr-people" />
               <TextField name="dri" label="DRI" value={v("dri")} />
             </div>
             {(kind === "" || isLengthKind(kind)) && <LengthFitField key={j?.id ?? "new"} value={j?.length_spec ?? null} />}

@@ -1,10 +1,10 @@
 "use client";
-import Link from "next/link";
-import { dateLabel, done, issueCode, type WorkEvent, type WorkItem } from "@/lib/work";
+import { dateLabel, done, issueCode, type WorkEvent, type WorkFilter, type WorkItem } from "@/lib/work";
 import { Avatar } from "./collections";
 import { GettingStarted } from "./help";
 import { Icon, StatusPill } from "./icons";
 import { useItemMenuShow } from "./item-menu";
+import { WorkLink } from "./work-link";
 
 const GLANCE = [
   { status: "In progress", label: "In progress", tone: "warn", match: ["in progress", "in review"] },
@@ -31,6 +31,7 @@ export function WorkHome({
   name,
   events,
   onOpen,
+  onNavigate,
   onCreate,
   onHelp,
   readOnly,
@@ -41,6 +42,7 @@ export function WorkHome({
   name?: string;
   events: WorkEvent[];
   onOpen: (item: WorkItem) => void;
+  onNavigate: (path: string, filter?: WorkFilter) => void;
   onCreate: () => void;
   onHelp: () => void;
   readOnly: boolean;
@@ -80,7 +82,7 @@ export function WorkHome({
           <div className="work-home-card-head">
             <h2 id="work-home-mine">Assigned to you</h2>
             <span>{mine.length} open</span>
-            <Link href="/work/my-issues">See all</Link>
+            <WorkLink href="/work/my-issues" onGo={() => onNavigate("my-issues")}>See all</WorkLink>
           </div>
           {mine.length ? (
             mine.slice(0, 8).map((i) => {
@@ -102,7 +104,7 @@ export function WorkHome({
             })
           ) : (
             <p className="work-home-empty">
-              Nothing assigned to you yet. Pick something from <Link href="/work/issues?status=Todo">To do</Link>, or ask
+              Nothing assigned to you yet. Pick something from <WorkLink href="/work/issues?status=Todo" onGo={() => onNavigate("issues", { status: "Todo" })}>To do</WorkLink>, or ask
               a lead what to work on.
             </p>
           )}
@@ -114,7 +116,7 @@ export function WorkHome({
             </div>
             <div className="work-home-stats">
               {GLANCE.map((g) => (
-                <Link key={g.status} href={`/work/issues?status=${encodeURIComponent(g.status)}`} className={`work-home-stat pill-${g.tone}`}>
+                <WorkLink key={g.status} href={`/work/issues?status=${encodeURIComponent(g.status)}`} onGo={() => onNavigate("issues", { status: g.status })} className={`work-home-stat pill-${g.tone}`}>
                   <b>
                     {
                       issues.filter((i) =>
@@ -123,7 +125,7 @@ export function WorkHome({
                     }
                   </b>
                   <span>{g.label}</span>
-                </Link>
+                </WorkLink>
               ))}
             </div>
           </section>

@@ -9,6 +9,8 @@ export type IssueActions = {
   onArchive: (issue: WorkItem) => void;
   onTrash: (issue: WorkItem) => void;
   onOpen: (issue: WorkItem) => void;
+  /** One change applied to every selected task. */
+  onBulk: (issues: WorkItem[], change: { data?: WorkData; archived?: boolean; deleted?: boolean }) => void;
   disabled?: boolean;
 };
 

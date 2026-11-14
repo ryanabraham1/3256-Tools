@@ -131,8 +131,7 @@
   overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
-.work-shell .work-group-heading,
-.work-shell .work-project-issue-group-head {
+.work-shell .work-group-heading {
   background: var(--surface);
   border-block: 0;
   min-height: 52px;
@@ -142,12 +141,8 @@
 }
 .work-shell .work-group-heading h3 { font-weight: 700; font-size: 16px; }
 .work-shell .work-group-heading > span:last-of-type { font-size: 14px; color: var(--muted); }
-.work-shell .work-issue-row,
-.work-shell .work-project-issue-row,
-.work-shell .work-child:has(.work-code) { border-bottom: 0; border-top: 1px solid var(--work-row-line); transition: background .12s; }
-.work-shell .work-issue-row:hover,
-.work-shell .work-project-issue-row:hover,
-.work-shell .work-child:has(.work-code):hover { background: var(--work-hover); }
+.work-shell .work-issue-row { border-bottom: 0; border-top: 1px solid var(--work-row-line); transition: background .12s; }
+.work-shell .work-issue-row:hover { background: var(--work-hover); }
 .work-shell .work-issue-row[data-selected="true"] { background: var(--purple-soft); }
 .work-shell .work-issue-row { min-height: 56px; padding: 6px 20px; gap: 12px; }
 .work-shell .work-issue-row input[type="checkbox"],
@@ -165,11 +160,41 @@
 .work-shell .work-row-status-picker { width: 28px; }
 .work-shell .work-row-status-picker .work-property-button { width: 28px; min-height: 32px; }
 .work-shell .work-row-prop .work-property-button { min-height: 32px; border-radius: 8px; }
-.work-shell .work-project-issue-row,
-.work-shell .work-child:has(.work-code) { min-height: 52px; font-size: 15px; }
-.work-project-issue-group-head { border-radius: 10px; }
-.work-project-issue-group-toggle { font-size: 15px; font-weight: 600; }
-.work-project-issue-group-toggle > span:last-child { font-size: 14px; color: var(--muted); }
+/* Group headings fold their rows away; the + starts a task already in that group. */
+.work-shell .work-list .work-group-heading h3 { flex: 1; min-width: 0; }
+.work-group-toggle { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; font: inherit; color: inherit; text-align: left; }
+.work-group-count { font-size: 14px; font-weight: 500; color: var(--muted); }
+/* One task row everywhere: the Tasks page, a project's tasks, and the short lists inside a task, milestone or initiative. */
+.work-shell .work-row-date[data-overdue="true"],
+.work-card-foot > span[data-overdue="true"] { color: var(--bad); font-weight: 600; }
+.work-shell .work-row-date:empty,
+.work-shell .work-row-project:empty,
+.work-shell .work-issue-row > .work-labels:empty { display: none; }
+.work-shell .work-row-more { flex: none; font-size: 18px; line-height: 1; opacity: 0; }
+.work-shell .work-issue-row:hover > .work-row-more,
+.work-shell .work-issue-row:focus-within > .work-row-more { opacity: 1; }
+@media (hover: none) { .work-shell .work-row-more { opacity: .7; } }
+.work-shell .work-issue-row[data-done="true"] > .work-row-title { color: var(--muted); text-decoration: line-through; font-weight: 400; }
+.work-shell .work-issue-rows > .work-issue-row { padding-inline: 4px; }
+.work-shell .work-issue-rows > .work-issue-row:first-of-type { border-top: 0; }
+/* The task browser inside a project uses the project page's own padding. */
+.work-shell .work-issue-browser[data-embedded="true"] .work-status-tabs { margin-inline: 0; max-width: 100%; }
+.work-shell .work-issue-browser[data-embedded="true"] .work-toolbar { padding-inline: 0; background: transparent; }
+.work-shell .work-issue-browser[data-embedded="true"] .work-filter-panel,
+.work-shell .work-issue-browser[data-embedded="true"] .work-bulk { margin-inline: 0; }
+.work-shell .work-issue-browser[data-embedded="true"] .work-list { padding: 0 0 24px; }
+.work-shell .work-issue-browser[data-embedded="true"] .work-board { padding: 4px 0 24px; background: transparent; min-height: 0; }
+.work-shell .work-issue-browser[data-embedded="true"] .work-empty { padding-block: 32px; }
+/* Stays in view while scrolling a long list, so the actions are next to whatever was ticked. */
+.work-bulk { flex-wrap: wrap; position: sticky; top: 60px; z-index: 6; box-shadow: var(--shadow-sm); }
+.work-shell .work-issue-browser[data-embedded="true"] .work-bulk { top: 0; }
+@media (max-width: 767px) {
+  /* On a phone the bar docks at the bottom, in thumb reach, in place of the New task button. */
+  .work-shell .work-bulk,
+  .work-shell .work-issue-browser[data-embedded="true"] .work-bulk { position: fixed; top: auto; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); margin: 0; z-index: 30; box-shadow: var(--shadow-md); }
+  .work-shell:has(.work-bulk) .work-fab { display: none; }
+}
+.work-bulk select.work-control { background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
 
 /* ---- Start here card ---- */
 .work-shell .work-tips {
@@ -364,12 +389,7 @@
 .work-status-choice > button[aria-checked="true"][data-tone="muted"] { background: var(--neutral-soft); border-color: var(--muted); }
 .work-shell .work-section-title h2 > span { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 8px; }
 .work-shell .work-section-progress { flex: 1; max-width: 200px; height: 8px; margin: 0 12px; }
-.work-child-check { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--work-row-line); padding-left: 4px; }
-.work-child-check > input { width: 20px; height: 20px; flex: none; accent-color: var(--good); cursor: pointer; }
-.work-child-check > .work-child { flex: 1; min-width: 0; border-top: 0; display: flex; align-items: center; gap: 12px; min-height: 50px; text-align: left; }
-.work-child-check > .work-child > span:first-child { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; }
 .work-shell .work-child > .work-code { flex: 0 0 auto; }
-.work-child-check[data-done="true"] > .work-child > span:first-child { color: var(--muted); text-decoration: line-through; font-weight: 400; }
 
 @media (max-width: 1100px) and (min-width: 768px) {
   .work-shell { --work-sidebar: 220px; }
@@ -446,22 +466,27 @@
   .work-shell .work-status-tabs > button { min-height: 44px; }
   .work-shell .work-project-card { padding: 20px; overflow-wrap: anywhere; }
   .work-card-progress-head { flex-wrap: wrap; }
-  .work-shell .work-child-check > .work-child { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; }
-  .work-shell .work-child-check > .work-child > span:first-child { grid-column: 1; grid-row: 1; white-space: normal; overflow-wrap: anywhere; }
-  .work-shell .work-child-check > .work-child > .work-code { grid-column: 1; grid-row: 2; }
-  .work-shell .work-child-check > .work-child > .work-avatar { grid-column: 2; grid-row: 1 / 3; }
 }
-/* A tablet can have a phone-sized task pane beside the workspace navigation. */
-@media (min-width: 768px) {
-  @container work-content (max-width: 720px) {
-    .work-shell .work-issue-row { display: grid; grid-template-columns: 16px 28px minmax(0, 1fr) auto; gap: 6px 10px; }
-    .work-shell .work-issue-row > input { grid-column: 1; grid-row: 1; }
-    .work-shell .work-issue-row > .work-row-status-picker { grid-column: 2; grid-row: 1; }
-    .work-shell .work-issue-row > .work-row-title { grid-column: 3; grid-row: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
-    .work-shell .work-issue-row > .work-row-prop:nth-child(2) { grid-column: 2; grid-row: 2; }
-    .work-shell .work-issue-row > .work-code { grid-column: 3; grid-row: 2; }
-    .work-shell .work-issue-row > .work-row-prop:last-child { grid-column: 4; grid-row: 1 / 3; }
-    .work-shell .work-issue-row > .work-row-date { grid-column: 3; grid-row: 3; }
-    .work-shell .work-issue-row > .work-labels { grid-column: 3; }
-  }
+/* Task rows in a narrow pane (a phone, or a tablet beside the navigation): title on top, details beneath. */
+@container work-content (max-width: 720px) {
+  .work-shell .work-issue-row { display: grid; grid-template-columns: auto 28px minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; }
+  .work-shell .work-issue-row > input { grid-column: 1; grid-row: 1; }
+  .work-shell .work-issue-row > .work-row-status-picker { grid-column: 2; grid-row: 1; }
+  .work-shell .work-issue-row > .work-row-title { grid-column: 3; grid-row: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .work-shell .work-issue-row > .work-row-priority { grid-column: 2; grid-row: 2; }
+  .work-shell .work-issue-row > .work-code { grid-column: 3; grid-row: 2; }
+  .work-shell .work-issue-row > .work-row-more { grid-column: 4; grid-row: 1; }
+  .work-shell .work-issue-row > .work-row-assignee { grid-column: 4; grid-row: 2 / 4; justify-self: center; }
+  .work-shell .work-issue-row > .work-row-date { display: block; grid-column: 3; grid-row: 3; justify-self: start; }
+  .work-shell .work-issue-row > .work-row-date:empty { display: none; }
+  .work-shell .work-issue-row > .work-row-project,
+  .work-shell .work-issue-row > .work-labels { grid-column: 3; max-width: none; }
+  .work-shell .work-issue-rows > .work-issue-row { padding-inline: 0; }
 }
+/* Saving is silent unless it is slow; errors and Undo live in the toast. */
+.work-saving { font-size: 13px; color: var(--muted); animation: work-fade .2s .6s both; }
+.work-shell button:disabled { cursor: not-allowed; }
+.work-toast[data-tone="error"] { background: #b42318; color: #fff; max-width: min(520px, calc(100vw - 32px)); }
+.work-toast[data-tone="error"] .work-toast-check { color: inherit; }
+.work-toast .work-toast-action { margin-left: 6px; padding: 2px 6px; font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 3px; border-radius: 6px; }
+.work-toast .work-toast-action:hover { background: #fff2; }

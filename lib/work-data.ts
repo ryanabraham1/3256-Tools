@@ -28,9 +28,9 @@ export async function getWork(full = false): Promise<WorkSnapshot> {
   const user = await requireWorkUser();
   try {
     const db = supabaseAdmin();
-    const maintenance = await db.rpc("advance_work");
-    if (maintenance.error) throw maintenance.error;
-    const [items, events, receipts] = await Promise.all([
+    // Recurring-task upkeep runs alongside the reads; anything it creates shows on the next refresh.
+    const [maintenance, items, events, receipts] = await Promise.all([
+      db.rpc("advance_work"),
       collect<WorkSnapshot["items"][number]>((from, to) =>
         db.from("work_items").select("*").order("number").range(from, to),
       ),
@@ -53,6 +53,7 @@ export async function getWork(full = false): Promise<WorkSnapshot> {
           .range(from, to),
       ),
     ]);
+    if (maintenance.error) throw maintenance.error;
     const snapshot = { now: new Date().toISOString(), items, events, receipts };
     return full ? snapshot : compactWorkSnapshot(snapshot);
   } catch (e) {

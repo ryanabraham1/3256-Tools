@@ -318,3 +318,54 @@ test('admin page blocks non-admins before reading the team access list', async (
     }
   }
 });
+
+test('saving work reads stored rows in one batch and hands back newer rows instead of a dead end', async () => {
+  const id = n => `${String(n).repeat(8)}-1111-4111-8111-111111111111`;
+  const stored = [1, 2, 3].map(n => ({ id: id(n), kind: 'issue', title: `Task ${n}`, revision: n, data: { status: 'Todo', source: { identifier: `WB-${n}`, raw: { big: true } } } }));
+  const reads = [], calls = [];
+  const db = {
+    from: () => ({ select: columns => ({ in: async (_key, ids) => { reads.push([columns, ids]); return { data: stored.filter(r => ids.includes(r.id)), error: null }; } }) }),
+    rpc: async (name, args) => { calls.push([name, args]); return { data: args.changes.map(c => { const row = stored.find(r => r.id === c.id); return { ...row, data: { ...row.data, ...c.data }, revision: c.revision + 1 }; }), error: null }; },
+  };
+  let revalidated = 0;
+  const { mutateWork } = load('app/work-actions.ts', {
+    'next/cache': { revalidatePath: () => { revalidated++; } },
+    '@/lib/work-auth': { requireWorkUser: async () => ({ role: 'member', userId: 'google-id', memberId: 'member-id', name: 'Ryan' }) },
+    '@/lib/supabase': { supabaseAdmin: () => db },
+    '@/lib/work-snapshot': load('lib/work-snapshot.ts'),
+    '@/lib/work': load('lib/work.ts'),
+  }, { process, AbortSignal, fetch });
+
+  const saved = await mutateWork(stored.map(r => ({ id: r.id, revision: r.revision, data: { status: 'Done' } })));
+  assert.equal(saved.ok, true, saved.error);
+  assert.equal(reads.length, 1, 'one read for the whole batch, not one per task');
+  assert.deepEqual(Array.from(calls[0][1].changes, c => c.data.status), ['Done', 'Done', 'Done']);
+  assert.equal(revalidated, 0, 'a save must not re-download the whole workspace');
+  assert.equal(saved.items[0].data.source.raw, undefined);
+
+  // A teammate saved first: nothing is written, and the newer row comes back so the browser can catch up.
+  calls.length = 0;
+  const stale = await mutateWork([{ id: id(1), revision: 1, data: { status: 'Done' } }, { id: id(2), revision: 1, data: { status: 'Done' } }]);
+  assert.equal(stale.ok, false);
+  assert.deepEqual(Array.from(stale.current, r => [r.id, r.revision]), [[id(2), 2]]);
+  assert.equal(stale.current[0].data.source.raw, undefined);
+  assert.equal(calls.length, 0);
+
+  for (const bad of [[{ id: 'not-a-uuid', revision: 1 }], [{ id: id(9), revision: 1 }], []]) assert.equal((await mutateWork(bad)).ok, false);
+  assert.equal(calls.length, 0);
+});
+
+test('the Work save endpoint only accepts same-origin requests and passes changes to the checked save', async () => {
+  const seen = [];
+  const { POST } = load('app/api/work/save/route.ts', {
+    '@/app/work-actions': { mutateWork: async changes => { seen.push(changes); return { ok: true, items: [] }; } },
+  }, { URL, Response });
+  const post = (origin, body) => POST(new Request('https://tools.example/api/work/save', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body }));
+  assert.equal((await post('https://other.example', '{"changes":[]}')).status, 403);
+  assert.equal((await post('https://tools.example', 'not json')).status, 400);
+  assert.equal(seen.length, 0);
+  const saved = await post('https://tools.example', JSON.stringify({ changes: [{ id: 'a', data: { status: 'Done' } }] }));
+  assert.equal(saved.headers.get('cache-control'), 'private, no-store');
+  assert.deepEqual(await saved.json(), { ok: true, items: [] });
+  assert.equal(seen[0][0].data.status, 'Done');
+});

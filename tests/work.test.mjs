@@ -136,3 +136,129 @@ test("an edit is judged against stored values only for the fields it touches", (
   assert.throws(() => validateWorkInput("issue", "i", { due: "" }, { recurrence: "weekly", due: "2026-10-01" }));
   assert.throws(() => validateWorkInput("issue", "i", { recurrence: "weekly" }, {}));
 });
+
+test("rows saved in this browser win over an older page snapshot, and new rows are appended", async () => {
+  const { mergeItems } = await import("../lib/work-store.ts");
+  const snapshot = [issue("a", { status: "Todo" }), issue("b", { status: "Todo" }, { revision: 5 })];
+  assert.equal(mergeItems(snapshot, new Map()), snapshot);
+  const saved = new Map([
+    ["a", issue("a", { status: "Done" }, { revision: 2 })],
+    // A refresh that already contains a newer row must not be rolled back by an older saved copy.
+    ["b", issue("b", { status: "Backlog" }, { revision: 4 })],
+    ["c", issue("c", { status: "Todo" })],
+  ]);
+  assert.deepEqual(mergeItems(snapshot, saved).map((i) => [i.id, i.data.status]), [["a", "Done"], ["b", "Todo"], ["c", "Todo"]]);
+});
+
+test("edits still being saved show immediately, in order, and can be undone", async () => {
+  const { applyChanges } = await import("../lib/work-store.ts");
+  const items = [issue("a", { status: "Todo", priority: 1 }), issue("b")];
+  const shown = applyChanges(items, [
+    { id: "a", data: { status: "In progress" } },
+    { id: "a", title: "Renamed", data: { status: "Done" } },
+    { id: "b", deleted: true },
+  ], "2026-11-13T00:00:00Z");
+  assert.deepEqual([shown[0].title, shown[0].data], ["Renamed", { status: "Done", priority: 1 }]);
+  assert.equal(shown[1].deleted_at, "2026-11-13T00:00:00Z");
+  assert.equal(items[0].data.status, "Todo");
+  const restored = applyChanges(shown, [{ id: "b", deleted: false }, { id: "a", archived: true }], "now");
+  assert.equal(restored[1].deleted_at, null);
+  assert.equal(restored[0].archived, true);
+  assert.equal(applyChanges(items, [{ kind: "issue", title: "New" }], "now"), items);
+});
+
+test("a save rejected for a stale revision is re-sent only when the teammate changed other fields", async () => {
+  const { canRebase } = await import("../lib/work-store.ts");
+  const base = issue("a", { status: "Todo", assignee: member, labels: [team] });
+  const reassigned = issue("a", { status: "Todo", assignee: team, labels: [team] }, { revision: 2 });
+  assert.equal(canRebase({ id: "a", data: { status: "Done" } }, base, reassigned), true);
+  assert.equal(canRebase({ id: "a", data: { assignee: "" } }, base, reassigned), false);
+  assert.equal(canRebase({ id: "a", data: { labels: [] } }, base, reassigned), true);
+  assert.equal(canRebase({ id: "a", title: "New title" }, base, { ...reassigned, title: "Their title" }), false);
+  // Never write onto something a teammate just trashed or archived.
+  assert.equal(canRebase({ id: "a", data: { status: "Done" } }, base, { ...reassigned, deleted_at: "2026-11-13" }), false);
+  assert.equal(canRebase({ id: "a", data: { status: "Done" } }, base, { ...reassigned, archived: true }), false);
+  assert.equal(canRebase({ id: "a", data: { status: "Done" } }, undefined, reassigned), false);
+});
+
+test("an edit form sends only the properties that changed", async () => {
+  const { changedData } = await import("../lib/work-store.ts");
+  const before = { status: "Todo", labels: [team], description: "Old", due: "2026-11-20" };
+  assert.deepEqual(changedData({ ...before, description: "New", due: "" }, before), { description: "New", due: "" });
+  assert.deepEqual(changedData({ ...before, labels: [team] }, before), {});
+});
+
+test("issue identifiers resolve the team from an id lookup as well as a list", () => {
+  const i = issue("a", { team });
+  assert.equal(issueCode(i, new Map([[team, { id: team, kind: "team", data: { identifier: "MECH" } }]])), "MECH-42");
+  assert.equal(issueCode(i, new Map()), "WB-42");
+});
+
+test("saves go to the server one at a time, each on the newest revision", async () => {
+  const { createSaveQueue } = await import("../lib/work-store.ts");
+  const server = new Map([["a", issue("a", { status: "Todo", priority: 0 })]]);
+  const sent = [];
+  let active = 0;
+  const save = createSaveQueue({
+    snapshot: () => issue("a", { status: "Todo", priority: 0 }),
+    onRows: () => {},
+    send: async (changes) => {
+      assert.equal(++active, 1, "requests must not overlap");
+      await new Promise((r) => setTimeout(r, 5));
+      sent.push(changes.map((c) => c.revision));
+      const rows = changes.map((c) => {
+        const row = server.get(c.id);
+        if (c.revision !== row.revision) throw new Error("stale revision reached the server");
+        const next = { ...row, data: { ...row.data, ...c.data }, revision: row.revision + 1 };
+        server.set(c.id, next);
+        return next;
+      });
+      active--;
+      return { ok: true, items: rows };
+    },
+  });
+  // Three quick edits to one task, as when someone sets status, priority and assignee in a row.
+  const results = await Promise.all([
+    save([{ id: "a", data: { status: "In progress" } }]),
+    save([{ id: "a", data: { priority: 1 } }]),
+    save([{ id: "a", data: { assignee: member } }]),
+  ]);
+  assert.deepEqual(results.map((r) => r.ok), [true, true, true]);
+  assert.deepEqual(sent, [[1], [2], [3]]);
+  assert.deepEqual(server.get("a").data, { status: "In progress", priority: 1, assignee: member });
+});
+
+test("a teammate's simultaneous edit is merged when fields differ and reported when they collide", async () => {
+  const { createSaveQueue } = await import("../lib/work-store.ts");
+  const mine = issue("a", { status: "Todo", assignee: member });
+  let theirs = issue("a", { status: "Todo", assignee: team }, { revision: 2 });
+  let shown = new Map();
+  const attempts = [];
+  const save = createSaveQueue({
+    snapshot: () => mine,
+    onRows: (rows) => { shown = new Map(rows); },
+    send: async ([c]) => {
+      attempts.push(c.revision);
+      if (c.revision !== theirs.revision) return { ok: false, error: "A teammate changed this.", current: [theirs] };
+      theirs = { ...theirs, data: { ...theirs.data, ...c.data }, revision: theirs.revision + 1 };
+      return { ok: true, items: [theirs] };
+    },
+  });
+  // They reassigned it, I marked it done: both stick.
+  assert.equal((await save([{ id: "a", data: { status: "Done" } }])).ok, true);
+  assert.deepEqual(attempts, [1, 2]);
+  assert.deepEqual(shown.get("a").data, { status: "Done", assignee: team });
+
+  // We both changed the assignee: mine is refused, and theirs is what shows.
+  attempts.length = 0;
+  theirs = { ...theirs, data: { ...theirs.data, assignee: member }, revision: theirs.revision + 1 };
+  const refused = await save([{ id: "a", data: { assignee: "" } }]);
+  assert.deepEqual(refused, { ok: false, error: "A teammate changed this." });
+  assert.deepEqual(attempts, [3]);
+  assert.equal(shown.get("a").data.assignee, member);
+
+  // A dropped connection fails that save without breaking the next one.
+  const offline = createSaveQueue({ snapshot: () => mine, onRows: () => {}, send: async () => { throw new Error("offline"); } });
+  assert.match((await offline([{ id: "a", data: { status: "Done" } }])).error, /reach the server/);
+  assert.equal((await offline([{ id: "a", data: { status: "Done" } }])).ok, false);
+});

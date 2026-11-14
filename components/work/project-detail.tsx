@@ -1,21 +1,18 @@
 "use client";
 import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { deleteWorkUpdate, editWorkUpdate } from "@/app/work-actions";
 import { useWork } from "./work-provider";
-import { activeWorkItems, dateLabel, today, done, filterIssues, issueCode, milestoneProgress, uniqueStatuses, PRIORITIES, progress, type WorkData, type WorkFilter, type WorkEvent, type WorkItem, type WorkKind } from "@/lib/work";
+import { activeWorkItems, dateLabel, today, done, milestoneProgress, uniqueStatuses, PRIORITIES, progress, type WorkData, type WorkEvent, type WorkItem, type WorkKind } from "@/lib/work";
 import { Avatar, LabelPicker, Labels, Empty } from "./collections";
+import { DEFAULT_ISSUE_VIEW, IssueBrowser, type IssueView } from "./issue-browser";
 import { RichText } from "./detail";
 import { CommitInput, EntitySelect, Field, Modal } from "./editor";
 import { Icon, MilestoneIcon, PROJECT_ICONS, StatusIcon } from "./icons";
-import { useIssueMenu, type IssueActions } from "./issue-menu";
+import type { IssueActions } from "./issue-menu";
 import { useItemMenuShow } from "./item-menu";
 import { useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
 import { InlineEdit, PropertyPicker } from "./property-picker";
-import { IssueFilterFields } from "./filter-fields";
 
-const STATUS_ORDER = ["backlog", "todo", "planned", "in progress", "in review", "done", "completed", "canceled", "cancelled", "duplicate"];
-const statusRank = (s: string) => { const r = STATUS_ORDER.indexOf(s.toLowerCase()); return r < 0 ? 5 : r; };
 const PROJECT_COLORS = ["#6b3fd4", "#2b69b6", "#178558", "#b86a04", "#cf3e4c", "#c2418f", "#0e8f9f", "#5f6b7a"];
 function ProjectEmblemPicker({ icon, color, disabled, onChange }: { icon?: string; color?: string; disabled: boolean; onChange: (data: WorkData) => void }) {
   const menu = useRef<HTMLDivElement>(null);
@@ -32,11 +29,11 @@ function ProjectEmblemPicker({ icon, color, disabled, onChange }: { icon?: strin
 function healthLabel(health: string) { return ({offTrack:"Off track", atRisk:"At risk", onTrack:"On track"} as Record<string,string>)[health] || health; }
 
 type Tab = "Overview" | "Activity" | "Issues" | "Updates";
-export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, onComment, onOpen, onCreate, onArchive, onDelete, milestoneActions, issueActions, preview = false }: {
+export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, onPatch, onComment, onOpen, onCreate, onArchive, onDelete, milestoneActions, issueActions, preview = false }: {
   preview?: boolean;
   milestoneActions: MilestoneActions;
   issueActions: IssueActions;
-  item: WorkItem; items: WorkItem[]; events: WorkEvent[]; pending: boolean;
+  item: WorkItem; items: WorkItem[]; events: WorkEvent[]; readOnly: boolean; posting: boolean;
   onEdit: () => void; onPatch: (data: WorkData) => void;
   onComment: (body: string, type?: string) => Promise<boolean>;
   onOpen: (item: WorkItem) => void; onCreate: (kind: WorkKind, preset?: WorkData) => void;
@@ -44,11 +41,9 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
 }) {
   const [tab, setTab] = useState<Tab>("Overview");
   const milestoneMenu = useMilestoneMenu(milestoneActions);
-  const issueMenu = useIssueMenu(items, issueActions);
   const menuFor = useItemMenuShow();
   const [composer, setComposer] = useState(false);
   const { user } = useWork();
-  const router = useRouter();
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState("");
@@ -56,13 +51,12 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
     setUpdateError("");
     const r = await fn();
     if (!r.ok) { setUpdateError(r.error ?? "Couldn't save. Please try again."); return; }
-    setEditing(null); setDeleting(null); router.refresh();
+    // The action re-reads the workspace itself; no second refresh needed.
+    setEditing(null); setDeleting(null);
   }
   const [body, setBody] = useState("");
-  const [filter, setFilter] = useState<WorkFilter>({});
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [view, setView] = useState<IssueView>(DEFAULT_ISSUE_VIEW);
   const [milestone, setMilestone] = useState("");
-  const [collapsed, setCollapsed] = useState<string[]>([]);
   const [showProperties, setShowProperties] = useState(true);
   const live = activeWorkItems(items);
   const issues = live.filter(i => i.kind === "issue" && i.data.project === item.id);
@@ -71,18 +65,13 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
   const updates = history.filter(e => e.type === "update");
   const documents = live.filter(i => i.kind === "document" && i.data.project === item.id);
   const pct = progress(issues);
-  const filtered = filterIssues(items, { ...filter, project: item.id }).filter(i => !milestone || i.data.milestone === milestone);
-  const activeCount = Object.entries(filter).filter(([k, v]) => v && k !== "query").length + (milestone ? 1 : 0);
-  const groupMap = new Map<string, [string, WorkItem[]]>();
-  for (const i of filtered) { const label = i.data.status || "Backlog"; const entry = groupMap.get(label.toLowerCase()); if (entry) entry[1].push(i); else groupMap.set(label.toLowerCase(), [label, [i]]); }
-  const statusGroups = [...groupMap.entries()].map(([key, [label, rows]]) => [key, label, rows] as [string, string, WorkItem[]]).sort((a, b) => statusRank(a[0]) - statusRank(b[0]));
   function updateCard(e: WorkEvent) {
     const canManage = e.type === "update" && user.role !== "viewer" && (user.role === "admin" || e.actor_id === user.memberId);
     const isEditing = editing?.id === e.id;
     return <article className="work-project-update" key={e.id}>
       <div className="work-project-update-meta"><Avatar small name={e.actor} /><b>{e.actor}</b><span>{dateLabel(e.created_at)}</span>
         {canManage && !isEditing && (deleting === e.id
-          ? <span className="work-update-actions"><span className="work-muted">Delete this update?</span><button type="button" className="work-text-button" onClick={() => setDeleting(null)}>Keep</button><button type="button" className="work-text-button danger" disabled={pending} onClick={() => runUpdate(() => deleteWorkUpdate(e.id))}>Delete</button></span>
+          ? <span className="work-update-actions"><span className="work-muted">Delete this update?</span><button type="button" className="work-text-button" onClick={() => setDeleting(null)}>Keep</button><button type="button" className="work-text-button danger" disabled={readOnly} onClick={() => runUpdate(() => deleteWorkUpdate(e.id))}>Delete</button></span>
           : <span className="work-update-actions"><button type="button" className="work-text-button" onClick={() => { setUpdateError(""); setEditing({ id: e.id, body: e.body }); }}>Edit</button><button type="button" className="work-text-button" onClick={() => setDeleting(e.id)}>Delete</button></span>)}
       </div>
       {typeof e.data.health === "string" && <span className="work-health" data-health={healthLabel(e.data.health)}>{healthLabel(e.data.health)}</span>}
@@ -107,78 +96,61 @@ export function ProjectDetail({ item, items, events, pending, onEdit, onPatch, o
     {!preview && <nav className="work-project-tabs" aria-label="Project views">
       {(["Overview", "Activity", "Issues", "Updates"] as Tab[]).map(t => <button key={t} aria-current={tab === t ? "page" : undefined} data-active={tab === t} onClick={() => setTab(t)}>{t}{t === "Issues" && <span>{issues.length}</span>}</button>)}
       <div className="work-project-tab-actions">
-        <button className="work-text-button" disabled={pending} onClick={() => setComposer(true)}><Icon name="updates" size={15} /> Write update</button>
+        <button className="work-text-button" disabled={readOnly} onClick={() => setComposer(true)}><Icon name="updates" size={15} /> Write update</button>
         <button className="work-icon-button" aria-label="Toggle project details" aria-pressed={showProperties} onClick={() => setShowProperties(v => !v)}><Icon name="board" size={17} /></button>
       </div>
     </nav>}
     <div className="work-project-columns" data-sidebar={showProperties}>
       {!preview && <main className="work-project-content" data-tab={tab}>
         {tab === "Overview" && <>
-          <div className="work-project-heading"><ProjectEmblemPicker icon={item.data.icon} color={item.data.color} disabled={pending} onChange={onPatch} /><button className="work-text-button" onClick={onEdit}>Edit project</button></div>
-          <InlineEdit label="Project name" value={item.title} disabled={pending} onSave={title => milestoneActions.onSave(item, { title })}><h1>{item.title}</h1></InlineEdit>
-          <InlineEdit label="Summary" multiline value={item.data.description ?? ""} disabled={pending} placeholder="Add a short summary…" onSave={description => onPatch({ description })}>{item.data.description ? <RichText text={item.data.description} /> : <span className="work-description-placeholder">Add a short summary…</span>}</InlineEdit>
+          <div className="work-project-heading"><ProjectEmblemPicker icon={item.data.icon} color={item.data.color} disabled={readOnly} onChange={onPatch} /><button className="work-text-button" onClick={onEdit}>Edit project</button></div>
+          <InlineEdit label="Project name" value={item.title} disabled={readOnly} onSave={title => milestoneActions.onSave(item, { title })}><h1>{item.title}</h1></InlineEdit>
+          <InlineEdit label="Summary" multiline value={item.data.description ?? ""} disabled={readOnly} placeholder="Add a short summary…" onSave={description => onPatch({ description })}>{item.data.description ? <RichText text={item.data.description} /> : <span className="work-description-placeholder">Add a short summary…</span>}</InlineEdit>
           <div className="work-project-inline-properties"><StatusIcon status={item.data.status} /><span>{item.data.status || "Planned"}</span><span className="work-priority" data-priority={item.data.priority}>{PRIORITIES[item.data.priority ?? 0]}</span><Avatar small name={items.find(i => i.id === item.data.assignee)?.title} /><span>{dateLabel(item.data.start)} → {dateLabel(item.data.due)}</span></div>
           <Labels item={item} items={items} />
-          <section className="work-project-resources"><div className="work-section-title"><h2>Resources</h2><button className="work-text-button" disabled={pending} onClick={() => onCreate("document", { project: item.id })}><Icon name="plus" size={14} /> Add document</button></div>
+          <section className="work-project-resources"><div className="work-section-title"><h2>Resources</h2><button className="work-text-button" disabled={readOnly} onClick={() => onCreate("document", { project: item.id })}><Icon name="plus" size={14} /> Add document</button></div>
             {item.data.url && <a className="work-reference" href={item.data.url} target="_blank" rel="noreferrer"><Icon name="link" size={14} />{item.data.url}</a>}
             {item.data.attachments?.map(a => <a className="work-reference" key={a.id} href={a.url} target="_blank" rel="noreferrer"><Icon name="link" size={14} />{a.title}</a>)}
             {documents.map(d => <button className="work-child" key={d.id} onClick={() => onOpen(d)} onContextMenu={menuFor(d)}><Icon name="documents" size={15}/>{d.title}</button>)}
             {!documents.length && !item.data.url && !item.data.attachments?.length && <p className="work-muted">Keep project documents and links here.</p>}
           </section>
-          <section className="work-project-latest"><div className="work-section-title"><h2>Latest update</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={pending}><Icon name="updates" size={14} /> Update</button></div>
+          <section className="work-project-latest"><div className="work-section-title"><h2>Latest update</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={readOnly}><Icon name="updates" size={14} /> Update</button></div>
             
             {updates[0] ? updateCard(updates[0]) : <p className="work-muted">Share the latest progress with your team.</p>}
             {updates.length > 1 && <button className="work-text-button" onClick={() => setTab("Updates")}>View all {updates.length} updates <Icon name="arrow" size={14} /></button>}
           </section>
         </>}
         {tab === "Issues" && <>
-          <div className="work-section-title"><h2>Tasks <span>{filtered.length}</span></h2><button className="work-text-button" disabled={pending} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/> Add task</button></div>
-          <div className="work-project-issue-tools">
-            <input className="input" aria-label="Search project tasks" placeholder="Search tasks…" value={filter.query ?? ""} onChange={e => setFilter(f => ({ ...f, query: e.target.value }))} />
-            <button className="work-control" data-active={filtersOpen || activeCount > 0} aria-expanded={filtersOpen} onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={15} />Filter{activeCount > 0 && <span className="work-filter-count">{activeCount}</span>}</button>
-            {(activeCount > 0 || filter.query) && <button className="work-text-button" onClick={() => { setFilter({}); setMilestone(""); }}>Clear</button>}
-          </div>
-          {filtersOpen && <div className="work-filter-panel work-project-filter-panel">
-            <IssueFilterFields items={items} filter={filter} onChange={patch => setFilter(f => ({ ...f, ...patch }))} hide={["team", "project"]} />
-            <Field label="Milestone"><PropertyPicker label="Milestone filter" value={milestone} onChange={setMilestone} icon={<Icon name="timeline" size={15} />} options={[{ value: "", label: "All milestones" }, ...milestones.map(m => ({ value: m.id, label: m.title }))]} /></Field>
-          </div>}
-          {!filtered.length && <p className="work-muted">{issues.length ? "No tasks match these filters." : "No tasks in this project yet."}</p>}
-          {statusGroups.map(([key, label, rows]) => {
-            const closed = collapsed.includes(key);
-            return <section className="work-project-issue-group" key={key}>
-              <div className="work-project-issue-group-head">
-                <button className="work-project-issue-group-toggle" aria-expanded={!closed} onClick={() => setCollapsed(c => closed ? c.filter(k => k !== key) : [...c, key])}>
-                  <span className="work-group-caret" data-closed={closed}>▾</span><StatusIcon status={label} /><b>{label}</b><span>{rows.length}</span>
-                </button>
-                <button className="work-icon-button" aria-label={`Add ${label} task`} disabled={pending} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, status: label, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/></button>
-              </div>
-              {!closed && rows.map(i => <button className="work-project-issue-row" key={i.id} onClick={() => onOpen(i)} onContextMenu={e => issueMenu.show(i, e)}><StatusIcon status={i.data.status} /><span className="work-code">{issueCode(i, items)}</span><span>{i.title}</span>{i.data.due && <time>{dateLabel(i.data.due)}</time>}<Avatar small name={items.find(m => m.id === i.data.assignee)?.title}/></button>)}
-            </section>;
-          })}
-          {!filtered.length && <Empty title="No tasks here" description={milestone ? "Add a task to this milestone or clear the filter." : "Create the first task for this project."} />}
+          <div className="work-section-title"><h2>Tasks <span>{issues.length}</span></h2><button className="work-text-button" disabled={readOnly} onClick={() => onCreate("issue", { project: item.id, team: item.data.team, ...(milestone ? { milestone } : {}) })}><Icon name="plus" size={14}/> Add task</button></div>
+          {/* The same browser as the Tasks page, scoped to this project. */}
+          <IssueBrowser embedded items={items} scope={{ project: item.id }} only={milestone ? i => i.data.milestone === milestone : undefined}
+            view={view} onView={patch => setView(v => ({ ...v, ...patch }))} actions={issueActions} hide={["team", "project"]}
+            extraActive={milestone ? 1 : 0} onClear={() => setMilestone("")}
+            extraFilters={<Field label="Milestone"><PropertyPicker label="Milestone filter" value={milestone} onChange={setMilestone} icon={<Icon name="timeline" size={15} />} options={[{ value: "", label: "All milestones" }, ...milestones.map(m => ({ value: m.id, label: m.title }))]} /></Field>}
+            onCreate={preset => onCreate("issue", { project: item.id, team: item.data.team, ...(milestone ? { milestone } : {}), ...preset })} />
         </>}
-        {tab === "Updates" && <><div className="work-section-title"><h2>Project updates</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={pending}>Write update</button></div>{updates.map(updateCard)}{!updates.length && <Empty title="No updates yet" description="Share a progress update with your team." />}</>}
+        {tab === "Updates" && <><div className="work-section-title"><h2>Project updates</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={readOnly}>Write update</button></div>{updates.map(updateCard)}{!updates.length && <Empty title="No updates yet" description="Share a progress update with your team." />}</>}
         {tab === "Activity" && <><div className="work-section-title"><h2>Activity</h2></div>{history.map(e => ["update", "comment"].includes(e.type) ? updateCard(e) : <div className="work-project-event" key={e.id}><Avatar small name={e.actor}/><span><b>{e.actor}</b> {e.type === "status" ? `changed status to ${e.body}` : `${e.type} this project`}</span><time>{dateLabel(e.created_at)}</time></div>)}{!history.length && <Empty title="No activity yet" description="Project changes will appear here." />}</>}
       </main>}
       {showProperties && <aside className="work-project-sidebar">
         <section className="work-project-property-card"><h2>Properties</h2>
-          <Field label="Status"><PropertyPicker label="Status" value={item.data.status || "Planned"} disabled={pending} onChange={status => onPatch({ status })} options={uniqueStatuses([item.data.status || "Planned", "Planned", "In progress", "Done", "Canceled"]).map(s => ({ value: s, label: s, icon: <StatusIcon status={s}/> }))}/></Field>
-          <Field label="Priority"><PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={pending} onChange={v => onPatch({ priority: Number(v) })} icon={<Icon name="insights" size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/></Field>
-          <Field label="Lead"><EntitySelect disabled={pending} kind="member" items={items} value={item.data.assignee} onChange={assignee => !pending && onPatch({assignee})} empty="Assign lead" /></Field>
-          <Field label="Dates"><div className="work-project-dates"><CommitInput className="work-inline-date" type="date" aria-label="Project start date" disabled={pending} value={item.data.start || ""} onCommit={start => onPatch({start})}/> <span>→</span><CommitInput className="work-inline-date" type="date" aria-label="Project target date" disabled={pending} value={item.data.due || ""} onCommit={due => onPatch({due})}/></div></Field>
-          <Field label="Team"><EntitySelect disabled={pending} kind="team" items={items} value={item.data.team} onChange={team => !pending && onPatch({team})}/></Field>
-          <Field label="Initiative"><EntitySelect disabled={pending} kind="initiative" items={items} value={item.data.initiative} onChange={initiative => !pending && onPatch({initiative})}/></Field>
-          <Field label="Labels"><div className="work-project-label-controls"><LabelPicker item={item} items={items} disabled={pending} onChange={labels => onPatch({ labels })}/></div></Field>
+          <Field label="Status"><PropertyPicker label="Status" value={item.data.status || "Planned"} disabled={readOnly} onChange={status => onPatch({ status })} options={uniqueStatuses([item.data.status || "Planned", "Planned", "In progress", "Done", "Canceled"]).map(s => ({ value: s, label: s, icon: <StatusIcon status={s}/> }))}/></Field>
+          <Field label="Priority"><PropertyPicker label="Priority" value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => onPatch({ priority: Number(v) })} icon={<Icon name="insights" size={15}/>} options={PRIORITIES.map((p,n) => ({value:String(n),label:p}))}/></Field>
+          <Field label="Lead"><EntitySelect disabled={readOnly} kind="member" items={items} value={item.data.assignee} onChange={assignee => onPatch({assignee})} empty="Assign lead" /></Field>
+          <Field label="Dates"><div className="work-project-dates"><CommitInput className="work-inline-date" type="date" aria-label="Project start date" disabled={readOnly} value={item.data.start || ""} onCommit={start => onPatch({start})}/> <span>→</span><CommitInput className="work-inline-date" type="date" aria-label="Project target date" disabled={readOnly} value={item.data.due || ""} onCommit={due => onPatch({due})}/></div></Field>
+          <Field label="Team"><EntitySelect disabled={readOnly} kind="team" items={items} value={item.data.team} onChange={team => onPatch({team})}/></Field>
+          <Field label="Initiative"><EntitySelect disabled={readOnly} kind="initiative" items={items} value={item.data.initiative} onChange={initiative => onPatch({initiative})}/></Field>
+          <Field label="Labels"><div className="work-project-label-controls"><LabelPicker item={item} items={items} disabled={readOnly} onChange={labels => onPatch({ labels })}/></div></Field>
         </section>
-        <section className="work-project-property-card"><div className="work-section-title"><h2>Milestones</h2><button className="work-icon-button" aria-label="Add milestone" disabled={pending} onClick={() => onCreate("milestone", {project:item.id})}><Icon name="plus" size={15}/></button></div>
+        <section className="work-project-property-card"><div className="work-section-title"><h2>Milestones</h2><button className="work-icon-button" aria-label="Add milestone" disabled={readOnly} onClick={() => onCreate("milestone", {project:item.id})}><Icon name="plus" size={15}/></button></div>
           {milestoneRows()}{!milestones.length && <p className="work-muted">Add milestones to track project stages.</p>}
 
         </section>
         <section className="work-project-property-card"><div className="work-section-title"><h2>Progress</h2><b>{pct}%</b></div><div className="work-progress"><span style={{width:`${pct}%`}}/></div><p className="work-muted">{issues.filter(done).length} of {issues.length} issues completed</p></section>
-        <details className="work-project-manage"><summary>Manage project</summary><button className="work-text-button" disabled={pending} onClick={onArchive}>{item.archived ? "Restore from archive" : "Archive project"}</button><button className="work-text-button" disabled={pending} onClick={onDelete}>Move to trash</button></details>
+        <details className="work-project-manage"><summary>Manage project</summary><button className="work-text-button" disabled={readOnly} onClick={onArchive}>{item.archived ? "Restore from archive" : "Archive project"}</button><button className="work-text-button" disabled={readOnly} onClick={onDelete}>Move to trash</button></details>
       </aside>}
     </div>
-    {milestoneMenu.element}{issueMenu.element}
-    {composer && <Modal title="Project update" onClose={() => setComposer(false)}><form className="work-update-composer" onSubmit={async e => { e.preventDefault(); if (await onComment(body, "update")) { setBody(""); setComposer(false); } }}><h2>{item.title}</h2><textarea autoFocus className="input" aria-label="Project update" placeholder="Share progress, blockers, and next steps…" rows={8} required value={body} onChange={e => setBody(e.target.value)}/><div><span className="work-muted">Markdown supported</span><button className="btn btn-primary" disabled={pending || !body.trim()}>{pending ? "Posting…" : "Post update"}</button></div></form></Modal>}
+    {milestoneMenu.element}
+    {composer && <Modal title="Project update" onClose={() => setComposer(false)}><form className="work-update-composer" onSubmit={async e => { e.preventDefault(); if (await onComment(body, "update")) { setBody(""); setComposer(false); } }}><h2>{item.title}</h2><textarea autoFocus className="input" aria-label="Project update" placeholder="Share progress, blockers, and next steps…" rows={8} required value={body} onChange={e => setBody(e.target.value)}/><div><span className="work-muted">Markdown supported</span><button className="btn btn-primary" disabled={posting || !body.trim()}>{posting ? "Posting…" : "Post update"}</button></div></form></Modal>}
   </div>;
 }

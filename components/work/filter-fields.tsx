@@ -4,7 +4,7 @@ import { EntitySelect, Field } from "./editor";
 import { Icon, StatusIcon } from "./icons";
 import { PropertyPicker } from "./property-picker";
 
-type FilterKey = "team" | "assignee" | "status" | "due" | "project" | "label" | "priority";
+export type FilterKey = "team" | "assignee" | "status" | "due" | "project" | "label" | "priority";
 
 /** The issue filter pickers, shared by the main issues page and a project's Issues tab. */
 export function IssueFilterFields({

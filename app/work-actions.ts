@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { requireWorkUser, type WorkRole } from "@/lib/work-auth";
 import { supabaseAdmin } from "@/lib/supabase";
+import { compactWorkItem } from "@/lib/work-snapshot";
 import {
   validateWorkInput,
   type WorkData,
@@ -26,11 +27,25 @@ function message(e: unknown) {
     ? String(e.message)
     : "Couldn't save. Please try again.";
 }
-async function references(
-  data: WorkData,
-  id?: string,
-  kind: WorkKind = "issue",
-) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+type Ref = { id: string; kind: WorkKind };
+/** Reads rows by id in a few parallel requests, however many are asked for. */
+async function rowsById<T extends { id: string }>(ids: string[], columns: string) {
+  const unique = Array.from(new Set(ids));
+  const chunks: string[][] = [];
+  for (let n = 0; n < unique.length; n += 100) chunks.push(unique.slice(n, n + 100));
+  const results = await Promise.all(
+    chunks.map((chunk) => supabaseAdmin().from("work_items").select(columns).in("id", chunk)),
+  );
+  const rows = new Map<string, T>();
+  for (const { data, error } of results) {
+    if (error) throw error;
+    for (const row of (data ?? []) as unknown as T[]) rows.set(row.id, row);
+  }
+  return rows;
+}
+/** Every other item a change points at, with the kind it has to be. */
+function references(data: WorkData, kind: WorkKind): Ref[] {
   const expected: Record<string, WorkKind> = {
     team: "team",
     assignee: "member",
@@ -44,7 +59,7 @@ async function references(
     parentInitiative: "initiative",
     parentTeam: "team",
   };
-  const refs = Object.entries(expected).flatMap(([k, kind]) =>
+  const refs: Ref[] = Object.entries(expected).flatMap(([k, kind]) =>
     data[k as keyof WorkData]
       ? [{ id: String(data[k as keyof WorkData]), kind }]
       : [],
@@ -58,23 +73,10 @@ async function references(
       kind: kind === "project" ? ("project" as const) : ("issue" as const),
     })),
   );
-  if (refs.length) {
-    const { data: records, error } = await supabaseAdmin()
-      .from("work_items")
-      .select("id,kind,data,deleted_at")
-      .in("id", [...new Set(refs.map((r) => r.id))]);
-    if (error) throw error;
-    for (const r of refs)
-      if (
-        !records?.some(
-          (v) => v.id === r.id && v.kind === r.kind && !v.deleted_at,
-        )
-      )
-        throw new Error(
-          "A selected item is no longer available. Reload and select it again.",
-        );
-  }
-  if (id && (data.parent === id || data.relations?.some((r) => r.id === id)))
+  return refs;
+}
+async function checkLoops(data: WorkData, id: string, kind: WorkKind) {
+  if (data.parent === id || data.relations?.some((r) => r.id === id))
     throw new Error("A task cannot reference itself.");
   const parentKey =
     kind === "initiative"
@@ -82,7 +84,7 @@ async function references(
       : kind === "team"
         ? "parentTeam"
         : "parent";
-  if (id && data[parentKey]) {
+  if (data[parentKey]) {
     const seen = new Set([id]);
     let parent: string | undefined = data[parentKey];
     while (parent) {
@@ -100,31 +102,42 @@ async function references(
 }
 export async function mutateWork(
   changes: Change[],
-): Promise<{ ok: true; items: WorkItem[] } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; items: WorkItem[] }
+  // `current` holds the newer rows when a teammate saved first, so the browser can catch up without reloading.
+  | { ok: false; error: string; current?: WorkItem[] }
+> {
   try {
     const user = await guard();
     if (!Array.isArray(changes) || !changes.length || changes.length > 200)
       throw new Error("Select between 1 and 200 items.");
-    const normalized: Change[] = [];
     for (const c of changes) {
       if (!c || typeof c !== "object") throw new Error("Invalid change.");
+      if (c.id !== undefined && (typeof c.id !== "string" || !UUID.test(c.id)))
+        throw new Error("Item no longer exists.");
+    }
+    const stored = await rowsById<WorkItem>(
+      changes.flatMap((c) => (c.id ? [c.id] : [])),
+      "*",
+    );
+    const normalized: Change[] = [];
+    const refs: Ref[] = [];
+    const loops: { data: WorkData; id: string; kind: WorkKind }[] = [];
+    const stale: WorkItem[] = [];
+    for (const c of changes) {
       if (c.id) {
-        const { data: before, error } = await supabaseAdmin()
-          .from("work_items")
-          .select("*")
-          .eq("id", c.id)
-          .single();
-        if (error || !before) throw new Error("Item no longer exists.");
+        const before = stored.get(c.id);
+        if (!before) throw new Error("Item no longer exists.");
         if (["team", "member"].includes(before.kind) && user.role !== "admin")
           throw new Error("Only admins can manage teams and members.");
         if (before.kind === "member" && (c.deleted || c.archived))
           throw new Error(
             "Disable account access in Settings → People instead of deleting profiles.",
           );
-        if (!Number.isInteger(c.revision) || c.revision !== before.revision)
-          throw new Error(
-            "Someone else changed this item. Reload and try again.",
-          );
+        if (!Number.isInteger(c.revision) || c.revision !== before.revision) {
+          stale.push(compactWorkItem(before));
+          continue;
+        }
         if (
           (c.archived !== undefined && typeof c.archived !== "boolean") ||
           (c.deleted !== undefined && typeof c.deleted !== "boolean")
@@ -145,7 +158,8 @@ export async function mutateWork(
           changed,
           before.data,
         );
-        await references(valid.data, c.id, before.kind);
+        refs.push(...references(valid.data, before.kind));
+        loops.push({ data: valid.data, id: c.id, kind: before.kind });
         // The database resets a recurring issue's next date unless due/recurrence
         // are restated, so carry the stored values along.
         const keep: WorkData = {};
@@ -164,10 +178,30 @@ export async function mutateWork(
         const valid = validateWorkInput(c.kind, c.title, c.data ?? {});
         if (["team", "member"].includes(valid.kind) && user.role !== "admin")
           throw new Error("Only admins can manage teams and members.");
-        await references(valid.data, undefined, valid.kind);
+        refs.push(...references(valid.data, valid.kind));
         normalized.push(valid);
       }
     }
+    if (stale.length)
+      return {
+        ok: false,
+        error: "A teammate changed this at the same moment. The latest version is showing now, so try again.",
+        current: stale,
+      };
+    if (refs.length) {
+      const found = await rowsById<{ id: string; kind: WorkKind; deleted_at: string | null }>(
+        refs.map((r) => r.id),
+        "id,kind,deleted_at",
+      );
+      for (const r of refs) {
+        const row = found.get(r.id);
+        if (!row || row.kind !== r.kind || row.deleted_at)
+          throw new Error(
+            "A selected item is no longer available. Reload and select it again.",
+          );
+      }
+    }
+    for (const l of loops) await checkLoops(l.data, l.id, l.kind);
     const { data, error } = await supabaseAdmin().rpc(
       "mutate_work_authenticated",
       {
@@ -176,8 +210,9 @@ export async function mutateWork(
       },
     );
     if (error) throw error;
-    revalidatePath("/work", "layout");
-    return { ok: true, items: data as WorkItem[] };
+    // No revalidatePath: the saved rows go straight back to the browser, and the database's
+    // "changed" broadcast has everyone re-read history (see components/work/work-provider.tsx).
+    return { ok: true, items: (data as WorkItem[]).map(compactWorkItem) };
   } catch (e) {
     return { ok: false, error: message(e) };
   }

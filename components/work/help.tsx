@@ -117,7 +117,8 @@ export function HelpGuide() {
         <h3>Handy tricks</h3>
         <ul>
           <li>Click the status circle, priority, or avatar on any row to change it without opening the task.</li>
-          <li>Tick a few tasks to change their status or archive them all at once.</li>
+          <li>Tick a few tasks to change their status, assign them, or archive them all at once.</li>
+          <li>Deleted or archived something by mistake? Press Undo in the message that pops up.</li>
           <li>On a phone, tap the menu button in the top left to switch pages.</li>
         </ul>
       </section>

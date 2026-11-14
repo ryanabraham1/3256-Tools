@@ -1,8 +1,7 @@
 "use client";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useOptimistic, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
-import { addWorkComment, markWorkRead, mutateWork } from "@/app/work-actions";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
+import { addWorkComment, markWorkRead } from "@/app/work-actions";
 import {
   activeWorkItems,
   dateLabel,
@@ -16,29 +15,25 @@ import {
   type WorkItem,
   type WorkKind,
 } from "@/lib/work";
-import {
-  Avatar,
-  Collection,
-  Empty,
-  IssueBoard,
-  IssueList,
-} from "./collections";
+import { changedData, type WorkChange } from "@/lib/work-store";
+import { Avatar, Collection, Empty } from "./collections";
 import { Timeline } from "./timeline";
 import { ProjectDetail } from "./project-detail";
 import { ItemDetail, RichText } from "./detail";
 import { Field, ItemEditor, Modal } from "./editor";
-import { Icon, statusLabel } from "./icons";
+import { Icon } from "./icons";
 import { AccessPanel } from "./access";
 import { HelpGuide } from "./help";
 import { WorkHome } from "./home";
-import { IssueFilterFields } from "./filter-fields";
+import { DEFAULT_ISSUE_VIEW, IssueBrowser, type IssueView } from "./issue-browser";
 
 import "./work.css";
 import "./work-refresh.css";
 import { PropertyPicker } from "./property-picker";
-import { useIssueMenu } from "./issue-menu";
+import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { useMilestoneMenu } from "./milestone-menu";
 import { ItemMenuProvider, itemRoute, useItemMenu, usePageMenu } from "./item-menu";
+import { WorkLink } from "./work-link";
 import { useWork } from "./work-provider";
 const NAV = [
   { heading: "", links: [["home", "Home"]] },
@@ -59,7 +54,6 @@ const NAV = [
     ],
   },
 ];
-const STATUS_TABS = ["In progress", "Todo", "Backlog", "Done"];
 const PAGE_GROUPS = [
   {
     paths: ["my-issues", "inbox"],
@@ -136,23 +130,33 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
   },
 };
 const route = itemRoute;
-export function WorkWorkspace({ section, entityId }: { section: string; entityId?: string; }) {
-  const {snapshot, user, access} = useWork();
+type Toast = { text: string; tone?: "error"; undo?: () => void };
+export function WorkWorkspace() {
+  const { snapshot, user, access, items, save, saving, refresh } = useWork();
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  // The page to show. Everything Work shows is already in the browser, so a click (or Back) switches
+  // pages at once by setting `target`; the router's own navigation catches up behind it.
+  const pathname = usePathname();
+  const [target, setTarget] = useState<string | null>(null);
+  if (target !== null && target === pathname) setTarget(null);
+  const path = target ?? pathname;
+  const [, , section = "home", entityId] = path.split("/");
+  const [posting, startTransition] = useTransition();
   const actor = user.memberId;
   const readOnly = user.role === "viewer";
-  const savedView = snapshot.items.find(i => i.id === entityId && i.kind === "view" && !i.deleted_at);
   const params = useSearchParams();
-  const [filter, setFilter] = useState<WorkFilter>(() => {
+  // Lives for the whole visit, so filters, layout and grouping survive opening a task and coming back.
+  const [view, setView] = useState<IssueView>(() => {
+    const saved = items.find((i) => i.id === entityId && i.kind === "view" && !i.deleted_at);
     const status = params.get("status");
-    return status ? { status } : {};
+    return {
+      ...DEFAULT_ISSUE_VIEW,
+      filter: status ? { status } : {},
+      layout: saved?.data.layout === "board" ? "board" : "list",
+      group: saved?.data.group || "status",
+    };
   });
-  const [layout, setLayout] = useState(savedView?.data.layout || "list");
-  const [group, setGroup] = useState(savedView?.data.group || "status");
-  const [sort, setSort] = useState("priority");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [projectLayout, setProjectLayout] = useState<"cards" | "timeline">("cards");
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editor, setEditor] = useState<{
@@ -160,10 +164,12 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
     item?: WorkItem;
     preset?: WorkData;
   } | null>(null);
+  // A dialog (new item, edit, save view, import) is waiting on its save.
+  const [busy, setBusy] = useState(false);
   const [command, setCommand] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<Toast | null>(null);
   const [dialog, setDialog] = useState<"view" | "import" | "help" | null>(null);
   const [viewName, setViewName] = useState("");
   const [importText, setImportText] = useState("");
@@ -171,23 +177,11 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
     user.role === "admin" ? "access" : "label",
   );
   const [archiveTab, setArchiveTab] = useState("archive");
-  // Show edits instantly; the server action's revalidation swaps in the saved rows.
-  const [items, applyOptimistic] = useOptimistic(
-    snapshot.items,
-    (current, changes: { id: string; title?: string; data?: WorkData; archived?: boolean; deleted?: boolean }[]) =>
-      current.map((i) => {
-        const c = changes.find((x) => x.id === i.id);
-        return c
-          ? {
-              ...i,
-              ...(c.title !== undefined ? { title: c.title } : {}),
-              data: { ...i.data, ...c.data },
-              ...(c.deleted ? { deleted_at: snapshot.now } : {}),
-              ...(c.archived !== undefined ? { archived: c.archived } : {}),
-            }
-          : i;
-      }),
-  );
+  // Notifications marked read here disappear at once; the server catches up in the background.
+  const [readNow, setReadNow] = useState<string[]>([]);
+  const content = useRef<HTMLDivElement>(null);
+  const scrolls = useRef(new Map<string, [number, number]>());
+  const cameFrom = useRef(new Map<string, string>());
   const live = useMemo(() => activeWorkItems(items), [items]);
   const byId = useMemo(() => new Map(live.map(i => [i.id, i])), [live]);
   const receiptByEvent = useMemo(() => new Map(snapshot.receipts.map(r => [r.event_id, r])), [snapshot.receipts]);
@@ -214,7 +208,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
   const soleTeamPreset = useMemo<WorkData>(() => (teams.length === 1 ? { team: teams[0].id } : {}), [teams]);
   useEffect(() => {
     if (!toast) return;
-    const id = setTimeout(() => setToast(""), 4500);
+    const id = setTimeout(() => setToast(null), toast.undo || toast.tone ? 8000 : 4000);
     return () => clearTimeout(id);
   }, [toast]);
   useEffect(() => {
@@ -255,88 +249,147 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
     window.addEventListener("keydown", keys);
     return () => window.removeEventListener("keydown", keys);
   }, [editor, command, readOnly, soleTeamPreset]);
+  function scrollTo(spot: [number, number] = [0, 0]) {
+    window.scrollTo(0, spot[0]);
+    content.current?.scrollTo(0, spot[1]);
+  }
+  useEffect(() => {
+    // Back and forward switch just as fast, and land where that page was left.
+    function onHistory() {
+      const to = window.location.pathname;
+      if (to !== "/work" && !to.startsWith("/work/")) return;
+      setTarget(to);
+      const spot = scrolls.current.get(to);
+      if (spot) requestAnimationFrame(() => requestAnimationFrame(() => scrollTo(spot)));
+    }
+    window.addEventListener("popstate", onHistory);
+    return () => window.removeEventListener("popstate", onHistory);
+  }, []);
+  /** Opens a page inside Work: it shows immediately, and the address bar and history follow. */
+  function go(url: string, returning = false) {
+    scrolls.current.set(path, [window.scrollY, content.current?.scrollTop ?? 0]);
+    if (url === path && !window.location.search) return scrollTo();
+    if (!returning) cameFrom.current.set(url, path);
+    const spot = returning ? scrolls.current.get(url) : undefined;
+    if (!spot) scrolls.current.delete(url);
+    setTarget(url);
+    router.push(url, { scroll: false });
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollTo(spot)));
+  }
   function create(kind: WorkKind = info?.kind ?? "issue", preset?: WorkData) {
     if (readOnly) {
       setError("Your account has view-only access.");
       return;
     }
     setError("");
+    // An unset value in a preset must not blank out a default (the team, most often).
+    const given = Object.fromEntries(Object.entries(preset ?? {}).filter(([, v]) => v !== undefined));
     setEditor({
       kind,
-      preset: { ...(kind === "issue" ? soleTeamPreset : {}), ...preset },
+      preset: { ...(kind === "issue" ? soleTeamPreset : {}), ...given },
     });
   }
   function open(item: WorkItem) {
     setPreviewId(null);
     setError("");
-    setSelected([]);
     setSidebarOpen(false);
-    router.push(route(item));
+    if (item.kind === "view")
+      setView((v) => ({ ...v, filter: {}, layout: item.data.layout === "board" ? "board" : "list", group: item.data.group || "status" }));
+    go(route(item));
   }
-  function navigate(path: string) {
+  function navigate(path: string, filter: WorkFilter = {}) {
     setPreviewId(null);
     setError("");
-    setFilter({});
-    setSelected([]);
+    setView((v) => ({ ...v, filter }));
     setSidebarOpen(false);
-    router.push(`/work/${path}`);
+    go(`/work/${path}`);
   }
-  function updateFilter(patch: WorkFilter) {
-    setFilter((f) => ({ ...f, ...patch }));
-    setSelected([]);
-  }
-  async function change(
-    changes: Parameters<typeof mutateWork>[0],
-    success = "Saved",
-  ) {
+  /** Saves from a dialog: waits for the server so a refused save keeps the form open. */
+  async function change(changes: WorkChange[], success: string) {
     setError("");
-    const result = await mutateWork(changes);
+    setBusy(true);
+    const result = await save(changes);
+    setBusy(false);
     if (!result.ok) {
       setError(result.error);
       return null;
     }
-    setToast(success);
+    setToast({ text: success });
     return result.items;
   }
-  // Menus and dialogs hold the item they opened on, so always save against the latest revision.
-  const latest = (item: WorkItem) => items.find((i) => i.id === item.id) ?? item;
+  /** Saves an in-place edit: it shows immediately, and is undone with the reason if the server refuses it. */
+  function quick(changes: WorkChange[], notice?: Toast) {
+    setError("");
+    if (notice) setToast(notice);
+    // The server takes at most 200 changes per request.
+    for (let n = 0; n < changes.length; n += 200)
+      save(changes.slice(n, n + 200), true).then((result) => {
+        if (!result.ok) setToast({ text: result.error, tone: "error" });
+      });
+  }
+  /** Removing the item on screen returns to the page it was opened from, scrolled where it was. */
+  function leave(item: WorkItem) {
+    if (item.id !== entityId) return;
+    setPreviewId(null);
+    go(cameFrom.current.get(path) ?? `/work/${section}`, true);
+  }
   function patch(item: WorkItem, data: WorkData) {
-    startTransition(async () => {
-      applyOptimistic([{ id: item.id, data }]);
-      await change([{ id: item.id, revision: latest(item).revision, data }]);
-    });
+    quick([{ id: item.id, data }]);
   }
   function saveItem(item: WorkItem, changes: { title?: string; data?: WorkData }) {
-    startTransition(async () => {
-      applyOptimistic([{ id: item.id, ...changes }]);
-      await change([{ id: item.id, revision: latest(item).revision, ...changes }]);
-    });
+    quick([{ id: item.id, ...changes }]);
   }
   function trashItem(item: WorkItem) {
-    startTransition(async () => {
-      applyOptimistic([{ id: item.id, deleted: true }]);
-      await change([{ id: item.id, revision: latest(item).revision, deleted: true }], "Moved to trash");
+    leave(item);
+    quick([{ id: item.id, deleted: true }], {
+      text: `${KIND_NAMES[item.kind]} moved to trash`,
+      undo: () => quick([{ id: item.id, deleted: false }]),
     });
   }
   function archiveItem(item: WorkItem) {
-    startTransition(async () => {
-      applyOptimistic([{ id: item.id, archived: true }]);
-      await change([{ id: item.id, revision: latest(item).revision, archived: true }], "Archived");
+    leave(item);
+    quick([{ id: item.id, archived: true }], {
+      text: `${KIND_NAMES[item.kind]} archived`,
+      undo: () => quick([{ id: item.id, archived: false }]),
     });
   }
   function restoreItem(item: WorkItem) {
-    startTransition(async () => {
-      applyOptimistic([{ id: item.id, archived: false }]);
-      await change([{ id: item.id, revision: latest(item).revision, archived: false, deleted: false }], "Restored");
+    quick([{ id: item.id, archived: false, deleted: false }], { text: `${KIND_NAMES[item.kind]} restored` });
+  }
+  function bulk(issues: WorkItem[], change: { data?: WorkData; archived?: boolean; deleted?: boolean }) {
+    if (!issues.length) return;
+    const count = `${issues.length} ${issues.length === 1 ? "task" : "tasks"}`;
+    const reverse = change.deleted ? { deleted: false } : change.archived ? { archived: false } : null;
+    quick(issues.map((i) => ({ id: i.id, ...change })), {
+      text: change.deleted ? `${count} moved to trash` : change.archived ? `${count} archived` : `${count} updated`,
+      undo: reverse ? () => quick(issues.map((i) => ({ id: i.id, ...reverse }))) : undefined,
     });
   }
-  const issueActions = { onPatch: patch, onArchive: archiveItem, onTrash: trashItem, onOpen: open, disabled: pending || readOnly };
-  const milestoneActions = { onSave: saveItem, onTrash: trashItem, onOpen: open, disabled: pending || readOnly };
+  function comment(item: WorkItem, body: string, type?: string) {
+    return new Promise<boolean>((resolve) =>
+      startTransition(async () => {
+        // The action re-reads the workspace itself, so the new comment arrives with its response.
+        const result = await addWorkComment(item.id, body, type ?? (item.kind === "issue" ? "comment" : "update")).catch(() => ({ ok: false, error: undefined }));
+        if (!result.ok) setError(result.error ?? "Couldn't post.");
+        resolve(result.ok);
+      }),
+    );
+  }
+  async function markRead(ids: string[], snoozedUntil: string | null = null) {
+    setReadNow((now) => [...now, ...ids]);
+    const result = await markWorkRead(ids, snoozedUntil).catch(() => ({ ok: false, error: undefined }));
+    if (!result.ok) {
+      setReadNow((now) => now.filter((id) => !ids.includes(id)));
+      setError(result.error ?? "Couldn't update notifications.");
+    }
+  }
+  const issueActions: IssueActions = { onPatch: patch, onArchive: archiveItem, onTrash: trashItem, onOpen: open, onBulk: bulk, disabled: readOnly };
+  const milestoneActions = { onSave: saveItem, onTrash: trashItem, onOpen: open, disabled: readOnly };
   const issueMenu = useIssueMenu(items, issueActions);
   const milestoneMenu = useMilestoneMenu(milestoneActions);
   const itemMenu = useItemMenu(items, {
     actor,
-    disabled: pending || readOnly,
+    disabled: readOnly,
     onOpen: open,
     onEdit: (item) => { setError(""); setEditor({ kind: item.kind, item }); },
     onPatch: patch,
@@ -350,33 +403,13 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
       : item.kind === "milestone" && !item.archived && !item.deleted_at ? milestoneMenu.show(item, e)
         : itemMenu.show(item, e);
   const pageMenu = usePageMenu({
-    disabled: pending || readOnly,
+    disabled: readOnly,
     onCreate: (kind) => create(kind),
     onSearch: () => setCommand(true),
     onHelp: () => setDialog("help"),
     onNavigate: navigate,
     onExport: exportData,
-    extra: selected.length
-      ? [{ label: "Clear selection", onSelect: () => setSelected([]) }]
-      : undefined,
   });
-  const activeFilter =
-    current?.kind === "view" ? { ...current.data.filter, ...filter } : filter;
-  let issues = filterIssues(items, activeFilter);
-  let statusBase = filterIssues(items, { ...activeFilter, status: undefined });
-  if (section === "my-issues") {
-    issues = member ? issues.filter((i) => i.data.assignee === actor) : [];
-    statusBase = member ? statusBase.filter((i) => i.data.assignee === actor) : [];
-  }
-  issues = [...issues].sort((a, b) =>
-    sort === "priority"
-      ? (a.data.priority || 5) - (b.data.priority || 5)
-      : sort === "due"
-        ? (a.data.due || "9999").localeCompare(b.data.due || "9999")
-        : sort === "title"
-          ? a.title.localeCompare(b.title)
-          : b.created_at.localeCompare(a.created_at),
-  );
   const inbox = member
     ? snapshot.events.filter((e) => {
         const item = byId.get(e.item_id);
@@ -384,6 +417,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         return (
           item &&
           e.actor_id !== actor &&
+          !readNow.includes(e.id) &&
           (item.data.assignee === actor ||
             item.data.subscribers?.includes(actor) ||
             e.body.toLowerCase().includes(`@${member.title.toLowerCase()}`)) &&
@@ -397,25 +431,6 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
     (!current && ["issues", "my-issues"].includes(section)) ||
     current?.kind === "view";
   const activeIssues = live.filter((i) => i.kind === "issue" && !done(i));
-  const filtersActive = Object.values(activeFilter).some(Boolean);
-  function bulk(data?: WorkData, archived?: boolean) {
-    startTransition(async () => {
-      const chosen = items.filter((i) => selected.includes(i.id));
-      applyOptimistic(chosen.map((i) => ({ id: i.id, data, archived })));
-      if (
-        await change(
-          chosen.map((i) => ({
-            id: i.id,
-            revision: i.revision,
-            ...(data ? { data } : {}),
-            ...(archived !== undefined ? { archived } : {}),
-          })),
-          `${chosen.length} tasks updated`,
-        )
-      )
-        setSelected([]);
-    });
-  }
   function exportData() {
     const link = document.createElement("a");
     link.href = "/api/work/export";
@@ -461,17 +476,13 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
             <div className="work-nav-group" key={n.heading}>
               {n.heading && <p>{n.heading}</p>}
               {n.links.map(([path, title]) => (
-                <Link
+                <WorkLink
                   href={`/work/${path}`}
                   key={path}
                   className="work-nav-link"
                   data-active={path === "my-issues" || path === "inbox" ? section === path : navActive(path)}
                   aria-current={(path === "my-issues" || path === "inbox" ? section === path : navActive(path)) ? "page" : undefined}
-                  onClick={() => {
-                    setFilter({});
-                    setSelected([]);
-                    setSidebarOpen(false);
-                  }}
+                  onGo={() => navigate(path)}
                 >
                   <Icon name={path === "updates" ? "team" : path === "inbox" ? "bell" : path} size={17} />
                   <span>{title}</span>
@@ -483,7 +494,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   {path === "inbox" && inbox.length > 0 && (
                     <span className="work-nav-count">{inbox.length}</span>
                   )}
-                </Link>
+                </WorkLink>
               ))}
             </div>
           ))}
@@ -511,14 +522,15 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
             <Icon name="help" />
             <span>Help & shortcuts</span>
           </button>
-          <Link
+          <WorkLink
             className="work-nav-link"
             href="/work/settings"
             data-active={section === "settings"}
+            onGo={() => navigate("settings")}
           >
             <Icon name="settings" />
             <span>Settings</span>
-          </Link>
+          </WorkLink>
           <div className="work-profile">
             <Avatar name={member?.title} />
             <div className="work-signed-in">
@@ -545,7 +557,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <div className="work-content">
+      <div className="work-content" ref={content}>
         <header className="work-topbar">
           <button
             className="work-icon-button work-mobile-only"
@@ -564,7 +576,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
             </>
           )}
           <div className="work-topbar-right">
-            {!current && section === "projects" && layout === "timeline" && <button className="work-text-button" onClick={() => create("project")} disabled={pending || readOnly}><Icon name="plus" size={15}/> New project</button>}
+            {saving && <span className="work-saving" role="status">Saving…</span>}
+            {!current && section === "projects" && projectLayout === "timeline" && <button className="work-text-button" onClick={() => create("project")} disabled={readOnly}><Icon name="plus" size={15}/> New project</button>}
             <button
               className="work-icon-button"
               aria-label="Open command menu"
@@ -581,7 +594,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
               description={snapshot.error}
               icon="triage"
             />
-            <button className="btn btn-ghost" onClick={() => router.refresh()}>
+            <button className="btn btn-ghost" onClick={refresh}>
               Try again
             </button>
           </div>
@@ -630,7 +643,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 </div>
                 <div className="work-heading-actions">
                   {info.kind === "issue" && (
-                    <button className="btn btn-primary" disabled={pending || readOnly} onClick={() => create("issue")}>
+                    <button className="btn btn-primary" disabled={readOnly} onClick={() => create("issue")}>
                       <Icon name="plus" size={16} /> New task
                     </button>
                   )}
@@ -669,7 +682,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 {error}
                 <button
                   className="work-text-button"
-                  onClick={() => router.refresh()}
+                  onClick={refresh}
                 >
                   Reload
                 </button>
@@ -683,190 +696,24 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 name={member?.title ?? user.name}
                 events={snapshot.events}
                 onOpen={open}
+                onNavigate={navigate}
                 onCreate={() => create("issue")}
                 onHelp={() => setDialog("help")}
                 readOnly={readOnly}
               />
             ) : issueView ? (
-              <>
-                <div className="work-status-tabs" role="tablist" aria-label="Show tasks by status">
-                  {[{ value: "", label: "All", count: statusBase.length }, ...STATUS_TABS.map((st) => ({ value: st, label: statusLabel(st), count: statusBase.filter((i) => (i.data.status || "Backlog").toLowerCase() === st.toLowerCase()).length }))].map(({ value, label, count }) => (
-                    <button
-                      key={label}
-                      role="tab"
-                      aria-selected={(activeFilter.status ?? "") === value}
-                      onClick={() => updateFilter({ status: value || undefined })}
-                    >
-                      {label}
-                      <span>{count}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="work-toolbar">
-                  <button
-                    className="work-control"
-                    data-active={filterOpen || filtersActive}
-                    aria-expanded={filterOpen}
-                    onClick={() => setFilterOpen((v) => !v)}
-                  >
-                    <Icon name="filter" size={15} />
-                    Filter
-                    {filtersActive && (
-                      <span className="work-filter-count">
-                        {Object.entries(activeFilter).filter(([k, v]) => v && k !== "query").length || ""}
-                      </span>
-                    )}
-                  </button>
-                  <label className="work-search-field">
-                    <Icon name="search" size={15} />
-                  <input
-                    className="work-inline-search"
-                    aria-label="Search tasks"
-                    placeholder="Search tasks…"
-                    value={filter.query ?? ""}
-                    onChange={(e) => updateFilter({ query: e.target.value })}
-                  />
-                  </label>
-                  {filtersActive && (
-                    <button
-                      className="work-text-button"
-                      onClick={() => {
-                        setFilter({});
-                        if (current?.kind === "view") navigate("issues");
-                      }}
-                    >
-                      Clear
-                    </button>
-                  )}
-                  <span className="work-toolbar-count">
-                    {issues.length} {issues.length === 1 ? "task" : "tasks"}
-                  </span>
-                  <div className="work-toolbar-right">
-                    <PropertyPicker label="Sort by" value={sort} onChange={setSort} icon={<Icon name="filter" size={14}/>} display={<>Sort: {({priority:"Priority",created:"Newest",due:"Due date",title:"Title"} as Record<string,string>)[sort]}</>} options={[{value:"priority",label:"Priority"},{value:"created",label:"Newest"},{value:"due",label:"Due date"},{value:"title",label:"Title"}]}/>
-                    <PropertyPicker label="Group by" value={group} onChange={setGroup} display={<>Group: {({status:"Status",project:"Project",none:"None"} as Record<string,string>)[group]}</>} options={[{value:"status",label:"Status"},{value:"project",label:"Project"},{value:"none",label:"No grouping"}]}/>
-                    <div className="work-layout-toggle">
-                      <button
-                        aria-label="List layout"
-                        aria-pressed={layout === "list"}
-                        onClick={() => setLayout("list")}
-                      >
-                        <Icon name="issues" size={16} />
-                      </button>
-                      <button
-                        aria-label="Board layout"
-                        aria-pressed={layout === "board"}
-                        onClick={() => setLayout("board")}
-                      >
-                        <Icon name="board" size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {filterOpen && (
-                  <div className="work-filter-panel">
-                    <IssueFilterFields items={items} filter={activeFilter} onChange={updateFilter} />
-                    <button
-                      className="work-text-button"
-                      onClick={() => {
-                        setFilter({});
-                        if (current?.kind === "view") navigate("issues");
-                      }}
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                )}
-                {selected.length > 0 && (
-                  <div className="work-bulk">
-                    <b>{selected.length} selected</b>
-                    <select
-                      className="work-control"
-                      aria-label="Bulk change status"
-                      defaultValue=""
-                      disabled={pending}
-                      onChange={(e) => {
-                        bulk({ status: e.target.value });
-                        e.target.value = "";
-                      }}
-                    >
-                      <option value="" disabled>
-                        Change status…
-                      </option>
-                      {[
-                        "Backlog",
-                        "Todo",
-                        "In progress",
-                        "In review",
-                        "Done",
-                        "Canceled",
-                      ].map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                    <button
-                      className="work-text-button"
-                      disabled={pending}
-                      onClick={() => bulk(undefined, true)}
-                    >
-                      Archive selected
-                    </button>
-                    <button
-                      className="work-text-button"
-                      onClick={() => setSelected([])}
-                    >
-                      Clear selection
-                    </button>
-                  </div>
-                )}
-                {!issues.length ? (
-                  <Empty
-                    title={
-                      filtersActive
-                        ? "No matching tasks"
-                        : "No tasks"
-                    }
-                    description={
-                      filtersActive
-                        ? "Try adjusting your filters or search."
-                        : "Create a task to get started."
-                    }
-                    onCreate={() => create("issue")}
-                  />
-                ) : layout === "board" ? (
-                  <IssueBoard
-                    rows={issues}
-                    items={items}
-                    onOpen={open}
-                    onStatus={(i, status) => patch(i, { status })}
-                    issueActions={issueActions}
-                    onCreate={(status) =>
-                      create("issue", {
-                        status,
-                        team: activeFilter.team,
-                        project: activeFilter.project,
-                      })
-                    }
-                    pending={pending || readOnly}
-                  />
-                ) : (
-                  <IssueList
-                    rows={issues}
-                    items={items}
-                    selected={selected}
-                    onSelect={(id) =>
-                      setSelected((s) =>
-                        s.includes(id) ? s.filter((v) => v !== id) : [...s, id],
-                      )
-                    }
-                    onOpen={open}
-                    onStatus={(i, status) => patch(i, { status })}
-                    onPatch={patch}
-                    issueActions={issueActions}
-                    pending={pending || readOnly}
-                    group={group}
-                  />
-                )}
-              </>
+              <IssueBrowser
+                items={items}
+                scope={current?.kind === "view" ? current.data.filter : undefined}
+                only={section === "my-issues" ? (i) => !!member && i.data.assignee === actor : undefined}
+                view={view}
+                onView={(patch) => setView((v) => ({ ...v, ...patch }))}
+                actions={issueActions}
+                onCreate={(preset) => create("issue", preset)}
+                onClear={() => {
+                  if (current?.kind === "view") navigate("issues");
+                }}
+              />
             ) : current ? (
               <ItemDetail
                 key={current.id}
@@ -874,7 +721,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 items={items}
                 events={snapshot.events}
                 actor={actor}
-                pending={pending || readOnly}
+                readOnly={readOnly}
+                posting={posting}
                 onOpen={open}
                 onCreate={create}
                 onEdit={() => {
@@ -884,59 +732,9 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                 onPatch={(data) => patch(current, data)}
                 milestoneActions={milestoneActions}
                 issueActions={issueActions}
-                onComment={(body, type) =>
-                  new Promise((resolve) =>
-                    startTransition(async () => {
-                      const result = await addWorkComment(
-                        current.id,
-                        body,
-                        type ??
-                          (current.kind === "issue" ? "comment" : "update"),
-                      );
-                      if (!result.ok) {
-                        setError(result.error ?? "Couldn't post.");
-                        resolve(false);
-                      } else {
-                        router.refresh();
-                        resolve(true);
-                      }
-                    }),
-                  )
-                }
-                onArchive={() =>
-                  startTransition(async () => {
-                    if (
-                      await change(
-                        [
-                          {
-                            id: current.id,
-                            revision: current.revision,
-                            archived: !current.archived,
-                          },
-                        ],
-                        current.archived ? "Restored" : "Archived",
-                      )
-                    )
-                      navigate(section);
-                  })
-                }
-                onDelete={() =>
-                  startTransition(async () => {
-                    if (
-                      await change(
-                        [
-                          {
-                            id: current.id,
-                            revision: current.revision,
-                            deleted: true,
-                          },
-                        ],
-                        "Moved to trash",
-                      )
-                    )
-                      navigate(section);
-                  })
-                }
+                onComment={(body, type) => comment(current, body, type)}
+                onArchive={() => (current.archived ? restoreItem(current) : archiveItem(current))}
+                onDelete={() => trashItem(current)}
               />
             ) : section === "projects" ? (
               <div className="work-project-browser">
@@ -947,22 +745,22 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   </span>
                   <div className="work-toolbar-right work-layout-toggle">
                     <button
-                      aria-pressed={layout !== "timeline"}
-                      onClick={() => setLayout("list")}
+                      aria-pressed={projectLayout !== "timeline"}
+                      onClick={() => setProjectLayout("cards")}
                     >
                       <Icon name="views" size={16} />
                       Cards
                     </button>
                     <button
-                      aria-pressed={layout === "timeline"}
-                      onClick={() => setLayout("timeline")}
+                      aria-pressed={projectLayout === "timeline"}
+                      onClick={() => setProjectLayout("timeline")}
                     >
                       <Icon name="timeline" size={16} />
                       Timeline
                     </button>
                   </div>
                 </div>
-                {layout === "timeline" ? (
+                {projectLayout === "timeline" ? (
                   <Timeline
                     items={items}
                     projects={live.filter((i) => i.kind === "project")}
@@ -988,14 +786,10 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                     <button className="work-icon-button" aria-label="Close project preview" onClick={() => setPreviewId(null)}><Icon name="close" size={17}/></button>
                   </header>
                   <ProjectDetail key={preview.id} preview item={preview} items={items} events={snapshot.events}
-                    pending={pending || readOnly} onOpen={open} onCreate={create}
+                    readOnly={readOnly} posting={posting} onOpen={open} onCreate={create}
                     onEdit={() => setEditor({ kind: "project", item: preview })}
                     onPatch={data => patch(preview, data)} milestoneActions={milestoneActions} issueActions={issueActions}
-                    onComment={async (body, type) => {
-                      const result = await addWorkComment(preview.id, body, type ?? "update");
-                      if (!result.ok) { setError(result.error ?? "Couldn't post."); return false; }
-                      router.refresh(); return true;
-                    }}
+                    onComment={(body, type) => comment(preview, body, type)}
                     onArchive={() => archiveItem(preview)} onDelete={() => trashItem(preview)} />
                 </aside>}
               </div>
@@ -1082,7 +876,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                             {["label", "template", "milestone"].includes(i.kind) && (
                               <button
                                 className="work-text-button"
-                                disabled={pending || readOnly}
+                                disabled={readOnly}
                                 onClick={() => trashItem(i)}
                               >
                                 Delete
@@ -1100,14 +894,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                   <span>{inbox.length} unread</span>
                   <button
                     className="work-text-button"
-                    disabled={pending || !inbox.length}
-                    onClick={() =>
-                      startTransition(async () => {
-                        const r = await markWorkRead(inbox.map((e) => e.id));
-                        if (!r.ok) setError(r.error ?? "Couldn't mark read.");
-                        router.refresh();
-                      })
-                    }
+                    disabled={!inbox.length}
+                    onClick={() => markRead(inbox.map((e) => e.id))}
                   >
                     Mark all read
                   </button>
@@ -1134,32 +922,13 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                         <button
                           className="work-icon-button"
                           aria-label="Mark read"
-                          disabled={pending}
-                          onClick={() =>
-                            startTransition(async () => {
-                              const r = await markWorkRead([e.id]);
-                              if (!r.ok)
-                                setError(r.error ?? "Couldn't mark read.");
-                              router.refresh();
-                            })
-                          }
+                          onClick={() => markRead([e.id])}
                         >
                           <Icon name="check" />
                         </button>
                         <button
                           className="work-text-button"
-                          disabled={pending}
-                          onClick={() =>
-                            startTransition(async () => {
-                              const r = await markWorkRead(
-                                [e.id],
-                                new Date(Date.now() + 86400000).toISOString(),
-                              );
-                              if (!r.ok)
-                                setError(r.error ?? "Couldn't snooze.");
-                              router.refresh();
-                            })
-                          }
+                          onClick={() => markRead([e.id], new Date(Date.now() + 86400000).toISOString())}
                         >
                           Snooze 1 day
                         </button>
@@ -1241,22 +1010,8 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                         <span className="work-muted">{i.kind}</span>
                         <button
                           className="work-text-button"
-                          disabled={pending}
-                          onClick={() =>
-                            startTransition(async () => {
-                              await change(
-                                [
-                                  {
-                                    id: i.id,
-                                    revision: i.revision,
-                                    archived: false,
-                                    deleted: false,
-                                  },
-                                ],
-                                "Restored",
-                              );
-                            })
-                          }
+                          disabled={readOnly}
+                          onClick={() => restoreItem(i)}
                         >
                           Restore
                         </button>
@@ -1273,12 +1028,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
                       className="work-project-card"
                       key={i.id}
                       onContextMenu={(e) => showItem(i, e)}
-                      onClick={() => {
-                        setFilter({});
-                        setLayout(i.data.layout || "list");
-                        setGroup(i.data.group || "status");
-                        open(i);
-                      }}
+                      onClick={() => open(i)}
                     >
                       <Icon name="views" />
                       <h3>{i.title}</h3>
@@ -1324,31 +1074,24 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
           item={editor.item}
           preset={editor.preset}
           items={items}
-          pending={pending || readOnly}
+          pending={busy || readOnly}
           error={error}
           onClose={() => setEditor(null)}
-          onSave={(title, data, createMore) =>
-            new Promise<boolean>((resolve) =>
-              startTransition(async () => {
-                const result = await change(
-                  [
-                    {
-                      ...(editor.item
-                        ? { id: editor.item.id, revision: editor.item.revision }
-                        : { kind: editor.kind }),
-                      title,
-                      data,
-                    },
-                  ],
-                  editor.item
-                    ? "Changes saved"
-                    : `${KIND_NAMES[editor.kind]} created`,
-                );
-                if (result && !createMore) setEditor(null);
-                resolve(!!result);
-              }),
-            )
-          }
+          onSave={async (title, data, createMore) => {
+            const { item, kind } = editor;
+            // An edit sends only what the form changed, so it can't undo a teammate's edit to other fields.
+            const edits = item ? changedData(data, item.data) : data;
+            if (item && title.trim() === item.title && !Object.keys(edits).length) {
+              setEditor(null);
+              return true;
+            }
+            const result = await change(
+              [item ? { id: item.id, title, data: edits } : { kind, title, data }],
+              item ? "Changes saved" : `${KIND_NAMES[kind]} created`,
+            );
+            if (result && !createMore) setEditor(null);
+            return !!result;
+          }}
         />
       )}
       {command && (
@@ -1437,25 +1180,13 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         <Modal title="Save a view" onClose={() => setDialog(null)}>
           <form
             className="work-editor-body"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              startTransition(async () => {
-                if (
-                  await change(
-                    [
-                      {
-                        kind: "view",
-                        title: viewName,
-                        data: { filter: activeFilter, layout, group },
-                      },
-                    ],
-                    "View saved",
-                  )
-                ) {
-                  setDialog(null);
-                  setViewName("");
-                }
-              });
+              const filter = { ...(current?.kind === "view" ? current.data.filter : {}), ...view.filter };
+              if (await change([{ kind: "view", title: viewName, data: { filter, layout: view.layout, group: view.group } }], "View saved")) {
+                setDialog(null);
+                setViewName("");
+              }
             }}
           >
             <Field label="View name">
@@ -1473,7 +1204,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
               whole team.
             </p>
             {error && <p className="work-error">{error}</p>}
-            <button className="btn btn-primary mt-4" disabled={pending}>
+            <button className="btn btn-primary mt-4" disabled={busy}>
               Save view
             </button>
           </form>
@@ -1483,35 +1214,33 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         <Modal title="Import tasks" onClose={() => setDialog(null)} wide>
           <form
             className="work-editor-body"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              startTransition(async () => {
-                try {
-                  const input = JSON.parse(importText);
-                  const rows = Array.isArray(input) ? input : input.items;
-                  if (!Array.isArray(rows))
-                    throw new Error(
-                      "Paste a JSON array or an exported workspace.",
-                    );
-                  const issues = rows.filter(
-                    (r: { kind?: string }) => !r.kind || r.kind === "issue",
+              try {
+                const input = JSON.parse(importText);
+                const rows = Array.isArray(input) ? input : input.items;
+                if (!Array.isArray(rows))
+                  throw new Error(
+                    "Paste a JSON array or an exported workspace.",
                   );
-                  if (!issues.length) throw new Error("No tasks found.");
-                  if (
-                    await change(
-                      issues.map((r: { title: string; data?: WorkData }) => ({
-                        kind: "issue",
-                        title: r.title,
-                        data: r.data ?? {},
-                      })),
-                      `${issues.length} tasks imported`,
-                    )
+                const issues = rows.filter(
+                  (r: { kind?: string }) => !r.kind || r.kind === "issue",
+                );
+                if (!issues.length) throw new Error("No tasks found.");
+                if (
+                  await change(
+                    issues.map((r: { title: string; data?: WorkData }) => ({
+                      kind: "issue" as const,
+                      title: r.title,
+                      data: r.data ?? {},
+                    })),
+                    `${issues.length} tasks imported`,
                   )
-                    setDialog(null);
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "Invalid JSON.");
-                }
-              });
+                )
+                  setDialog(null);
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Invalid JSON.");
+              }
             }}
           >
             <p className="work-muted">
@@ -1532,7 +1261,7 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
               required
             />
             {error && <p className="work-error">{error}</p>}
-            <button className="btn btn-primary mt-4" disabled={pending}>
+            <button className="btn btn-primary mt-4" disabled={busy}>
               Import issues
             </button>
           </form>
@@ -1545,11 +1274,23 @@ export function WorkWorkspace({ section, entityId }: { section: string; entityId
         </button>
       )}
       {toast && (
-        <div className="work-toast" role="status">
+        <div className="work-toast" role={toast.tone === "error" ? "alert" : "status"} data-tone={toast.tone}>
           <span className="work-toast-check">
-            <Icon name="check" size={14} />
+            <Icon name={toast.tone === "error" ? "triage" : "check"} size={14} />
           </span>
-          {toast}
+          {toast.text}
+          {toast.undo && (
+            <button
+              className="work-toast-action"
+              onClick={() => {
+                const undo = toast.undo!;
+                setToast(null);
+                undo();
+              }}
+            >
+              Undo
+            </button>
+          )}
         </div>
       )}
     </div>

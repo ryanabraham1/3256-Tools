@@ -139,9 +139,11 @@ export function uniqueStatuses(statuses: string[]) {
 export function done(item: WorkItem) {
   return ["done", "completed", "canceled", "cancelled", "duplicate"].includes((item.data.status ?? "").toLowerCase());
 }
-export function issueCode(item: WorkItem, items: WorkItem[]) {
+/** `items` may be the full list or an id lookup (long lists build one once instead of searching per row). */
+export function issueCode(item: WorkItem, items: WorkItem[] | Map<string, WorkItem>) {
   if (item.data.source?.identifier) return item.data.source.identifier;
-  return `${items.find((i) => i.id === item.data.team)?.data.identifier || "WB"}-${item.number}`;
+  const team = items instanceof Map ? items.get(item.data.team ?? "") : items.find((i) => i.id === item.data.team);
+  return `${team?.data.identifier || "WB"}-${item.number}`;
 }
 function matchesDue(item: WorkItem, due?: string) {
   if (!due) return true;

@@ -1,4 +1,5 @@
 "use client";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import {
   dateLabel,
   done,
@@ -6,6 +7,7 @@ import {
   PRIORITIES,
   progress,
   STATUSES,
+  today,
   uniqueStatuses,
   type WorkData,
   type WorkItem,
@@ -15,11 +17,11 @@ import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { MultiPicker, PropertyPicker } from "./property-picker";
 import { useItemMenuShow } from "./item-menu";
 import { Icon, StatusIcon } from "./icons";
-export function Labels({ item, items }: { item: WorkItem; items: WorkItem[] }) {
+export function Labels({ item, items, byId }: { item: WorkItem; items: WorkItem[]; byId?: Map<string, WorkItem> }) {
   return (
     <span className="work-labels">
       {(item.data.labels ?? []).map((id) => {
-        const label = items.find((i) => i.id === id);
+        const label = byId ? byId.get(id) : items.find((i) => i.id === id);
         return label ? (
           <span className="work-chip" key={id}>
             <span
@@ -105,114 +107,222 @@ export function Empty({
   );
 }
 /** Active work first, so the list opens on what people are doing now. */
-const LIST_ORDER = ["In progress", "In review", "Todo", "Backlog", "Done"];
+const LIST_ORDER = uniqueStatuses(["In progress", "In review", "Todo", "Backlog", "Done", ...STATUSES]);
+const PRIORITY_OPTIONS = PRIORITIES.map((p, n) => ({ value: String(n), label: p }));
+
+/** Per-list lookups, built once so a long list doesn't search every item for every row. */
+export type IssueLookup = {
+  byId: Map<string, WorkItem>;
+  statusOptions: { value: string; label: string; icon: ReactNode }[];
+  /** Imported statuses differ only in capitalization; this maps any spelling to its option. */
+  statusValue: Map<string, string>;
+  memberOptions: { value: string; label: string }[];
+  today: string;
+};
+export function useIssueLookup(items: WorkItem[]): IssueLookup {
+  return useMemo(() => {
+    const live = items.filter((i) => !i.archived && !i.deleted_at);
+    const statuses = uniqueStatuses([
+      ...STATUSES,
+      ...live.flatMap((i) => (i.kind === "team" ? (i.data.workflow ?? []) : i.kind === "issue" && i.data.status ? [i.data.status] : [])),
+    ]);
+    return {
+      byId: new Map(items.map((i) => [i.id, i])),
+      statusOptions: statuses.map((s) => ({ value: s, label: s, icon: <StatusIcon status={s} /> })),
+      statusValue: new Map(statuses.map((s) => [s.toLowerCase(), s])),
+      memberOptions: [{ value: "", label: "Unassigned" }, ...live.filter((i) => i.kind === "member").map((m) => ({ value: m.id, label: m.title }))],
+      today: today(),
+    };
+  }, [items]);
+}
+
+/**
+ * The one task row. Every list of tasks (the Tasks page, a project's tasks, sub-tasks, a milestone's or
+ * initiative's tasks) renders this, so status, priority and assignee can be changed in place everywhere.
+ */
+export function IssueRow({
+  item,
+  items,
+  lookup,
+  actions,
+  onMenu,
+  selected,
+  onSelect,
+  showProject = true,
+  strikeDone = false,
+}: {
+  item: WorkItem;
+  items: WorkItem[];
+  lookup: IssueLookup;
+  actions: IssueActions;
+  onMenu: (item: WorkItem, e: MouseEvent<HTMLElement>) => void;
+  selected?: boolean;
+  /** Present only where tasks can be picked for bulk changes. */
+  onSelect?: (id: string) => void;
+  showProject?: boolean;
+  /** Flat lists (sub-tasks) cross out finished work; grouped lists already have a Done section. */
+  strikeDone?: boolean;
+}) {
+  const readOnly = !!actions.disabled;
+  const status = item.data.status ?? "Backlog";
+  const overdue = !!item.data.due && item.data.due < lookup.today && !done(item);
+  return (
+    <div
+      className="work-issue-row"
+      data-selected={!!selected}
+      data-done={strikeDone && done(item)}
+      onContextMenu={(e) => onMenu(item, e)}
+    >
+      {onSelect && (
+        <input
+          type="checkbox"
+          aria-label={`Select ${item.title}`}
+          checked={!!selected}
+          onChange={() => onSelect(item.id)}
+        />
+      )}
+      <div className="work-row-prop work-row-priority"><PropertyPicker label={`Priority for ${item.title}`} value={String(item.data.priority ?? 0)} disabled={readOnly} onChange={v => actions.onPatch(item, { priority: Number(v) })}
+        display={<span className="work-priority" data-priority={item.data.priority}>{item.data.priority === 1 ? "!" : item.data.priority ? "▥" : "—"}</span>}
+        options={PRIORITY_OPTIONS} /></div>
+      <span className="work-code">{issueCode(item, lookup.byId)}</span>
+      <div className="work-row-status-picker"><PropertyPicker label={`Status for ${item.title}`} value={lookup.statusValue.get(status.toLowerCase()) ?? status} disabled={readOnly} onChange={status => actions.onPatch(item, { status })}
+        icon={<StatusIcon status={status} />} display={<span className="work-sr-only">{status}</span>} options={lookup.statusOptions} /></div>
+      <button className="work-row-title" onClick={() => actions.onOpen(item)}>
+        {item.title}
+      </button>
+      <Labels item={item} items={items} byId={lookup.byId} />
+      {showProject && (
+        <span className="work-row-project">
+          {lookup.byId.get(item.data.project ?? "")?.title}
+        </span>
+      )}
+      <span className="work-row-date" data-overdue={overdue} title={overdue ? "Overdue" : undefined}>
+        {item.data.due && dateLabel(item.data.due)}
+      </span>
+      <div className="work-row-prop work-row-assignee"><PropertyPicker label={`Assignee for ${item.title}`} value={item.data.assignee ?? ""} disabled={readOnly} onChange={assignee => actions.onPatch(item, { assignee })}
+        display={<Avatar small name={lookup.byId.get(item.data.assignee ?? "")?.title} />}
+        options={lookup.memberOptions} /></div>
+      <button className="work-icon-button work-row-more" aria-label={`More actions for ${item.title}`} aria-haspopup="menu" onClick={(e) => onMenu(item, e)}>
+        <span aria-hidden>⋯</span>
+      </button>
+    </div>
+  );
+}
+
+/** Task rows with no grouping or toolbar, for the short lists inside a task, milestone or initiative. */
+export function IssueRows({
+  rows,
+  items,
+  actions,
+  showProject = false,
+}: {
+  rows: WorkItem[];
+  items: WorkItem[];
+  actions: IssueActions;
+  showProject?: boolean;
+}) {
+  const lookup = useIssueLookup(items);
+  const issueMenu = useIssueMenu(items, actions);
+  return (
+    <div className="work-issue-rows">
+      {issueMenu.element}
+      {rows.map((item) => (
+        <IssueRow key={item.id} item={item} items={items} lookup={lookup} actions={actions} onMenu={issueMenu.show} showProject={showProject} strikeDone />
+      ))}
+    </div>
+  );
+}
+
 export function IssueList({
   rows,
   items,
   selected,
   onSelect,
-  onOpen,
-  onStatus,
-  onPatch,
+  onCreate,
   issueActions,
-  pending,
   group,
+  showProject = true,
 }: {
   rows: WorkItem[];
   items: WorkItem[];
   selected: string[];
   onSelect: (id: string) => void;
-  onOpen: (item: WorkItem) => void;
-  onStatus: (item: WorkItem, status: string) => void;
-  onPatch: (item: WorkItem, data: WorkData) => void;
+  /** Starts a new task already placed in the group whose + was pressed. */
+  onCreate?: (preset: WorkData) => void;
   issueActions: IssueActions;
-  pending: boolean;
   group: string;
+  showProject?: boolean;
 }) {
+  const lookup = useIssueLookup(items);
   const issueMenu = useIssueMenu(items, issueActions);
-  const groups =
-    group === "status"
-      ? uniqueStatuses([...LIST_ORDER, ...STATUSES, ...rows.map(i => i.data.status ?? "Backlog")]).map((s) => ({
-          key: s,
-          title: s,
-          rows: rows.filter((i) => (i.data.status ?? "Backlog").toLowerCase() === s.toLowerCase()),
-        }))
-      : group === "project"
-        ? [...new Set(rows.map((i) => i.data.project || ""))].map((id) => ({
-            key: id,
-            title: items.find((i) => i.id === id)?.title ?? "No project",
-            rows: rows.filter((i) => (i.data.project ?? "") === id),
-          }))
-        : [{ key: "all", title: "All tasks", rows }];
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  const chosen = new Set(selected);
+  const buckets = new Map<string, { key: string; title: string; rows: WorkItem[]; preset: WorkData }>();
+  if (group === "none") buckets.set("all", { key: "all", title: "All tasks", rows, preset: {} });
+  else
+    for (const i of rows) {
+      const value = group === "project" ? (i.data.project ?? "") : (i.data.status ?? "Backlog");
+      const key = value.toLowerCase();
+      const bucket = buckets.get(key);
+      if (bucket) bucket.rows.push(i);
+      else
+        buckets.set(key, group === "project"
+          ? { key, title: lookup.byId.get(value)?.title ?? "No project", rows: [i], preset: value ? { project: value } : {} }
+          : { key, title: LIST_ORDER.find((s) => s.toLowerCase() === key) ?? value, rows: [i], preset: { status: LIST_ORDER.find((s) => s.toLowerCase() === key) ?? value } });
+    }
+  const rank = (key: string) => {
+    const n = LIST_ORDER.findIndex((s) => s.toLowerCase() === key);
+    return n < 0 ? LIST_ORDER.length : n;
+  };
+  const groups = [...buckets.values()];
+  if (group === "status") groups.sort((a, b) => rank(a.key) - rank(b.key));
   return (
     <div className="work-list">
       {issueMenu.element}
-      {groups
-        .filter((g) => g.rows.length)
-        .map((g) => (
+      {groups.map((g) => {
+        const closed = collapsed.includes(g.key);
+        const all = g.rows.every((i) => chosen.has(i.id));
+        return (
           <section key={g.key}>
             <div className="work-group-heading">
-              <input type="checkbox" className="work-group-select" aria-label={`Select all ${g.title} tasks`} checked={g.rows.every(i => selected.includes(i.id))} ref={input => { if(input) input.indeterminate = g.rows.some(i => selected.includes(i.id)) && !g.rows.every(i => selected.includes(i.id)); }} onChange={e => { const checked = e.target.checked; g.rows.filter(i => selected.includes(i.id) !== checked).forEach(i => onSelect(i.id)); }}/>
-              {group === "status" && <StatusIcon status={g.title} />}
-              <h3>{g.title}</h3>
-              <span>{g.rows.length}</span>
-            </div>
-            {g.rows.map((item) => (
-              <div
-                className="work-issue-row"
-                key={item.id}
-                data-selected={selected.includes(item.id)}
-                onContextMenu={(e) => issueMenu.show(item, e)}
-              >
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${item.title}`}
-                  checked={selected.includes(item.id)}
-                  onChange={() => onSelect(item.id)}
-                />
-                <div className="work-row-prop"><PropertyPicker label={`Priority for ${item.title}`} value={String(item.data.priority ?? 0)} disabled={pending} onChange={v => onPatch(item, { priority: Number(v) })}
-                  display={<span className="work-priority" data-priority={item.data.priority}>{item.data.priority === 1 ? "!" : item.data.priority ? "▥" : "—"}</span>}
-                  options={PRIORITIES.map((p, n) => ({ value: String(n), label: p }))} /></div>
-                <span className="work-code">{issueCode(item, items)}</span>
-                <div className="work-row-status-picker"><PropertyPicker label={`Status for ${item.title}`} value={item.data.status ?? "Backlog"} disabled={pending} onChange={status => onStatus(item,status)} display={<span className="work-sr-only">{item.data.status ?? "Backlog"}</span>} options={uniqueStatuses([item.data.status ?? "Backlog", ...STATUSES, ...rows.map(i => i.data.status ?? "Backlog")]).map(s => ({value:s,label:s,icon:<StatusIcon status={s}/>}))}/></div>
-                <button className="work-row-title" onClick={() => onOpen(item)}>
-                  {item.title}
+              <input type="checkbox" className="work-group-select" aria-label={`Select all ${g.title} tasks`} checked={all} ref={input => { if(input) input.indeterminate = !all && g.rows.some(i => chosen.has(i.id)); }} onChange={e => { const checked = e.target.checked; g.rows.filter(i => chosen.has(i.id) !== checked).forEach(i => onSelect(i.id)); }}/>
+              <h3>
+                <button className="work-group-toggle" aria-expanded={!closed} onClick={() => setCollapsed((c) => (closed ? c.filter((k) => k !== g.key) : [...c, g.key]))}>
+                  <span className="work-group-caret" data-closed={closed} aria-hidden>▾</span>
+                  {group === "status" && <StatusIcon status={g.title} />}
+                  {g.title}
+                  <span className="work-group-count">{g.rows.length}</span>
                 </button>
-                <Labels item={item} items={items} />
-                <span className="work-row-project">
-                  {items.find((i) => i.id === item.data.project)?.title}
-                </span>
-                <span className="work-row-date">
-                  {item.data.due && dateLabel(item.data.due)}
-                </span>
-                <div className="work-row-prop"><PropertyPicker label={`Assignee for ${item.title}`} value={item.data.assignee ?? ""} disabled={pending} onChange={assignee => onPatch(item, { assignee })}
-                  display={<Avatar small name={items.find((i) => i.id === item.data.assignee)?.title} />}
-                  options={[{ value: "", label: "Unassigned" }, ...items.filter(i => i.kind === "member" && !i.archived && !i.deleted_at).map(m => ({ value: m.id, label: m.title }))]} /></div>
-              </div>
+              </h3>
+              {onCreate && !issueActions.disabled && (
+                <button className="work-icon-button" aria-label={`Add task to ${g.title}`} onClick={() => onCreate(g.preset)}>
+                  <Icon name="plus" size={15} />
+                </button>
+              )}
+            </div>
+            {!closed && g.rows.map((item) => (
+              <IssueRow key={item.id} item={item} items={items} lookup={lookup} actions={issueActions} onMenu={issueMenu.show} selected={chosen.has(item.id)} onSelect={onSelect} showProject={showProject} />
             ))}
           </section>
-        ))}
+        );
+      })}
     </div>
   );
 }
 export function IssueBoard({
   rows,
   items,
-  onOpen,
-  onStatus,
   onCreate,
   issueActions,
-  pending,
 }: {
   rows: WorkItem[];
   items: WorkItem[];
-  onOpen: (i: WorkItem) => void;
-  onStatus: (i: WorkItem, status: string) => void;
-  onCreate: (status: string) => void;
+  onCreate: (preset: WorkData) => void;
   issueActions: IssueActions;
-  pending: boolean;
 }) {
+  const lookup = useIssueLookup(items);
   const issueMenu = useIssueMenu(items, issueActions);
+  const readOnly = !!issueActions.disabled;
   const statuses = uniqueStatuses(["Backlog", "Todo", "In progress", "In review", "Done", ...rows.map(i => i.data.status ?? "Backlog")]);
   return (
     <div className="work-board">
@@ -231,36 +341,38 @@ export function IssueBoard({
               const item = rows.find(
                 (i) => i.id === e.dataTransfer.getData("text/plain"),
               );
-              if (item && !pending) onStatus(item, status);
+              if (item && !readOnly && (item.data.status ?? "Backlog").toLowerCase() !== status.toLowerCase()) issueActions.onPatch(item, { status });
             }}
           >
             <div className="work-group-heading">
               <StatusIcon status={status} />
               <h3>{status}</h3>
               <span>{list.length}</span>
-              <button
-                className="work-icon-button"
-                aria-label={`Add task to ${status}`}
-                onClick={() => onCreate(status)}
-              >
-                <Icon name="plus" size={15} />
-              </button>
+              {!readOnly && (
+                <button
+                  className="work-icon-button"
+                  aria-label={`Add task to ${status}`}
+                  onClick={() => onCreate({ status })}
+                >
+                  <Icon name="plus" size={15} />
+                </button>
+              )}
             </div>
             <div className="work-board-cards">
               {list.map((item) => (
                 <button
                   className="work-issue-card"
                   key={item.id}
-                  draggable={!pending}
+                  draggable={!readOnly}
                   onDragStart={(e) =>
                     e.dataTransfer.setData("text/plain", item.id)
                   }
-                  onClick={() => onOpen(item)}
+                  onClick={() => issueActions.onOpen(item)}
                   onContextMenu={(e) => issueMenu.show(item, e)}
                 >
-                  <span className="work-code">{issueCode(item, items)}</span>
+                  <span className="work-code">{issueCode(item, lookup.byId)}</span>
                   <h3>{item.title}</h3>
-                  <Labels item={item} items={items} />
+                  <Labels item={item} items={items} byId={lookup.byId} />
                   <div className="work-card-foot">
                     <span
                       className="work-priority"
@@ -268,23 +380,23 @@ export function IssueBoard({
                     >
                       {PRIORITIES[item.data.priority ?? 0]}
                     </span>
-                    <span>{item.data.due && dateLabel(item.data.due)}</span>
+                    <span data-overdue={!!item.data.due && item.data.due < lookup.today && !done(item)}>{item.data.due && dateLabel(item.data.due)}</span>
                     <Avatar
                       small
-                      name={
-                        items.find((i) => i.id === item.data.assignee)?.title
-                      }
+                      name={lookup.byId.get(item.data.assignee ?? "")?.title}
                     />
                   </div>
                 </button>
               ))}
-              <button
-                className="work-board-add"
-                onClick={() => onCreate(status)}
-              >
-                <Icon name="plus" size={14} />
-                Add task
-              </button>
+              {!readOnly && (
+                <button
+                  className="work-board-add"
+                  onClick={() => onCreate({ status })}
+                >
+                  <Icon name="plus" size={14} />
+                  Add task
+                </button>
+              )}
             </div>
           </section>
         );

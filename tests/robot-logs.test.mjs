@@ -434,3 +434,22 @@ test("library headings name each calendar day", () => {
   assert.match(dayLabel(new Date(2025, 2, 2).toISOString(), now), /2025/);
   assert.notEqual(dayLabel(at(10, 1), now), dayLabel(at(9, 23), now));
 });
+
+test("power findings match Mayhem: real brownout flag, quiet on a healthy battery, one finding per dip", () => {
+  const { analyze, suggestMapping } = load("lib/robot-logs/core/analysis.ts", {}, { Math, Number, Array, Map, Set, Object, JSON });
+  const series = (f) => Array.from({ length: 1001 }, (_, i) => ({ time: i * 0.02, value: f(i * 0.02) }));
+  const amps = (t) => (t % 5 > 2 && t % 5 < 2.4 ? 200 : 30);
+  const match = (ocv, r) => ({ name: "match", duration: 20, warnings: [], channels: [
+    { name: "DS:enabled", type: "boolean", samples: [{ time: 0, value: false }, { time: 2, value: true }] },
+    { name: "/RealOutputs/SystemStats/BatteryVoltage", type: "double", samples: series((t) => (t < 2 ? ocv : ocv - r * amps(t))) },
+    { name: "/RealOutputs/Sim/TotalCurrentAmps", type: "double", samples: series((t) => (t < 2 ? 0 : amps(t))) },
+    { name: "NT:/SmartDashboard/Checks/No Brownout", type: "boolean", samples: [{ time: 0, value: true }] },
+    { name: "/RealOutputs/SystemStats/BrownedOut", type: "boolean", samples: [{ time: 0, value: false }] },
+  ] });
+  assert.equal(suggestMapping(match(12.7, 0.022).channels).brownout, "/RealOutputs/SystemStats/BrownedOut");
+  assert.equal(analyze(match(12.7, 0.022)).findings.length, 0);
+  const titles = analyze(match(12.1, 0.034)).findings.map((f) => f.title);
+  assert.ok(titles.includes("Weak battery or loose connection"));
+  assert.ok(titles.includes("Battery not fully charged"));
+  assert.equal(titles.filter((t) => t === "Voltage below brownout level").length, 4);
+});

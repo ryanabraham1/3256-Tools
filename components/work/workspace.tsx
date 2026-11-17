@@ -18,7 +18,7 @@ import { Avatar, Collection, Empty } from "./collections";
 import { Timeline } from "./timeline";
 import { ProjectDetail } from "./project-detail";
 import { ItemDetail, RichText } from "./detail";
-import { Field, ItemEditor, Modal } from "./editor";
+import { Field, ItemEditor, Modal, NamePopover } from "./editor";
 import { Icon } from "./icons";
 import { AccessPanel } from "./access";
 import { HelpGuide } from "./help";
@@ -125,7 +125,7 @@ const SECTIONS: Record<string, { title: string; kind?: WorkKind; blurb?: string 
   },
 };
 const route = itemRoute;
-type Toast = { text: string; tone?: "error"; undo?: () => void };
+type Toast = { text: string; tone?: "error"; undo?: () => void; action?: { label: string; run: () => void } };
 export function WorkWorkspace() {
   const { snapshot, user, access, items, save, saving, refresh, problems } = useWork();
   const router = useRouter();
@@ -163,6 +163,8 @@ export function WorkWorkspace() {
   } | null>(null);
   // A dialog (new item, edit, save view, import) is waiting on its save.
   const [busy, setBusy] = useState(false);
+  // Projects and initiatives start from just a name, in a small card by the button that asked.
+  const [naming, setNaming] = useState<{ kind: WorkKind; preset?: WorkData; anchor: { left: number; top: number } | null } | null>(null);
   const [command, setCommand] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [error, setError] = useState("");
@@ -281,6 +283,12 @@ export function WorkWorkspace() {
     setError("");
     // An unset value in a preset must not blank out a default (the team, most often).
     const given = Object.fromEntries(Object.entries(preset ?? {}).filter(([, v]) => v !== undefined));
+    if ((kind === "project" || kind === "initiative") && title === undefined) {
+      const from = document.activeElement;
+      const rect = from instanceof HTMLElement && !from.closest("dialog") ? from.getBoundingClientRect() : null;
+      setNaming({ kind, preset: given, anchor: rect && rect.width ? { left: rect.left, top: rect.bottom + 6 } : null });
+      return;
+    }
     setEditor({
       kind,
       title,
@@ -314,6 +322,27 @@ export function WorkWorkspace() {
     }
     setToast({ text: success });
     return result.items;
+  }
+  /** Creates from a one-line add (sub-tasks, named projects): no dialog, and the toast offers to open it. */
+  async function quickCreate(kind: WorkKind, title: string, preset: WorkData = {}, openAfter = false) {
+    if (readOnly) {
+      setToast({ text: "Your account has view-only access.", tone: "error" });
+      return false;
+    }
+    const defaults: WorkData = kind === "issue"
+      ? { status: "Todo", priority: 0, team: teams[0]?.id }
+      : { status: "Planned", priority: 0 };
+    // Like the composer: an unset preset value (a parent with no team) keeps the default.
+    const given = Object.fromEntries(Object.entries(preset).filter(([, v]) => v !== undefined));
+    const result = await save([{ kind, title, data: { ...defaults, ...given } }]);
+    if (!result.ok) {
+      setToast({ text: result.error, tone: "error" });
+      return false;
+    }
+    const made = result.items.find((i) => i.kind === kind && i.title === title) ?? result.items[0];
+    if (openAfter && made) open(made);
+    else setToast({ text: `${KIND_NAMES[kind]} added`, action: made ? { label: "Open", run: () => open(made) } : undefined });
+    return true;
   }
   /** Saves an in-place edit: it shows immediately, and is undone with the reason if the server refuses it. */
   function quick(changes: WorkChange[], notice?: Toast) {
@@ -775,6 +804,7 @@ export function WorkWorkspace() {
                 onArchive={() => (current.archived ? restoreItem(current) : archiveItem(current))}
                 onDelete={() => trashItem(current)}
                 onNavigate={navigate}
+                onQuickCreate={quickCreate}
               />
             ) : section === "projects" ? (
               <div className="work-project-browser">
@@ -1154,6 +1184,23 @@ export function WorkWorkspace() {
           </>
         )}
       </div>
+      {naming && (
+        <NamePopover
+          key={naming.kind}
+          heading={`New ${KIND_NAMES[naming.kind].toLowerCase()}`}
+          placeholder={naming.kind === "project" ? "e.g. Climber v2" : "e.g. Win the district event"}
+          anchor={naming.anchor}
+          onClose={() => setNaming(null)}
+          // A new project or initiative opens on its page, where everything else is edited in place.
+          // One added from an initiative stays put so several can be added in a row.
+          onSubmit={(title) => quickCreate(naming.kind, title, naming.preset, !naming.preset?.initiative)}
+          onMore={(title) => {
+            const { kind, preset } = naming;
+            setNaming(null);
+            setEditor({ kind, preset, title });
+          }}
+        />
+      )}
       {editor && (
         <ItemEditor
           key={
@@ -1180,6 +1227,10 @@ export function WorkWorkspace() {
               [item ? { id: item.id, title, data: edits } : { kind, title, data }],
               item ? "Changes saved" : `${KIND_NAMES[kind]} created`,
             );
+            if (result && !item) {
+              const made = result.find((i) => i.kind === kind) ?? result[0];
+              if (made) setToast({ text: `${KIND_NAMES[kind]} created`, action: { label: "Open", run: () => open(made) } });
+            }
             if (result && !createMore) setEditor(null);
             return !!result;
           }}
@@ -1337,6 +1388,18 @@ export function WorkWorkspace() {
             <Icon name={toast.tone === "error" ? "triage" : "check"} size={14} />
           </span>
           {toast.text}
+          {toast.action && (
+            <button
+              className="work-toast-action"
+              onClick={() => {
+                const action = toast.action!;
+                setToast(null);
+                action.run();
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
           {toast.undo && (
             <button
               className="work-toast-action"

@@ -9,7 +9,7 @@ import {
   type WorkItem,
   type WorkKind,
 } from "@/lib/work";
-import { Icon, PriorityIcon, statusLabel } from "./icons";
+import { Icon, PriorityIcon, StatusIcon, statusLabel } from "./icons";
 import { PropertyPicker } from "./property-picker";
 export function Modal({
   title,
@@ -215,30 +215,37 @@ function IssueComposer({
             ...(d.milestone && items.find((i) => i.id === d.milestone)?.data.project !== v ? { milestone: "" } : {}),
           }))
         : patch(key, v);
+    const options = [
+      { value: "", label: empty },
+      ...(kind === "member" && actor ? [{ value: actor, label: "Me" }] : []),
+      ...items
+        .filter((i) => i.kind === kind && !i.archived && !i.deleted_at && !(kind === "member" && i.id === actor))
+        .map((i) => ({ value: i.id, label: kind === "team" ? i.data.identifier || i.title : i.title })),
+    ];
+    const picked = options.find((o) => o.value === (data[key] ?? ""));
     return (
-      <label className="work-compose-chip">
-        <Icon name={icon} size={15} />
-        <select
-          aria-label={label}
+      <span className="work-compose-picker" data-empty={!data[key]}>
+        <PropertyPicker
+          label={label}
           value={data[key] ?? ""}
-          onChange={(e) => onPick(e.target.value)}
-        >
-          <option value="">{empty}</option>
-          {kind === "member" && actor && <option value={actor}>Me</option>}
-          {items
-            .filter((i) => i.kind === kind && !i.archived && !i.deleted_at && !(kind === "member" && i.id === actor))
-            .map((i) => (
-              <option key={i.id} value={i.id}>
-                {kind === "team" ? i.data.identifier || i.title : i.title}
-              </option>
-            ))}
-        </select>
-      </label>
+          display={picked?.value ? picked.label : empty}
+          icon={<Icon name={icon} size={15} />}
+          options={options}
+          onChange={onPick}
+        />
+      </span>
     );
   }
   return (
     <Modal title="New task" onClose={onClose} className="work-issue-composer">
       <form
+        onKeyDown={(e) => {
+          // ⌘↵ / Ctrl↵ creates from anywhere in the form, including the description.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.currentTarget.requestSubmit();
+          }
+        }}
         onSubmit={async (e) => {
           e.preventDefault();
           if (await onSave(title, data, createMore)) {
@@ -304,32 +311,25 @@ function IssueComposer({
           />
         </div>
         <div className="work-compose-properties">
-          <label className="work-compose-chip">
-            <Icon name="my-issues" size={15} />
-            <select
-              aria-label="Status"
-              value={data.status}
-              onChange={(e) => patch("status", e.target.value)}
-            >
-              {statuses.map((s) => (
-                <option key={s} value={s}>{statusLabel(s)}</option>
-              ))}
-            </select>
-          </label>
-          <label className="work-compose-chip">
-            <PriorityIcon priority={data.priority} size={15} />
-            <select
-              aria-label="Priority"
-              value={data.priority ?? 0}
-              onChange={(e) => patch("priority", Number(e.target.value))}
-            >
-              {PRIORITIES.map((p, i) => (
-                <option key={p} value={i}>
-                  {i === 0 ? "Priority" : p}
-                </option>
-              ))}
-            </select>
-          </label>
+          <span className="work-compose-picker">
+            <PropertyPicker
+              label="Status"
+              value={data.status ?? "Todo"}
+              icon={<StatusIcon status={data.status} />}
+              options={statuses.map((st) => ({ value: st, label: statusLabel(st), icon: <StatusIcon status={st} /> }))}
+              onChange={(v) => patch("status", v)}
+            />
+          </span>
+          <span className="work-compose-picker" data-empty={!data.priority}>
+            <PropertyPicker
+              label="Priority"
+              value={String(data.priority ?? 0)}
+              display={data.priority ? PRIORITIES[data.priority] : "Priority"}
+              icon={<PriorityIcon priority={data.priority} size={15} />}
+              options={PRIORITIES.map((p, n) => ({ value: String(n), label: n === 0 ? "No priority" : p, icon: <PriorityIcon priority={n} size={15} /> }))}
+              onChange={(v) => patch("priority", Number(v))}
+            />
+          </span>
           {choice("Assignee", "member", "member", "assignee", "Nobody yet")}
           {choice("Project", "projects", "project", "project", "Project")}
           <label className="work-compose-chip">
@@ -453,8 +453,9 @@ function IssueComposer({
             />
             Create more
           </label>
-          <button type="submit" className="btn btn-primary" disabled={pending}>
+          <button type="submit" className="btn btn-primary" disabled={pending} title="⌘↵">
             {pending ? "Creating…" : "Create task"}
+            {!pending && <kbd className="work-kbd-hint">⌘↵</kbd>}
           </button>
         </div>
       </form>
@@ -924,5 +925,139 @@ export function ItemEditor({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * A one-line "add" row under a list: type a title and press Enter. It stays focused for the next one,
+ * and "More fields" hands what's typed to the full composer.
+ */
+export function QuickAdd({
+  placeholder,
+  onAdd,
+  onMore,
+  disabled = false,
+  inputRef,
+}: {
+  placeholder: string;
+  onAdd: (title: string) => Promise<boolean>;
+  onMore?: (title: string) => void;
+  disabled?: boolean;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+}) {
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  if (disabled) return null;
+  return (
+    <form
+      className="work-quick-add"
+      data-active={!!title}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const text = title.trim();
+        if (!text || saving) return;
+        setSaving(true);
+        const ok = await onAdd(text);
+        setSaving(false);
+        if (ok) setTitle("");
+      }}
+    >
+      <Icon name="plus" size={15} />
+      <input
+        ref={inputRef}
+        aria-label={placeholder}
+        placeholder={placeholder}
+        maxLength={300}
+        value={title}
+        disabled={saving}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setTitle("");
+            e.currentTarget.blur();
+          }
+        }}
+      />
+      {title && (
+        <span className="work-quick-add-actions">
+          {onMore && (
+            <button type="button" className="work-text-button" onClick={() => { onMore(title.trim()); setTitle(""); }}>
+              More fields
+            </button>
+          )}
+          <button className="btn btn-primary" disabled={saving || !title.trim()}>
+            {saving ? "Adding…" : "Add"}
+          </button>
+        </span>
+      )}
+    </form>
+  );
+}
+
+/** A small "name it" card shown by the button that asked for it; everything else is set on the new page. */
+export function NamePopover({
+  heading,
+  placeholder,
+  anchor,
+  onSubmit,
+  onMore,
+  onClose,
+}: {
+  heading: string;
+  placeholder: string;
+  anchor: { left: number; top: number } | null;
+  onSubmit: (title: string) => Promise<boolean>;
+  onMore: (title: string) => void;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector("input")?.focus();
+  }, []);
+  useEffect(() => {
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [onClose]);
+  const width = 340;
+  const style = anchor
+    ? { left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)), top: Math.max(8, Math.min(anchor.top, window.innerHeight - 180)) }
+    : { left: Math.max(8, (window.innerWidth - width) / 2), top: 96 };
+  return (
+    <form
+      ref={ref}
+      className="work-popover work-name-popover"
+      aria-label={heading}
+      style={style}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!title.trim() || saving) return;
+        setSaving(true);
+        const ok = await onSubmit(title.trim());
+        setSaving(false);
+        if (ok) onClose();
+      }}
+    >
+      <b>{heading}</b>
+      <input className="input" aria-label="Name" placeholder={placeholder} maxLength={300} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <div>
+        <button type="button" className="work-text-button" onClick={() => onMore(title.trim())}>
+          More options
+        </button>
+        <button className="btn btn-primary" disabled={saving || !title.trim()}>
+          {saving ? "Creating…" : "Create"}
+        </button>
+      </div>
+    </form>
   );
 }

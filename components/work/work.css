@@ -2478,3 +2478,24 @@ button.work-project-emblem:hover { background:var(--purple-soft); }
 }
 
 .work-roadmap-name { transform:none; }
+
+/* ---- Fewer dialogs: one-line adds, name cards, picker chips in the composer ---- */
+.work-quick-add { display:flex; align-items:center; gap:8px; margin-top:6px; padding:4px 10px; min-height:40px; border:1px dashed transparent; border-radius:9px; color:var(--muted); transition:border-color .15s, background .15s; }
+.work-quick-add:hover { background:var(--paper); }
+.work-quick-add:focus-within, .work-quick-add[data-active=true] { border-color:var(--line); border-style:solid; background:var(--surface); color:var(--ink); }
+.work-quick-add input { flex:1; min-width:0; border:0; background:transparent; color:var(--ink); font:inherit; font-size:14.5px; outline:none; padding:6px 0; }
+.work-quick-add input::placeholder { color:var(--muted); }
+.work-quick-add-actions { display:inline-flex; align-items:center; gap:10px; flex:none; }
+.work-quick-add-actions .btn { min-height:30px; padding:0 12px; }
+.work-name-popover { display:grid; gap:10px; padding:14px; }
+.work-name-popover > b { font-size:14px; }
+.work-name-popover .input { width:100%; }
+.work-name-popover > div { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.work-compose-picker { display:inline-flex; max-width:200px; }
+.work-compose-picker .work-picker { min-width:0; }
+.work-compose-picker .work-property-button { min-height:32px; padding:5px 9px; border:1px solid var(--line); border-radius:7px; background:var(--paper); font-size:14.5px; width:auto; max-width:200px; }
+.work-compose-picker .work-property-button:hover { background:var(--surface); }
+.work-compose-picker[data-empty=true] .work-property-button { color:var(--muted); }
+.work-compose-picker .work-picker-chevron { display:none; }
+.work-kbd-hint { margin-left:8px; padding:1px 5px; border-radius:4px; background:#fff3; font:inherit; font-size:11.5px; opacity:.85; }
+@media (max-width: 640px) { .work-kbd-hint { display:none; } .work-quick-add { min-height:44px; } }

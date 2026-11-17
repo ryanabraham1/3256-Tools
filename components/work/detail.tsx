@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -19,7 +19,7 @@ import {
   type WorkKind,
 } from "@/lib/work";
 import { Avatar, IssueRows, LabelPicker } from "./collections";
-import { CommitInput, EntitySelect, Field } from "./editor";
+import { CommitInput, EntitySelect, Field, QuickAdd } from "./editor";
 import { Icon, PriorityIcon, StatusIcon, statusLabel, statusTone } from "./icons";
 import type { MilestoneActions } from "./milestone-menu";
 import { ProjectDetail } from "./project-detail";
@@ -89,9 +89,12 @@ export function ItemDetail({
   onArchive,
   onDelete,
   onNavigate,
+  onQuickCreate,
   milestoneActions,
   issueActions,
 }: {
+  /** Adds an item from a one-line row without opening the composer. */
+  onQuickCreate?: (kind: WorkKind, title: string, preset?: WorkData) => Promise<boolean>;
   milestoneActions: MilestoneActions;
   issueActions: IssueActions;
   item: WorkItem;
@@ -105,13 +108,14 @@ export function ItemDetail({
   onPatch: (data: WorkData) => void;
   onComment: (body: string, type?: string) => Promise<boolean>;
   onOpen: (item: WorkItem) => void;
-  onCreate: (kind: WorkKind, preset?: WorkData) => void;
+  onCreate: (kind: WorkKind, preset?: WorkData, title?: string) => void;
   onArchive: () => void;
   onDelete: () => void;
   /** Switches to another Work page, e.g. Robot issues from a task that fixes one. */
   onNavigate: (path: string) => void;
 }) {
   const [copyState, setCopyState] = useState<"" | "copied" | "failed">("");
+  const quickTask = useRef<HTMLInputElement>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [comment, setComment] = useState("");
   const [relationId, setRelationId] = useState("");
@@ -151,6 +155,12 @@ export function ItemDetail({
                 : "related",
       })),
   );
+  // New tasks made here belong to this item: a sub-task keeps its parent's team and project.
+  const taskPreset: WorkData = issue
+    ? { parent: item.id, team: item.data.team, project: item.data.project }
+    : item.kind === "milestone"
+      ? { milestone: item.id, project: item.data.project }
+      : { project: item.id };
   const menuFor = useItemMenuShow();
   const history = events
     .filter((e) => e.item_id === item.id)
@@ -282,30 +292,27 @@ export function ItemDetail({
               )}
               <button
                 className="work-text-button"
-                onClick={() =>
-                  onCreate(
-                    "issue",
-                    issue
-                      ? {
-                          parent: item.id,
-                          team: item.data.team,
-                          project: item.data.project,
-                        }
-                      : item.kind === "milestone"
-                        ? { milestone: item.id, project: item.data.project }
-                        : { project: item.id },
-                  )
-                }
+                disabled={readOnly}
+                onClick={() => (onQuickCreate && quickTask.current ? quickTask.current.focus() : onCreate("issue", taskPreset))}
               >
                 <Icon name="plus" size={14} />
-                Add task
+                {issue ? "Add sub-task" : "Add task"}
               </button>
             </div>
             <IssueRows rows={children.filter((i) => i.kind === "issue")} items={items} actions={issueActions} showProject={item.kind === "initiative"} />
-            {!children.some((i) => i.kind === "issue") && (
+            {!children.some((i) => i.kind === "issue") && (readOnly || !onQuickCreate) && (
               <p className="work-muted">
                 Break the work into smaller tasks your team can pick up.
               </p>
+            )}
+            {onQuickCreate && item.kind !== "initiative" && (
+              <QuickAdd
+                inputRef={quickTask}
+                disabled={readOnly}
+                placeholder={issue ? "Add a sub-task…" : "Add a task…"}
+                onAdd={(title) => onQuickCreate("issue", title, taskPreset)}
+                onMore={(title) => onCreate("issue", taskPreset, title)}
+              />
             )}
           </section>
         )}

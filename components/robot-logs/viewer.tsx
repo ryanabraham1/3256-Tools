@@ -13,6 +13,7 @@ import {
   type Finding,
   type PowerMapping,
   type Recording,
+  shortSignalName,
 } from "@/lib/robot-logs/core/analysis";
 import { ConnectMayhem } from "./devices";
 
@@ -584,7 +585,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
 
   const errors = analysis?.findings.filter((f) => f.severity === "error") ?? [];
   const warnings = analysis?.findings.filter((f) => f.severity === "warning") ?? [];
-  // Repeats of the same rule share one card; each occurrence becomes a seekable time chip.
+  // Repeats of the same rule share one card: the advice once, then one compact row per occurrence.
   const findingGroups = [...[...errors, ...warnings].reduce((groups, f) => {
     const key = `${f.severity}|${f.title}`;
     groups.set(key, [...(groups.get(key) ?? []), f]);
@@ -857,6 +858,7 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                     <div className="rl-findings">
                       {findingGroups.map((group) => {
                         const f = group[0];
+                        const shared = f.advice ?? (group.every((g) => g.detail === f.detail) ? f.detail : undefined);
                         return (
                           <div key={f.id} className={`rl-finding is-${f.severity}`}>
                             <span className={`pill ${f.severity === "error" ? "pill-bad" : "pill-warn"}`}>
@@ -866,11 +868,23 @@ export function RobotLogs({ canDelete = false }: { canDelete?: boolean }) {
                               {f.title}
                               {group.length > 1 && <small> ×{group.length}</small>}
                             </strong>
-                            <p>{f.detail}</p>
-                            <div className="rl-finding-times">
+                            {shared && <p>{shared}</p>}
+                            <div className="rl-finding-rows">
                               {group.map((g) => (
-                                <button key={g.id} title={g.channel} onClick={() => seek(g.start, g)}>
-                                  {g.start.toFixed(1)}–{g.end.toFixed(1)} s
+                                <button key={g.id} className="rl-finding-row" title={g.detail} onClick={() => seek(g.start, g)}>
+                                  <code>
+                                    {g.start.toFixed(1)}–{g.end.toFixed(1)} s
+                                  </code>
+                                  <span className="rl-finding-summary">{g.summary ?? (shared ? g.channel : g.detail)}</span>
+                                  {!!g.draws?.length && (
+                                    <span className="rl-finding-draws">
+                                      {g.draws.map((d) => (
+                                        <span key={d.name} className="rl-draw" title={d.name}>
+                                          {shortSignalName(d.name)} <b>{d.amps.toFixed(0)} A</b>
+                                        </span>
+                                      ))}
+                                    </span>
+                                  )}
                                 </button>
                               ))}
                             </div>

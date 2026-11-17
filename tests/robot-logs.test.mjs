@@ -453,3 +453,20 @@ test("power findings match Mayhem: real brownout flag, quiet on a healthy batter
   assert.ok(titles.includes("Battery not fully charged"));
   assert.equal(titles.filter((t) => t === "Voltage below brownout level").length, 4);
 });
+
+test("findings carry shared advice, a short summary and draws, like Mayhem's compact finding rows", () => {
+  const { analyze, shortSignalName } = load("lib/robot-logs/core/analysis.ts", {}, { Math, Number, Array, Map, Set, Object, JSON });
+  const series = (f) => Array.from({ length: 1001 }, (_, i) => ({ time: i * 0.02, value: f(i * 0.02) }));
+  const high = (t) => t > 5 && t < 8;
+  const rec = { name: "match", duration: 20, warnings: [], channels: [
+    { name: "/RealOutputs/SystemStats/BatteryVoltage", type: "double", samples: series(() => 12.5) },
+    { name: "/RealOutputs/Sim/TotalCurrentAmps", type: "double", samples: series((t) => (high(t) ? 250 : 30)) },
+    { name: "/Intake/rollerSupplyCurrent", type: "double", samples: series((t) => (high(t) ? 200 : 0)) },
+  ] };
+  const [f] = analyze(rec).findings.filter((x) => x.title === "Sustained high current");
+  assert.match(f.summary, /^\d+\.\d s · peak 250 A$/);
+  assert.match(f.advice, /120 A main breaker/);
+  assert.equal(f.draws[0].name, "/Intake/rollerSupplyCurrent");
+  assert.equal(shortSignalName("/Shooter/shooterMotorSupplyCurrents/3"), "Shooter · shooterMotor 3");
+  assert.equal(shortSignalName("/indexer/indexerSupplyCurrentLeft"), "indexer · indexerLeft");
+});

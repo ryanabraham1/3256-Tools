@@ -190,21 +190,15 @@ export function IssueBrowser({
               <option key={s} value={s}>{statusLabel(s)}</option>
             ))}
           </select>
-          <select
-            className="work-control"
-            aria-label="Bulk assign"
+          <PropertyPicker
+            label="Assignee"
             value=""
+            display="Assign to…"
             disabled={readOnly}
-            onChange={(e) => bulk({ data: { assignee: e.target.value === "none" ? "" : e.target.value } })}
-          >
-            <option value="" disabled>
-              Assign to…
-            </option>
-            <option value="none">Unassigned</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>{m.title}</option>
-            ))}
-          </select>
+            icon={<Icon name="member" size={15} />}
+            onChange={(v) => bulk({ data: { assignee: v === "none" ? "" : v } })}
+            options={[{ value: "none", label: "Unassigned" }, ...members.map((m) => ({ value: m.id, label: m.title }))]}
+          />
           <button className="work-text-button" disabled={readOnly} onClick={() => bulk({ archived: true })}>
             Archive
           </button>

@@ -20,6 +20,7 @@ type Panel = "main" | "status" | "priority" | "assignee" | "labels";
 export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [panel, setPanel] = useState<Panel>("main");
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const { toast } = useContextMenu();
 
@@ -41,7 +42,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
 
   // Move focus to the first entry whenever the menu opens or drills into a different panel.
   useEffect(() => {
-    if (menu) ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    if (menu) ref.current?.querySelector<HTMLElement>("input, button:not(:disabled)")?.focus();
   }, [menu, panel]);
 
   function show(issue: WorkItem, e: MouseEvent<HTMLElement>) {
@@ -76,7 +77,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
       <hr />
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("status")}><StatusIcon status={status} />Status…</button>
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("priority")}><Icon name="filter" size={14} />Priority…</button>
-      <button role="menuitem" disabled={readOnly} onClick={() => setPanel("assignee")}><Icon name="member" size={14} />Assignee…</button>
+      <button role="menuitem" disabled={readOnly} onClick={() => { setQuery(""); setPanel("assignee"); }}><Icon name="member" size={14} />Assignee…</button>
       <button role="menuitem" disabled={readOnly} onClick={() => setPanel("labels")}><Icon name="plus" size={14} />Labels…</button>
       <hr />
       <button role="menuitem" onClick={() => run(async () => toast((await copyText(`${window.location.origin}/work/issues/${issue.id}`)) ? "Link copied" : "Couldn't copy"))}><Icon name="plus" size={14} />Copy link</button>
@@ -97,12 +98,19 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
           {p}{n === (issue.data.priority ?? 0) && <Icon name="check" size={14} />}
         </button>)}
     </>;
-    else if (panel === "assignee") body = <>{back}
-      {[{ id: "", title: "Unassigned" }, ...members].map(m =>
+    else if (panel === "assignee") {
+      const q = query.trim().toLowerCase();
+      const people = [{ id: "", title: "Unassigned" }, ...members].filter(m => !q || m.title.toLowerCase().includes(q));
+      body = <>{back}
+      <input className="work-context-search" aria-label="Search people" placeholder="Search people…" value={query} onChange={e => setQuery(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter" && people.length === 1) run(() => actions.onPatch(issue, { assignee: people[0].id })); }} />
+      {people.map(m =>
         <button role="menuitemradio" disabled={readOnly} aria-checked={m.id === (issue.data.assignee ?? "")} key={m.id || "none"} onClick={() => run(() => actions.onPatch(issue, { assignee: m.id }))}>
           {m.title}{m.id === (issue.data.assignee ?? "") && <Icon name="check" size={14} />}
         </button>)}
+      {!people.length && <p className="work-muted" style={{ padding: "8px 10px" }}>No matching people</p>}
     </>;
+    }
     else body = <>{back}
       {labels.map(l => {
         const on = current.includes(l.id);
@@ -122,8 +130,8 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
     onKeyDown={e => {
       if (!["ArrowDown", "ArrowUp"].includes(e.key)) return;
       e.preventDefault();
-      const buttons = Array.from(ref.current!.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-      const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const buttons = Array.from(ref.current!.querySelectorAll<HTMLElement>("input, button:not(:disabled)"));
+      const i = buttons.indexOf(document.activeElement as HTMLElement);
       buttons[(i + (e.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length]?.focus();
     }}>{body}</div>;
 

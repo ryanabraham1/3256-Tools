@@ -2302,6 +2302,7 @@ button.work-project-emblem:hover { background:var(--purple-soft); }
 .work-context-menu button:hover:not(:disabled), .work-context-menu button:focus-visible { background:var(--purple-soft); outline:none; }
 .work-context-menu button:disabled { opacity:.45; cursor:not-allowed; }
 .work-context-menu button.danger { color:#e5666f; }
+.work-context-search { width:100%; margin-bottom:4px; padding:8px 10px; border:0; border-bottom:1px solid var(--line); background:transparent; color:inherit; outline:none; font-size:14px; }
 .work-context-menu hr { margin:4px 2px; border:0; border-top:1px solid var(--line); }
 .work-milestone-form { display:grid; gap:14px; padding:16px 18px 18px; min-width:min(380px, 80vw); }
 .work-milestone-form label { display:grid; gap:6px; font-size:13px; color:var(--muted); }
@@ -2421,7 +2422,7 @@ button.work-project-emblem:hover { background:var(--purple-soft); }
   .work-project-property-card .work-property-button, .work-project-property-card .work-inline-date { min-height: 44px; }
   .work-milestone-entry > .work-icon-button { opacity: 1; }
   .work-picker-menu { max-width: calc(100vw - 16px); }
-  .work-picker-menu input, .work-dialog input:not([type=checkbox]), .work-dialog textarea, .work-dialog select, .work-inline-date { font-size: 16px; }
+  .work-picker-menu input, .work-context-search, .work-dialog input:not([type=checkbox]), .work-dialog textarea, .work-dialog select, .work-inline-date { font-size: 16px; }
   .work-picker-options > button, .work-context-menu > button { min-height: 44px; }
   .work-dialog, .work-dialog-wide { width: 100%; max-width: 100%; max-height: 92dvh; margin: auto 0 0; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
   .work-dialog-head { position: sticky; top: 0; background: var(--surface); z-index: 2; padding: 10px 16px; }

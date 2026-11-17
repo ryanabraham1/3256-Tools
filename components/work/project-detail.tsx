@@ -6,11 +6,11 @@ import { activeWorkItems, dateLabel, today, done, milestoneProgress, uniqueStatu
 import { Avatar, LabelPicker, Labels, Empty } from "./collections";
 import { DEFAULT_ISSUE_VIEW, IssueBrowser, type IssueView } from "./issue-browser";
 import { RichText } from "./detail";
-import { CommitInput, EntitySelect, Field, Modal } from "./editor";
+import { CommitInput, EntitySelect, Field } from "./editor";
 import { Icon, MilestoneIcon, PriorityIcon, PROJECT_ICONS, StatusIcon } from "./icons";
 import type { IssueActions } from "./issue-menu";
 import { useItemMenuShow } from "./item-menu";
-import { useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
+import { MilestoneAdd, useMilestoneMenu, type MilestoneActions } from "./milestone-menu";
 import { InlineEdit, PropertyPicker } from "./property-picker";
 
 const PROJECT_COLORS = ["#6b3fd4", "#2b69b6", "#178558", "#b86a04", "#cf3e4c", "#c2418f", "#0e8f9f", "#5f6b7a"];
@@ -43,6 +43,7 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
   const milestoneMenu = useMilestoneMenu(milestoneActions);
   const menuFor = useItemMenuShow();
   const [composer, setComposer] = useState(false);
+  const [addingMilestone, setAddingMilestone] = useState(false);
   const { user } = useWork();
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -81,6 +82,8 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
       {updateError && (isEditing || deleting === e.id) && <p className="work-error" role="alert">{updateError}</p>}
     </article>;
   }
+  const composerForm = composer && <form className="work-update-composer work-update-inline" aria-label="Project update" onKeyDown={e => { if (e.key === "Escape") setComposer(false); }} onSubmit={async e => { e.preventDefault(); if (await onComment(body, "update")) { setBody(""); setComposer(false); } }}><textarea autoFocus className="input" aria-label="Project update" placeholder="Share progress, blockers, and next steps…" rows={5} required value={body} onChange={e => setBody(e.target.value)}/><div><span className="work-muted">Markdown supported</span><span className="work-update-actions"><button type="button" className="work-text-button" onClick={() => setComposer(false)}>Cancel</button><button className="btn btn-primary" disabled={posting || !body.trim()}>{posting ? "Posting…" : "Post update"}</button></span></div></form>;
+  function writeUpdate() { if (tab !== "Overview") setTab("Updates"); setComposer(true); }
   function milestoneRows() {
     return milestones.map(m => {
       const status = milestoneProgress(m, issues);
@@ -96,7 +99,7 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
     {!preview && <nav className="work-project-tabs" aria-label="Project views">
       {(["Overview", "Activity", "Issues", "Updates"] as Tab[]).map(t => <button key={t} aria-current={tab === t ? "page" : undefined} data-active={tab === t} onClick={() => setTab(t)}>{t === "Issues" ? "Tasks" : t}{t === "Issues" && <span>{issues.length}</span>}</button>)}
       <div className="work-project-tab-actions">
-        <button className="work-text-button" disabled={readOnly} onClick={() => setComposer(true)}><Icon name="updates" size={15} /> Write update</button>
+        <button className="work-text-button" disabled={readOnly} onClick={writeUpdate}><Icon name="updates" size={15} /> Write update</button>
         <button className="work-icon-button" aria-label="Toggle project details" aria-pressed={showProperties} onClick={() => setShowProperties(v => !v)}><Icon name="sidebar" size={17} /></button>
       </div>
     </nav>}
@@ -115,7 +118,7 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
             {!documents.length && !item.data.url && !item.data.attachments?.length && <p className="work-muted">Keep project documents and links here.</p>}
           </section>
           <section className="work-project-latest"><div className="work-section-title"><h2>Latest update</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={readOnly}><Icon name="updates" size={14} /> Update</button></div>
-            
+            {composerForm}
             {updates[0] ? updateCard(updates[0]) : <p className="work-muted">Share the latest progress with your team.</p>}
             {updates.length > 1 && <button className="work-text-button" onClick={() => setTab("Updates")}>View all {updates.length} updates <Icon name="arrow" size={14} /></button>}
           </section>
@@ -129,7 +132,7 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
             extraFilters={<Field label="Milestone"><PropertyPicker label="Milestone filter" value={milestone} onChange={setMilestone} icon={<Icon name="timeline" size={15} />} options={[{ value: "", label: "All milestones" }, ...milestones.map(m => ({ value: m.id, label: m.title }))]} /></Field>}
             onCreate={preset => onCreate("issue", { project: item.id, team: item.data.team, ...(milestone ? { milestone } : {}), ...preset })} />
         </>}
-        {tab === "Updates" && <><div className="work-section-title"><h2>Project updates</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={readOnly}>Write update</button></div>{updates.map(updateCard)}{!updates.length && <Empty title="No updates yet" description="Share a progress update with your team." />}</>}
+        {tab === "Updates" && <><div className="work-section-title"><h2>Project updates</h2><button className="work-text-button" onClick={() => setComposer(true)} disabled={readOnly}>Write update</button></div>{composerForm}{updates.map(updateCard)}{!updates.length && <Empty title="No updates yet" description="Share a progress update with your team." />}</>}
         {tab === "Activity" && <><div className="work-section-title"><h2>Activity</h2></div>{history.map(e => ["update", "comment"].includes(e.type) ? updateCard(e) : <div className="work-project-event" key={e.id}><Avatar small name={e.actor}/><span><b>{e.actor}</b> {e.type === "status" ? `changed status to ${e.body}` : `${e.type} this project`}</span><time>{dateLabel(e.created_at)}</time></div>)}{!history.length && <Empty title="No activity yet" description="Project changes will appear here." />}</>}
       </main>}
       {showProperties && <aside className="work-project-sidebar">
@@ -143,8 +146,9 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
           <Field label="Initiative"><EntitySelect disabled={readOnly} kind="initiative" items={items} value={item.data.initiative} onChange={initiative => onPatch({initiative})}/></Field>
           <Field label="Labels"><div className="work-project-label-controls"><LabelPicker item={item} items={items} disabled={readOnly} onChange={labels => onPatch({ labels })}/></div></Field>
         </section>
-        <section className="work-project-property-card"><div className="work-section-title"><h2>Milestones</h2><button className="work-icon-button" aria-label="Add milestone" disabled={readOnly} onClick={() => onCreate("milestone", {project:item.id})}><Icon name="plus" size={15}/></button></div>
-          {milestoneRows()}{!milestones.length && <p className="work-muted">Add milestones to track project stages.</p>}
+        <section className="work-project-property-card"><div className="work-section-title"><h2>Milestones</h2><button className="work-icon-button" aria-label="Add milestone" disabled={readOnly} onClick={() => milestoneActions.onAdd ? setAddingMilestone(true) : onCreate("milestone", {project:item.id})}><Icon name="plus" size={15}/></button></div>
+          {milestoneRows()}{!milestones.length && !addingMilestone && <p className="work-muted">Add milestones to track project stages.</p>}
+          {addingMilestone && milestoneActions.onAdd && <MilestoneAdd onAdd={(title, due) => milestoneActions.onAdd!(item.id, title, due)} onClose={() => setAddingMilestone(false)} />}
 
         </section>
         <section className="work-project-property-card"><div className="work-section-title"><h2>Progress</h2><b>{pct}%</b></div><div className="work-progress"><span style={{width:`${pct}%`}}/></div><p className="work-muted">{issues.filter(done).length} of {issues.length} issues completed</p></section>
@@ -152,6 +156,5 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
       </aside>}
     </div>
     {milestoneMenu.element}
-    {composer && <Modal title="Project update" onClose={() => setComposer(false)}><form className="work-update-composer" onSubmit={async e => { e.preventDefault(); if (await onComment(body, "update")) { setBody(""); setComposer(false); } }}><h2>{item.title}</h2><textarea data-autofocus className="input" aria-label="Project update" placeholder="Share progress, blockers, and next steps…" rows={8} required value={body} onChange={e => setBody(e.target.value)}/><div><span className="work-muted">Markdown supported</span><button className="btn btn-primary" disabled={posting || !body.trim()}>{posting ? "Posting…" : "Post update"}</button></div></form></Modal>}
   </div>;
 }

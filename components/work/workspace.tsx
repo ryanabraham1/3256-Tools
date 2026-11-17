@@ -382,7 +382,14 @@ export function WorkWorkspace() {
     }
   }
   const issueActions: IssueActions = { onPatch: patch, onArchive: archiveItem, onTrash: trashItem, onOpen: open, onBulk: bulk, disabled: readOnly };
-  const milestoneActions = { onSave: saveItem, onTrash: trashItem, onOpen: open, disabled: readOnly };
+  /** Adds a milestone from the project's own card; the row shows once the server returns it. */
+  async function addMilestone(project: string, title: string, due: string) {
+    if (readOnly) return false;
+    const result = await save([{ kind: "milestone", title, data: { project, status: "Planned", priority: 0, ...(due ? { due } : {}) } }]);
+    if (!result.ok) setToast({ text: result.error, tone: "error" });
+    return result.ok;
+  }
+  const milestoneActions = { onSave: saveItem, onTrash: trashItem, onOpen: open, onAdd: addMilestone, disabled: readOnly };
   const issueMenu = useIssueMenu(items, issueActions);
   const milestoneMenu = useMilestoneMenu(milestoneActions);
   const itemMenu = useItemMenu(items, {
@@ -979,7 +986,8 @@ export function WorkWorkspace() {
               </>
             ) : section === "updates" ? (
               <div className="work-updates">
-                {snapshot.events
+                {dialog === "update" && <UpdateComposer items={live} onPost={comment} onClose={() => setDialog(null)} />}
+                          {snapshot.events
                   .filter((e) => e.type === "update")
                   .map((e) => (
                     <article key={e.id}>
@@ -1002,7 +1010,7 @@ export function WorkWorkspace() {
                       <RichText text={e.body} />
                     </article>
                   ))}
-                {!snapshot.events.some((e) => e.type === "update") && (
+                {dialog !== "update" && !snapshot.events.some((e) => e.type === "update") && (
                   <Empty
                     title="No updates"
                     description="Use New update to share how a project or initiative is going. Updates posted from a project show up here too."
@@ -1065,6 +1073,44 @@ export function WorkWorkspace() {
               </>
             ) : section === "views" ? (
               <div className="work-collection">
+                {dialog === "view" && (
+          <form
+            className="work-update-composer work-update-inline work-view-form"
+            aria-label="Save a view"
+            onKeyDown={(e) => { if (e.key === "Escape") setDialog(null); }}
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const filter = { ...view.filter };
+              if (await change([{ kind: "view", title: viewName, data: { filter, layout: view.layout, group: view.group } }], "View saved")) {
+                setDialog(null);
+                setViewName("");
+              }
+            }}
+          >
+            <Field label="View name">
+              <input
+                className="input"
+                autoFocus
+                required
+                value={viewName}
+                onChange={(e) => setViewName(e.target.value)}
+                placeholder="High-priority robot work"
+              />
+            </Field>
+            <p className="work-muted">
+              Saves your current issue filters, layout, and grouping for the
+              whole team.
+            </p>
+            {error && <p className="work-error">{error}</p>}
+            <div>
+              <span />
+              <span className="work-update-actions">
+                <button type="button" className="work-text-button" onClick={() => setDialog(null)}>Cancel</button>
+                <button className="btn btn-primary" disabled={busy || !viewName.trim()}>Save view</button>
+              </span>
+            </div>
+          </form>
+                )}
                 {live
                   .filter((i) => i.kind === "view")
                   .map((i) => (
@@ -1084,7 +1130,7 @@ export function WorkWorkspace() {
                       </span>
                     </button>
                   ))}
-                {!live.some((i) => i.kind === "view") && (
+                {dialog !== "view" && !live.some((i) => i.kind === "view") && (
                   <Empty
                     title="No saved views"
                     description="Save your current filters and layout as a view."
@@ -1217,44 +1263,9 @@ export function WorkWorkspace() {
         </Modal>
       )}
       {dialog === "report" && <ReportIssueDialog items={items} onClose={() => setDialog(null)} />}
-      {dialog === "update" && <UpdateComposer items={live} onPost={comment} onClose={() => setDialog(null)} />}
       {dialog === "help" && (
         <Modal title="Guide & shortcuts" onClose={() => setDialog(null)}>
           <HelpGuide />
-        </Modal>
-      )}
-      {dialog === "view" && (
-        <Modal title="Save a view" onClose={() => setDialog(null)}>
-          <form
-            className="work-editor-body"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const filter = { ...(current?.kind === "view" ? current.data.filter : {}), ...view.filter };
-              if (await change([{ kind: "view", title: viewName, data: { filter, layout: view.layout, group: view.group } }], "View saved")) {
-                setDialog(null);
-                setViewName("");
-              }
-            }}
-          >
-            <Field label="View name">
-              <input
-                className="input"
-                data-autofocus
-                required
-                value={viewName}
-                onChange={(e) => setViewName(e.target.value)}
-                placeholder="High-priority robot work"
-              />
-            </Field>
-            <p className="work-muted mt-3">
-              Saves your current issue filters, layout, and grouping for the
-              whole team.
-            </p>
-            {error && <p className="work-error">{error}</p>}
-            <button className="btn btn-primary mt-4" disabled={busy}>
-              Save view
-            </button>
-          </form>
         </Modal>
       )}
       {dialog === "import" && (
@@ -1360,9 +1371,10 @@ function UpdateComposer({
   const [posting, setPosting] = useState(false);
   const item = targets.find((i) => i.id === target);
   return (
-    <Modal title="New update" onClose={onClose}>
       <form
-        className="work-update-composer"
+        className="work-update-composer work-update-inline"
+        aria-label="New update"
+        onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
         onSubmit={async (e) => {
           e.preventDefault();
           if (!item) return;
@@ -1382,12 +1394,14 @@ function UpdateComposer({
           />
         </Field>
         {!targets.length && <p className="work-muted">Create a project or initiative first, then post updates on it.</p>}
-        <textarea data-autofocus className="input" aria-label="Update" placeholder="Share progress, blockers, and next steps…" rows={8} required value={body} onChange={(e) => setBody(e.target.value)} />
+        <textarea autoFocus className="input" aria-label="Update" placeholder="Share progress, blockers, and next steps…" rows={5} required value={body} onChange={(e) => setBody(e.target.value)} />
         <div>
           <span className="work-muted">Markdown supported</span>
-          <button className="btn btn-primary" disabled={posting || !item || !body.trim()}>{posting ? "Posting…" : "Post update"}</button>
+          <span className="work-update-actions">
+            <button type="button" className="work-text-button" onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" disabled={posting || !item || !body.trim()}>{posting ? "Posting…" : "Post update"}</button>
+          </span>
         </div>
       </form>
-    </Modal>
   );
 }

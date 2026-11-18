@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { findCotsLinks, setCotsStatus, updatePart } from "@/app/parts-actions";
 import { COTS_LABEL, COTS_STATUSES, COTS_TONE, KIND_LABEL, PART_KINDS, type CotsStatus } from "@/lib/parts";
 import { Empty } from "./ui";
+import { DeletePartSheet } from "./delete-part-sheet";
 import { Sheet } from "./sheet";
 import { ErrorText, Field, SubmitButton, useFabAction } from "./fab-ui";
 
@@ -33,6 +34,7 @@ const csv = (rows: string[][]) => rows.map((r) => r.map((c) => (/[",\n]/.test(c)
 export interface BomLine {
   id: string;
   name: string;
+  onshape_key: string | null;
   part_number: string;
   description: string;
   /** across every robot the design is for, plus spares */
@@ -57,6 +59,7 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
   const [editing, setEditing] = useState<BomLine | null>(null);
+  const [deleting, setDeleting] = useState<BomLine | null>(null);
   const [findNote, setFindNote] = useState<string | null>(null);
   const find = useFabAction(findCotsLinks, (n) => setFindNote(n ?? null));
   const missing = lines.filter((l) => !l.url || l.unit_price === null).length;
@@ -198,6 +201,7 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
                   key={l.id}
                   l={l}
                   onEdit={() => setEditing(l)}
+                  onDelete={() => setDeleting(l)}
                   picked={picked.has(l.id)}
                   onPick={() =>
                     setPicked((s) => {
@@ -217,6 +221,13 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
       <Sheet open={!!editing} onClose={() => setEditing(null)} eyebrow="COTS" title={editing?.name ?? ""}>
         {editing && <EditLine key={editing.id} l={editing} onDone={() => setEditing(null)} />}
       </Sheet>
+      {deleting && (
+        <DeletePartSheet
+          part={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => setPicked((ids) => new Set([...ids].filter((id) => id !== deleting.id)))}
+        />
+      )}
     </div>
   );
 }
@@ -252,7 +263,7 @@ function EditLine({ l, onDone }: { l: BomLine; onDone: () => void }) {
   );
 }
 
-function Row({ l, picked, onPick, onEdit }: { l: BomLine; picked: boolean; onPick: () => void; onEdit: () => void }) {
+function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: boolean; onPick: () => void; onEdit: () => void; onDelete: () => void }) {
   const status = useFabAction(setCotsStatus);
   const move = useFabAction(updatePart);
   const [shown, setShown] = useState(l.status);
@@ -263,7 +274,7 @@ function Row({ l, picked, onPick, onEdit }: { l: BomLine; picked: boolean; onPic
       <span className="mono text-lg font-semibold w-10 text-right shrink-0" title={l.pack_size ? `${l.need} needed, sold ${l.pack_size} to a pack` : undefined}>
         {buyQty(l)}×
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-36">
         <button type="button" className="font-medium break-words text-left hover:underline" onClick={onEdit}>
           {l.name}
         </button>
@@ -297,7 +308,7 @@ function Row({ l, picked, onPick, onEdit }: { l: BomLine; picked: boolean; onPic
         </p>
         <ErrorText error={status.error ?? move.error} />
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 flex-wrap">
         <select
           className={`pill pill-${COTS_TONE[cur]} cursor-pointer`}
           style={{ appearance: "auto", border: 0 }}
@@ -331,6 +342,9 @@ function Row({ l, picked, onPick, onEdit }: { l: BomLine; picked: boolean; onPic
             </option>
           ))}
         </select>
+        <button type="button" className="btn btn-danger text-xs shrink-0" aria-label={`Delete ${l.name}`} onClick={onDelete}>
+          Delete
+        </button>
       </div>
     </li>
   );

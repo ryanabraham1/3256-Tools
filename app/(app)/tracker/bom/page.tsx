@@ -15,6 +15,7 @@ export default async function BomPage() {
       return {
         id: p.id,
         name: p.name,
+        onshape_key: p.onshape_key,
         part_number: p.part_number,
         description: p.description,
         need: p.quantity * (d?.copies ?? 1) + p.spare_qty,

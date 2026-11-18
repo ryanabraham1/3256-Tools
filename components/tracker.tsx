@@ -22,6 +22,7 @@ import {
 import { timeAgo } from "@/lib/format";
 import { Sheet } from "./sheet";
 import { Empty } from "./ui";
+import { DeletePartSheet } from "./delete-part-sheet";
 import { ErrorText, Field, SubmitButton, useFabAction } from "./fab-ui";
 import { FabablePill, PersonChip } from "./parts-ui";
 
@@ -123,12 +124,16 @@ export function TrackerTable({
   members: string[];
 }) {
   const print = tracker === "print";
+  const destination = print ? "machining" : "print";
   const [status, setStatus] = useState<StatusFilter>("open");
   const [bot, setBot] = useState("");
   const [subsystem, setSubsystem] = useState("");
   const [machine, setMachine] = useState("");
   const [q, setQ] = useState("");
   const [edit, setEdit] = useState<FabJob | "new" | null>(null);
+  const [deleting, setDeleting] = useState<FabJob | null>(null);
+  const [moving, setMoving] = useState<FabJob | null>(null);
+  const [moved, setMoved] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
   // edits waiting on (or just back from) the server, laid over the server's rows
@@ -221,6 +226,12 @@ export function TrackerTable({
     },
   };
 
+  function forgetAddedPart(id: string) {
+    setAdding((items) => items.filter((item) => item.id !== id));
+    setJustAdded((ids) => ids.filter((addedId) => addedId !== id));
+    setFresh((f) => ({ ...f, ids: f.ids.filter((addedId) => addedId !== id) }));
+  }
+
   const machineKey = print ? "material" : "machine";
   const bots = useMemo(() => options([], jobs, "bot").sort(byOrder(SUGGEST.bot)), [jobs]);
   const subsystems = useMemo(() => options([], jobs, "subsystem").sort(byOrder(SUGGEST.subsystem)), [jobs]);
@@ -256,7 +267,7 @@ export function TrackerTable({
     {
       key: "part",
       label: "Part #_Name",
-      w: 250,
+      w: 300,
       pin: 150,
       render: (j) => (
         <span className="flex items-center gap-1 min-w-0 px-1">
@@ -272,6 +283,12 @@ export function TrackerTable({
               {j.cut_qty}/{need(j)}
             </span>
           )}
+          <button type="button" className="text-xs px-1 py-1 ml-auto shrink-0 hover:underline" style={{ color: "var(--purple)" }} aria-label={`Move ${j.name}`} onClick={() => setMoving(j)}>
+            Move
+          </button>
+          <button type="button" className="text-xs px-1 py-1 shrink-0 hover:underline" style={{ color: "var(--bad)" }} aria-label={`Delete ${j.name}`} onClick={() => setDeleting(j)}>
+            Delete
+          </button>
         </span>
       ),
     },
@@ -409,7 +426,7 @@ export function TrackerTable({
       <ul className="md:hidden flex flex-col gap-2">
         {rows.map((j) => (
           <li key={j.id} className="card p-3">
-            <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} />
+            <JobCard job={j} print={print} stock={stock} need={need(j)} onOpen={() => setEdit(j)} onMove={() => setMoving(j)} onDelete={() => setDeleting(j)} />
           </li>
         ))}
         {pending
@@ -545,6 +562,13 @@ export function TrackerTable({
         </div>
       </div>
 
+      {moved && (
+        <p className="mb-3 text-sm" role="status">
+          Moved <strong>{moved}</strong> to{" "}
+          <Link className="underline" href={print ? "/tracker" : "/tracker/print"}>{TRACKER_LABEL[destination]}</Link>.
+        </p>
+      )}
+
       {/* status chips */}
       <div className="hscroll no-scrollbar flex gap-2 mb-3 -mx-4 px-4">
         {(["open", "all", "missing", ...STATUSES[tracker]] as StatusFilter[]).map((s) => {
@@ -671,9 +695,30 @@ export function TrackerTable({
             person={person}
             defaults={{ bot, subsystem, designer: person }}
             onDone={() => setEdit(null)}
+            onDeleted={forgetAddedPart}
           />
         )}
       </Sheet>
+      {moving && (
+        <MovePartSheet
+          job={moving}
+          destination={destination}
+          person={person}
+          onClose={() => setMoving(null)}
+          onMoved={() => {
+            forgetAddedPart(moving.id);
+            setMoved(moving.name);
+            setMoving(null);
+          }}
+        />
+      )}
+      {deleting && (
+        <DeletePartSheet
+          part={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => forgetAddedPart(deleting.id)}
+        />
+      )}
       <Sheet
         open={importing || importText !== null}
         onClose={() => {
@@ -1131,7 +1176,7 @@ function NeedsPill({ job }: { job: FabJob }) {
   );
 }
 
-function JobCard({ job: j, print, stock, need, onOpen }: { job: FabJob; print: boolean; stock: Stock; need: number; onOpen: () => void }) {
+function JobCard({ job: j, print, stock, need, onOpen, onMove, onDelete }: { job: FabJob; print: boolean; stock: Stock; need: number; onOpen: () => void; onMove: () => void; onDelete: () => void }) {
   const details = print
     ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`]
     : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`];
@@ -1173,11 +1218,17 @@ function JobCard({ job: j, print, stock, need, onOpen }: { job: FabJob; print: b
           Still needs: {missing(j).map((x) => x.label).join(", ")} →
         </button>
       )}
-      <div className="flex items-center gap-2 text-xs min-w-0">
+      <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
         <FileCell file={j.file} />
         <Link href={`/tracker/${j.id}`} className="ml-auto underline shrink-0" style={{ color: "var(--purple)" }}>
           Files &amp; checks →
         </Link>
+        <button type="button" className="btn btn-ghost text-xs shrink-0" aria-label={`Move ${j.name}`} onClick={onMove}>
+          Move
+        </button>
+        <button type="button" className="btn btn-danger text-xs shrink-0" aria-label={`Delete ${j.name}`} onClick={onDelete}>
+          Delete
+        </button>
       </div>
       {j.notes && (
         <p className="text-xs" style={{ color: "var(--muted)" }}>
@@ -1223,6 +1274,56 @@ function TextField({ name, label, value, list, placeholder }: { name: string; la
   );
 }
 
+function MovePartSheet({
+  job,
+  destination,
+  person,
+  onClose,
+  onMoved,
+}: {
+  job: FabJob;
+  destination: Tracker;
+  person: string;
+  onClose: () => void;
+  onMoved: () => void;
+}) {
+  const machining = destination === "machining";
+  const move = useFabAction(
+    (fd) => updatePart(fd).catch(() => ({ ok: false, error: "Couldn't move the part. Check your connection and try again." })),
+    onMoved,
+  );
+  const cancel = () => {
+    if (!move.pending) onClose();
+  };
+  return (
+    <Sheet open onClose={cancel} title={`Move to ${TRACKER_LABEL[destination]}?`}>
+      <form className="flex flex-col gap-3" onSubmit={move.submit}>
+        <input type="hidden" name="id" value={job.id} />
+        <input type="hidden" name="by" value={person} />
+        <p className="text-sm break-words"><strong>{job.name}</strong> will move to the {TRACKER_LABEL[destination]} tracker with its files and history.</p>
+        {machining ? (
+          <Field label="Machining type">
+            <select name="kind" className="input" defaultValue="" required>
+              <option value="" disabled>Select a type</option>
+              {PART_KINDS.filter((k) => k !== "print").map((k) => (
+                <option key={k} value={k}>{KIND_LABEL[k]}</option>
+              ))}
+            </select>
+          </Field>
+        ) : <input type="hidden" name="kind" value="print" />}
+        {!STATUSES[destination].includes(job.status) && (
+          <p className="text-sm">Status will change to <strong>Not Started</strong>.</p>
+        )}
+        <ErrorText error={move.error} />
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" className="btn btn-ghost" disabled={move.pending} onClick={cancel}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={move.pending}>{move.pending ? "Moving…" : "Move part"}</button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
 function JobForm({
   tracker,
   job,
@@ -1230,6 +1331,7 @@ function JobForm({
   person,
   defaults,
   onDone,
+  onDeleted,
 }: {
   tracker: Tracker;
   job: FabJob | null;
@@ -1237,6 +1339,7 @@ function JobForm({
   person: string;
   defaults: { bot: string; subsystem: string; designer: string };
   onDone: () => void;
+  onDeleted: (id: string) => void;
 }) {
   const [note, setNote] = useState<string | null>(null);
   const a = useFabAction(job ? updatePart : addPart, (n) => {
@@ -1244,7 +1347,10 @@ function JobForm({
     if (job && typeof n === "string" && n) setNote(n);
     else onDone();
   });
-  const del = useFabAction(deletePart, onDone);
+  const del = useFabAction(deletePart, () => {
+    if (job) onDeleted(job.id);
+    onDone();
+  });
   const [kind, setKind] = useState<PartKind | "">(job?.kind ?? "");
   const [confirm, setConfirm] = useState(false);
   const print = tracker === "print";

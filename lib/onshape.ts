@@ -17,6 +17,8 @@ export interface OnshapeKeys {
   secret: string;
 }
 
+export class OnshapeLimitError extends Error {}
+
 async function call(keys: OnshapeKeys, path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(`${BASE()}/api/v10${path}`, {
     ...init,
@@ -32,10 +34,10 @@ async function call(keys: OnshapeKeys, path: string, init: RequestInit = {}): Pr
   if (!res.ok) {
     const body = (await res.text().catch(() => "")).slice(0, 300);
     if (res.status === 401) throw new Error("Onshape rejected your API keys (401) — re-enter them on the Designs page");
-    if (res.status === 402) throw new Error("Your Onshape account is out of API calls (402) — wait for it to reset or use another account's keys");
+    if (res.status === 402) throw new OnshapeLimitError("Your Onshape account is out of API calls (402)");
     if (res.status === 403) throw new Error("Your Onshape account can't open that document (403) — ask for it to be shared with you");
     if (res.status === 404) throw new Error(`Onshape couldn't find that (404): ${path.split("?")[0]}`);
-    if (res.status === 429) throw new Error("Onshape rate limit hit (429) — wait a minute and try again");
+    if (res.status === 429) throw new OnshapeLimitError("Onshape rate limit hit (429) — wait a minute and try again");
     throw new Error(`Onshape error ${res.status}: ${body}`);
   }
   return res;
@@ -72,16 +74,19 @@ const q = (params: Record<string, string | boolean | undefined>) => {
   return str ? `?${str}` : "";
 };
 
-export async function describeElement(keys: OnshapeKeys, r: OnshapeRef): Promise<{ docName: string; elementName: string; type: "assembly" | "partstudio" }> {
-  const [doc, els] = await Promise.all([
-    getJson<{ name?: string }>(keys, `/documents/${r.did}`),
-    getJson<{ id: string; name: string; elementType: string }[]>(keys, `/documents/d/${r.did}/${r.wvm}/${r.wvmid}/elements${q({ elementId: r.eid })}`),
-  ]);
+export async function describeElement(keys: OnshapeKeys, r: OnshapeRef, includeAssemblyDocumentName: boolean): Promise<{ docName: string; elementName: string; type: "assembly" | "partstudio" }> {
+  const els = await getJson<{ id: string; name: string; elementType: string }[]>(
+    keys,
+    `/documents/d/${r.did}/${r.wvm}/${r.wvmid}/elements${q({ elementId: r.eid })}`,
+  );
   const el = els.find((e) => e.id === r.eid) ?? els[0];
   if (!el) throw new Error("That tab isn't in the document");
   const t = el.elementType.toUpperCase();
   if (t !== "ASSEMBLY" && t !== "PARTSTUDIO") throw new Error(`Link an assembly or a Part Studio tab (that one is a ${el.elementType.toLowerCase()})`);
-  return { docName: doc.name ?? "Onshape document", elementName: el.name, type: t === "ASSEMBLY" ? "assembly" : "partstudio" };
+  const doc = t === "ASSEMBLY" && includeAssemblyDocumentName
+    ? await getJson<{ name?: string }>(keys, `/documents/${r.did}`)
+    : null;
+  return { docName: doc?.name ?? "Onshape document", elementName: el.name, type: t === "ASSEMBLY" ? "assembly" : "partstudio" };
 }
 
 // ── Values ───────────────────────────────────────────────────────────────────
@@ -188,30 +193,48 @@ export interface StudioPart {
   props: Record<string, string>;
 }
 
+interface PartMetadata {
+  items?: { partId?: string; properties?: { name: string; value: unknown }[] }[];
+}
+
+function readPartMetadata(res: PartMetadata): StudioPart[] {
+  return (res.items ?? []).flatMap((it) => {
+    if (!it.partId) return [];
+    const props: Record<string, string> = {};
+    for (const p of it.properties ?? []) {
+      const t = propText(p.value);
+      if (t) props[p.name] = t;
+    }
+    return [{
+      partId: it.partId,
+      name: props.Name ?? "",
+      material: props.Material ?? "",
+      partNumber: props["Part number"] || props["Part Number"] || "",
+      description: props.Description ?? "",
+      props,
+    }];
+  });
+}
+
 /** Every part's properties (custom ones included) in one call. */
 export async function studioMetadata(keys: OnshapeKeys, r: OnshapeRef, configuration?: string): Promise<StudioPart[]> {
-  const res = await getJson<{ items?: { partId?: string; properties?: { name: string; value: unknown }[] }[] }>(
+  return readPartMetadata(await getJson<PartMetadata>(
     keys,
     `/metadata${refPath(r)}/p${q({ configuration, includeComputedProperties: false, thumbnail: false })}`,
+  ));
+}
+
+/** Part metadata from the default configuration of each element in a document revision. */
+export async function documentPartMetadata(keys: OnshapeKeys, r: OnshapeRef): Promise<Map<string, StudioPart[]>> {
+  const res = await getJson<{ items?: { elementId?: string; parts?: PartMetadata }[] }>(
+    keys,
+    `/metadata/d/${r.did}/${r.wvm}/${r.wvmid}/e${q({ depth: "2", includeComputedProperties: false, thumbnail: false })}`,
   );
-  return (res.items ?? [])
-    .filter((it) => it.partId)
-    .map((it) => {
-      const props: Record<string, string> = {};
-      for (const p of it.properties ?? []) {
-        const t = propText(p.value);
-        if (t) props[p.name] = t;
-      }
-      const get = (...names: string[]) => names.map((n) => props[n]).find(Boolean) ?? "";
-      return {
-        partId: it.partId!,
-        name: get("Name"),
-        material: get("Material"),
-        partNumber: get("Part number", "Part Number"),
-        description: get("Description"),
-        props,
-      };
-    });
+  const studios = new Map<string, StudioPart[]>();
+  for (const element of res.items ?? []) {
+    if (element.elementId && element.parts?.items) studios.set(element.elementId, readPartMetadata(element.parts));
+  }
+  return studios;
 }
 
 // ── Geometry from body details ───────────────────────────────────────────────

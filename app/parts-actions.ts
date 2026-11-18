@@ -41,7 +41,7 @@ import {
 } from "@/lib/parts";
 import { toPartGeometry } from "@/lib/dfm";
 import { rematchParts, type RematchResult } from "@/lib/parts-match";
-import { isJobStatus, jobKey, readSheet, SHEET_TO_PART, splitPeople, SUGGEST, TEXT_FIELDS, type ImportRow, type JobStatus } from "@/lib/tracker";
+import { isJobStatus, jobKey, readSheet, SHEET_TO_PART, splitPeople, STATUSES, SUGGEST, TEXT_FIELDS, type ImportRow, type JobStatus } from "@/lib/tracker";
 import { checkPart } from "@/lib/dfm";
 import { findVendorLink } from "@/lib/vendors";
 import { isSheet } from "@/lib/fab";
@@ -51,12 +51,15 @@ import { MM_PER_IN } from "@/lib/units";
 import {
   assemblyBom,
   describeElement,
+  documentPartMetadata,
+  OnshapeLimitError,
   exportPart,
   parseOnshapeUrl,
   studioMetadata,
   studioShapes,
   verifyKeys,
   type BodyShape,
+  type BomLine,
   type OnshapeKeys,
   type OnshapeRef,
   type StudioPart,
@@ -147,7 +150,7 @@ export async function addDesign(fd: FormData): Promise<FabResult<{ id: string; n
     const ref = parseOnshapeUrl(url);
     if (!ref) throw new Error("That doesn't look like an Onshape tab link (…/documents/…/w/…/e/…)");
     const keys = await myOnshapeKeys();
-    const info = await describeElement(keys, ref);
+    const info = await describeElement(keys, ref, !name);
     if (!name) name = info.type === "assembly" ? `${info.docName} · ${info.elementName}` : info.elementName;
     const { data, error } = await db()
       .from("fab_designs")
@@ -245,10 +248,9 @@ function trimProps(props: Record<string, string>): Record<string, string> {
 }
 
 /**
- * Pull a design's parts from Onshape: BOM (for an assembly) → properties and
- * shapes per Part Studio (2 calls each) → classify, size, match to inventory,
- * outline plates. Updates parts in place; parts that left the design are
- * flagged, not deleted, so their board history stays.
+ * Pull a design's BOM and part properties, then read geometry where it can
+ * contribute dimensions, inventory matches, or plate outlines. Parts are
+ * updated in place, and parts that leave the design are flagged.
  */
 async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
   const { data: design, error } = await db().from("fab_designs").select("*").eq("id", designId).single();
@@ -258,60 +260,111 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
   const prop = settings.onshape_process_prop;
   const ref: OnshapeRef = { did: design.document_id, wvm: design.wvm, wvmid: design.wvm_id, eid: design.element_id };
 
-  // 1. What's in the design.
-  type Line = { source: PartSource; quantity: number; name: string; partNumber: string; material: string; description: string; props: Record<string, string>; standard?: boolean };
-  let lines: Line[] = [];
-  const metaCache = new Map<string, Map<string, StudioPart>>();
+  // One BOM read for an assembly. A standalone Part Studio already has its metadata.
+  let lines: BomLine[];
+  const metadata = new Map<string, Map<string, StudioPart>>();
+  const byPartId = (parts: StudioPart[]) => new Map(parts.map((p) => [p.partId, p]));
   if (design.element_type === "assembly") {
     lines = (await assemblyBom(keys, ref)).lines;
   } else {
-    const meta = await studioMetadata(keys, ref);
-    metaCache.set(studioKey({ ...ref }), new Map(meta.map((m) => [m.partId, m])));
-    lines = meta.map((m) => ({ source: { ...ref, partId: m.partId }, quantity: 1, name: m.name, partNumber: m.partNumber, material: m.material, description: m.description, props: m.props }));
+    const parts = await studioMetadata(keys, ref);
+    metadata.set(studioKey(ref), byPartId(parts));
+    lines = parts.map((p) => ({ ...p, source: { ...ref, partId: p.partId }, quantity: 1 }));
   }
 
-  // 2. Properties + shapes per Part Studio.
-  // standard hardware needs nothing more from Onshape (and lives in Onshape's library)
-  const studios = [...new Map(lines.filter((l) => !l.standard).map((l) => [studioKey(l.source), l.source])).values()];
-  const shapeCache = new Map<string, Map<string, BodyShape>>();
-  const failures: string[] = [];
-  await pool(studios, 3, async (s) => {
-    const r: OnshapeRef = { did: s.did, wvm: s.wvm, wvmid: s.wvmid, eid: s.eid };
-    const key = studioKey(s);
-    try {
-      if (!metaCache.has(key)) metaCache.set(key, new Map((await studioMetadata(keys, r, s.configuration)).map((m) => [m.partId, m])));
-    } catch (e) {
-      failures.push(e instanceof Error ? e.message : String(e));
-    }
-    try {
-      shapeCache.set(key, await studioShapes(keys, r, s.configuration));
-    } catch (e) {
-      failures.push(e instanceof Error ? e.message : String(e));
-    }
-  });
-
-  // 3. Classify and write.
   const [materials, existingRes] = await Promise.all([getMaterials(), db().from("fab_parts").select("*").eq("design_id", designId)]);
   if (existingRes.error) throw existingRes.error;
   const existing = new Map((existingRes.data ?? []).map((r) => [r.onshape_key as string, toPart(r)]));
+
+  // Merge duplicate BOM lines and group the remaining parts by studio and configuration.
+  const merged = new Map<string, BomLine>();
+  for (const line of lines) {
+    const key = `${studioKey(line.source)}:${line.source.partId}`;
+    const current = merged.get(key);
+    if (current) current.quantity += line.quantity;
+    else merged.set(key, { ...line });
+  }
+  const studios = new Map<string, BomLine[]>();
+  for (const line of merged.values()) {
+    if (line.standard || isReferenceBody(line.name) || isUnnamedBody(line.name)) continue;
+    const key = studioKey(line.source);
+    const parts = studios.get(key) ?? [];
+    parts.push(line);
+    studios.set(key, parts);
+  }
+
+  const failures: string[] = [];
+  let limit: OnshapeLimitError | undefined;
+  async function read<T>(request: () => Promise<T>, recordFailure = true): Promise<T | undefined> {
+    if (limit) return;
+    try {
+      return await request();
+    } catch (error) {
+      if (error instanceof OnshapeLimitError) limit = error;
+      else if (recordFailure) failures.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // The document endpoint can cover several default-configuration tabs at once.
+  // Specific configurations and incomplete batch results use the Part Studio endpoint.
+  const documents = new Map<string, BomLine[][]>();
+  for (const [key, parts] of studios) {
+    const { did, wvm, wvmid, configuration } = parts[0].source;
+    if (metadata.has(key) || (configuration && configuration !== "default")) continue;
+    const document = `${did}/${wvm}/${wvmid}`;
+    const group = documents.get(document) ?? [];
+    group.push(parts);
+    documents.set(document, group);
+  }
+  await pool([...documents.values()].filter((group) => group.length > 1), 3, async (group) => {
+    const batch = await read(() => documentPartMetadata(keys, group[0][0].source), false);
+    for (const parts of group) {
+      const source = parts[0].source;
+      const result = batch?.get(source.eid);
+      if (!result) continue;
+      const index = byPartId(result);
+      if (parts.every((p) => index.has(p.source.partId))) metadata.set(studioKey(source), index);
+    }
+  });
+
+  const shapes = new Map<string, Map<string, BodyShape>>();
+  await pool([...studios], 3, async ([key, parts]) => {
+    const source = parts[0].source;
+    if (!metadata.has(key)) {
+      const result = await read(() => studioMetadata(keys, source, source.configuration));
+      if (result) metadata.set(key, byPartId(result));
+    }
+    const needsGeometry = parts.some((line) => {
+      const meta = metadata.get(key)?.get(line.source.partId);
+      const name = line.name || meta?.name;
+      if (name && (isReferenceBody(name) || isUnnamedBody(name))) return false;
+      const process = findProp(trimProps({ ...line.props, ...meta?.props }), prop);
+      const fromProp = kindFromProcess(process);
+      if (fromProp === "skip") return false;
+      // Shape data is still the fallback for missing names and materials.
+      const material = line.material || meta?.material;
+      if (!name || !material) return true;
+      const old = existing.get(`${key}:${line.source.partId}`);
+      if (old && findProp(old.properties, prop) === process) return old.kind !== "cots";
+      if (fromProp) return fromProp !== "cots";
+      return !settings.onshape_require_prop && (hasPartNumber(name) || isPrintedMaterial(material));
+    });
+    if (needsGeometry) {
+      const result = await read(() => studioShapes(keys, source, source.configuration));
+      if (result) shapes.set(key, result);
+    }
+  });
+  if (limit) throw limit;
+
   const seen = new Set<string>();
   let added = 0;
   let skippedProcess = 0;
   let skippedRef = 0;
   const dxfJobs: { partId: string; name: string; geometry: PartGeometry }[] = [];
 
-  // merge duplicate lines (same part used in two sub-assemblies)
-  const merged = new Map<string, Line>();
-  for (const l of lines) {
-    const k = `${studioKey(l.source)}:${l.source.partId}`;
-    const m = merged.get(k);
-    if (m) m.quantity += l.quantity;
-    else merged.set(k, { ...l, props: { ...l.props } });
-  }
-
   await pool([...merged.entries()], 6, async ([key, line]) => {
-    const meta = metaCache.get(studioKey(line.source))?.get(line.source.partId);
-    const shape = shapeCache.get(studioKey(line.source))?.get(line.source.partId) ?? null;
+    const meta = metadata.get(studioKey(line.source))?.get(line.source.partId);
+    const shape = shapes.get(studioKey(line.source))?.get(line.source.partId) ?? null;
     const props = trimProps({ ...line.props, ...(meta?.props ?? {}) });
     const name = line.name || meta?.name || shape?.name || "Unnamed part";
     const material = line.material || meta?.material || shape?.material || "";
@@ -572,6 +625,13 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
       if (!isJobStatus(status)) throw new Error("Pick a status");
       if (status !== part.status) {
         patch.status = status;
+        patch.status_changed_at = new Date().toISOString();
+      }
+    }
+    if (!fd.has("status") && isPartKind(patch.kind) && patch.kind !== "cots" && part.kind !== "cots") {
+      const destination = trackerOf(patch.kind);
+      if (destination !== trackerOf(part.kind) && !STATUSES[destination].includes(part.status)) {
+        patch.status = "not_started";
         patch.status_changed_at = new Date().toISOString();
       }
     }

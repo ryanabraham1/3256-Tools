@@ -31,7 +31,8 @@ test('active issue views follow project archive, trash, and restoration', () => 
 function load(file, imports = {}, globals = {}) {
   const loadedModule = { exports: {} };
   const js = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+    fileName: file,
+    compilerOptions: { target: ts.ScriptTarget.ES2017, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   vm.runInNewContext(js, { module: loadedModule, exports: loadedModule.exports, require: name => imports[name] ?? importDependency(name), ...globals });
   return loadedModule.exports;
@@ -368,4 +369,168 @@ test('the Work save endpoint only accepts same-origin requests and passes change
   assert.equal(saved.headers.get('cache-control'), 'private, no-store');
   assert.deepEqual(await saved.json(), { ok: true, items: [] });
   assert.equal(seen[0][0].data.status, 'Done');
+});
+
+function fabActionFixture({ design, parts = [], respond }) {
+  const paths = [];
+  const writes = [];
+  const json = (body, status = 200) => Response.json(body, { status });
+  const onshape = load('lib/onshape.ts', { 'server-only': {} }, {
+    AbortSignal, Buffer, URLSearchParams, process: { env: {} },
+    fetch: async (url) => {
+      const request = new URL(url);
+      paths.push(request.pathname + request.search);
+      return respond(request, json);
+    },
+  });
+  const data = {
+    fab_designs: [design],
+    fab_parts: parts,
+    fab_part_events: [],
+  };
+  const db = {
+    from(table) {
+      const matches = [];
+      let patch;
+      let insert;
+      return {
+        select() { return this; },
+        eq(key, value) { matches.push((row) => row[key] === value); return this; },
+        single() { return this.then(({ data }) => ({ data: data[0], error: null })); },
+        update(row) { patch = row; return this; },
+        insert(row) { insert = row; return this; },
+        then(resolve) {
+          const rows = data[table].filter((row) => matches.every((match) => match(row)));
+          if (patch) {
+            writes.push([table, patch]);
+            for (const row of rows) Object.assign(row, patch);
+          }
+          if (insert) {
+            writes.push([table, insert]);
+            const row = { id: String(data[table].length + 1), ...insert };
+            data[table].push(row);
+            return resolve({ data: [row], error: null });
+          }
+          return resolve({ data: rows, error: null });
+        },
+      };
+    },
+  };
+  const tracker = load('lib/tracker.ts');
+  const partsLib = load('lib/parts.ts', { './units': load('lib/units.ts') });
+  const actions = load('app/parts-actions.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/supabase': { supabaseAdmin: () => db },
+    '@/lib/work-auth': { requireWorkUser: async () => ({ userId: 'fixture-user' }) },
+    '@/lib/fab-data': { getMaterials: async () => [] },
+    '@/lib/parts-data': { toPart: (p) => p, getPerson: async () => 'Fixture', getPartsSettings: async () => partsLib.DEFAULT_PARTS_SETTINGS },
+    '@/app/fab-actions': {},
+    '@/lib/parts': partsLib,
+    '@/lib/tracker': tracker,
+    '@/lib/onshape': onshape,
+    '@/lib/onshape-keys': { getOnshapeKeys: async () => ({ access: 'fixture', secret: 'fixture' }) },
+    '@/lib/dfm': {},
+    '@/lib/parts-match': {},
+    '@/lib/vendors': {},
+    '@/lib/fab': {},
+    '@/lib/nest': {},
+    '@/lib/geom': {},
+    '@/lib/units': {},
+  });
+  return { actions, paths, writes };
+}
+
+const fabForm = (fields) => {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return fd;
+};
+
+test('Onshape sync batches default studios, falls back for missing metadata, and reads geometry only where needed', async () => {
+  const design = { id: 'design', document_id: 'doc', wvm: 'w', wvm_id: 'workspace', element_id: 'assembly', element_type: 'assembly' };
+  function line(eid, name, configuration = 'default') {
+    return {
+      headerIdToValue: { name, material: 'Plastic' },
+      itemSource: { documentId: 'doc', elementId: eid, partId: 'part', wvmType: 'workspace', wvmId: 'workspace', fullConfiguration: configuration },
+    };
+  }
+  function metadata(process) {
+    return { items: [{ partId: 'part', properties: [{ name: 'Process', value: process }] }] };
+  }
+  const { actions, paths, writes } = fabActionFixture({
+    design,
+    respond(request, json) {
+      const route = request.pathname;
+      if (route.endsWith('/bom')) return json({
+        headers: [{ id: 'name', name: 'Name' }, { id: 'material', name: 'Material' }],
+        rows: [line('bought', 'Bearing'), line('reference', 'Origin cube'), line('incomplete', 'Mount'), line('configured', 'Spacer', 'size=large')],
+      });
+      if (route.endsWith('/workspace/e')) return json({
+        items: [
+          { elementId: 'bought', parts: metadata('COTS') },
+          { elementId: 'reference', parts: metadata('Machined') },
+          { elementId: 'incomplete', parts: { items: [] } },
+        ],
+      });
+      if (route.endsWith('/incomplete/p')) return json(metadata('3D Print'));
+      if (route.endsWith('/configured/p')) {
+        assert.equal(request.searchParams.get('configuration'), 'size=large');
+        return json(metadata('Machined'));
+      }
+      if (route.endsWith('/bodydetails')) return json({ bodies: [] });
+      return json({}, 500);
+    },
+  });
+  const result = await actions.syncDesign(fabForm({ id: design.id }));
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(paths.map((p) => p.split('?')[0]).sort(), [
+    '/api/v10/assemblies/d/doc/w/workspace/e/assembly/bom',
+    '/api/v10/metadata/d/doc/w/workspace/e',
+    '/api/v10/metadata/d/doc/w/workspace/e/configured/p',
+    '/api/v10/metadata/d/doc/w/workspace/e/incomplete/p',
+    '/api/v10/partstudios/d/doc/w/workspace/e/configured/bodydetails',
+    '/api/v10/partstudios/d/doc/w/workspace/e/incomplete/bodydetails',
+  ]);
+  assert.deepEqual(writes.filter(([table]) => table === 'fab_parts').map(([, p]) => p.kind).sort(), ['cots', 'machined', 'print']);
+});
+
+test('Onshape quota errors stop sync before it can change the tracker', async () => {
+  const design = { id: 'design', document_id: 'doc', wvm: 'w', wvm_id: 'workspace', element_id: 'assembly', element_type: 'assembly' };
+  const { actions, paths, writes } = fabActionFixture({
+    design,
+    respond(request, json) {
+      if (request.pathname.endsWith('/bom')) return json({
+        headers: [{ id: 'name', name: 'Name' }],
+        rows: ['one', 'two'].map((eid) => ({
+          headerIdToValue: { name: 'Bracket' },
+          itemSource: { documentId: 'doc', elementId: eid, partId: 'part', wvmId: 'workspace' },
+        })),
+      });
+      return json({}, 429);
+    },
+  });
+  const result = await actions.syncDesign(fabForm({ id: design.id }));
+  assert.equal(result.ok, false);
+  assert.match(result.error, /429/);
+  assert.equal(paths.length, 2);
+  assert.deepEqual(writes, []);
+});
+
+test('moving a tracker part keeps its identity and only resets an incompatible status', async () => {
+  const record = { id: 'original', name: 'Bracket', kind: 'machined', status: 'have_cam', source: {}, notes: 'Keep these' };
+  const { actions, writes } = fabActionFixture({ design: {}, parts: [record] });
+  const toPrint = await actions.updatePart(fabForm({ id: record.id, kind: 'print' }));
+  assert.equal(toPrint.ok, true, toPrint.error);
+  assert.equal(record.kind, 'print');
+  assert.equal(record.status, 'not_started');
+  record.status = 'in_progress';
+  const toMachining = await actions.updatePart(fabForm({ id: record.id, kind: 'tube' }));
+  assert.equal(toMachining.ok, true, toMachining.error);
+  assert.equal(record.kind, 'tube');
+  assert.equal(record.status, 'in_progress');
+  assert.equal(record.id, 'original');
+  assert.equal(record.notes, 'Keep these');
+  const partWrites = writes.filter(([table]) => table === 'fab_parts');
+  assert.equal(partWrites.length, 2);
+  assert.equal('status' in partWrites[1][1], false);
 });

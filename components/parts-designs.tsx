@@ -138,7 +138,7 @@ export function PartsDesigns({
                 </li>
               </ul>
               <p style={{ color: "var(--muted)" }}>
-                Subsystem, Priority, Machine and Tapped properties fill in those tracker columns too.{" "}
+                Subsystem, Priority, Machine and Tapped properties fill in those tracker columns too. Without a Subsystem property, parts from an assembly go under the assembly&apos;s name.{" "}
                 {requireProp ? `Right now only parts with a ${processProp} go on the tracker — ` : ""}
                 Change the property name in <Link href="/tracker/machines" className="underline">Machines</Link>. Or skip Onshape for this: fix the kind on the tracker and it sticks
                 through re-syncs.

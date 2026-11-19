@@ -1,6 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "./supabase";
 import { getWorkUser } from "./work-auth";
+import { SUGGEST } from "./tracker";
 import {
   DEFAULT_PARTS_SETTINGS,
   type FabDesign,
@@ -60,6 +61,14 @@ export async function getPartsSettings(): Promise<PartsSettings> {
     nest_gap_mm: N(data.nest_gap_mm) ?? DEFAULT_PARTS_SETTINGS.nest_gap_mm,
     nest_margin_mm: N(data.nest_margin_mm) ?? DEFAULT_PARTS_SETTINGS.nest_margin_mm,
   };
+}
+
+/** The team's subsystem list, in order (the built-in one until someone edits it). */
+export async function getSubsystems(): Promise<string[]> {
+  const { data, error } = await supabaseAdmin().from("fab_settings").select("*").eq("id", 1).maybeSingle();
+  if (error) throw error;
+  const list = (data?.subsystems as string[] | null | undefined) ?? null;
+  return list ?? SUGGEST.subsystem;
 }
 
 export async function getDesigns(opts: { includeArchived?: boolean } = {}): Promise<FabDesign[]> {

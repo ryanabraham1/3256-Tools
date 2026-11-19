@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireWorkUser } from "@/lib/work-auth";
 import { getFabSettings, getMaterial, getMaterials, getStockPieces } from "@/lib/fab-data";
-import { FILES_BUCKET, getMachines, getPartsSettings, getPerson, toPart } from "@/lib/parts-data";
+import { FILES_BUCKET, getMachines, getPartsSettings, getPerson, getSubsystems, toPart } from "@/lib/parts-data";
 import { cutLinear, cutSheet, type FabResult } from "@/app/fab-actions";
 import {
   AFTER_CUT,
@@ -356,6 +356,9 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
   });
   if (limit) throw limit;
 
+  const fromAssembly = assemblySubsystem(design);
+  if (fromAssembly) await addSubsystems([fromAssembly]);
+
   const seen = new Set<string>();
   let added = 0;
   let skippedProcess = 0;
@@ -419,6 +422,8 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     if (!cur("material_text") || (cur("material_text") === old?.properties?.Material && isRawMaterial(cur("material_text"), SUGGEST.material)) || cur("material_text") === material)
       row.material_text = kind === "print" ? material : (fill.material_text ?? material);
     for (const k of ["stock_dims", "length_text", "machine"] as const) if (!cur(k) && fill[k]) row[k] = fill[k];
+    // parts land in the assembly they came from, unless someone filed them elsewhere
+    if (fromAssembly && !old?.subsystem.trim()) row.subsystem = fromAssembly;
     // tracker columns Onshape can carry as properties (Subsystem, Priority, Machine, Tapped)
     Object.assign(row, sheetFromProps(props));
     if (kind === "cots") {
@@ -1157,6 +1162,56 @@ export async function deleteMachine(fd: FormData): Promise<FabResult> {
     const { error } = await db().from("fab_machines").delete().eq("id", str(fd, "id"));
     if (error) throw error;
   });
+}
+
+const NEEDS_SUBSYSTEMS_MIGRATION = "Run supabase/migrations/20261118170000_fab_subsystems.sql first, then try again";
+
+async function writeSubsystems(list: string[]) {
+  const { error } = await db().from("fab_settings").update({ subsystems: list }).eq("id", 1);
+  if (error) throw /subsystems/.test(error.message) ? new Error(NEEDS_SUBSYSTEMS_MIGRATION) : error;
+}
+
+/** Escape a value for an exact, case-insensitive ilike match. */
+const likeExact = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * Save the team's subsystem list. `renames` ([from, to]) also move every part
+ * filed under the old name. Parts under a removed name keep it.
+ */
+export async function saveSubsystems(list: string[], renames: [string, string][] = []): Promise<FabResult> {
+  return run(async () => {
+    const seen = new Set<string>();
+    const clean = list
+      .map((s) => s.trim().replace(/^\d+\.\s*/, "").slice(0, 60))
+      .filter((s) => s && !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()));
+    if (clean.length > 60) throw new Error("That's a lot of subsystems. Keep it under 60");
+    await writeSubsystems(clean);
+    for (const [from, to] of renames) {
+      const a = from.trim();
+      const b = to.trim();
+      if (!a || !b || a === b) continue;
+      const { error } = await db().from("fab_parts").update({ subsystem: b }).ilike("subsystem", likeExact(a));
+      if (error) throw error;
+    }
+  });
+}
+
+/** Add subsystem names to the team list (Onshape imports). Never fails an import. */
+async function addSubsystems(names: string[]) {
+  try {
+    const list = await getSubsystems();
+    const fresh = names.filter((n) => n && !list.some((s) => s.toLowerCase() === n.toLowerCase()));
+    if (fresh.length) await writeSubsystems([...list, ...new Set(fresh)]);
+  } catch {
+    // before the migration there's no list to add to
+  }
+}
+
+/** The subsystem an Onshape assembly's parts go into: the assembly's own name. */
+function assemblySubsystem(design: { name: string; element_type: string | null }): string {
+  if (design.element_type !== "assembly") return "";
+  // imports are named "Document · Assembly" unless someone named them
+  return (design.name.split(" · ").at(-1) ?? "").trim().replace(/^\d+\.\s*/, "").slice(0, 60);
 }
 
 export async function savePartsSettings(fd: FormData): Promise<FabResult> {

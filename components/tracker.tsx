@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { addPart, autoMatchParts, deletePart, importSheet, setPartStatus, updatePart } from "@/app/parts-actions";
+import { addPart, autoMatchParts, deletePart, importSheet, saveSubsystems, setPartStatus, updatePart } from "@/app/parts-actions";
 import { isLengthKind, isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
 import {
   isDone,
@@ -114,6 +114,7 @@ export function TrackerTable({
   copies,
   person,
   members,
+  subsystems: teamSubsystems,
 }: {
   tracker: Tracker;
   parts: FabPart[];
@@ -122,12 +123,15 @@ export function TrackerTable({
   person: string;
   /** Everyone who has joined the workspace. */
   members: string[];
+  /** The team's subsystem list, in order. */
+  subsystems: string[];
 }) {
   const print = tracker === "print";
   const destination = print ? "machining" : "print";
   const [status, setStatus] = useState<StatusFilter>("open");
   const [bot, setBot] = useState("");
   const [subsystem, setSubsystem] = useState("");
+  const [editingSubsystems, setEditingSubsystems] = useState(false);
   const [machine, setMachine] = useState("");
   const [q, setQ] = useState("");
   const [edit, setEdit] = useState<FabJob | "new" | null>(null);
@@ -234,7 +238,7 @@ export function TrackerTable({
 
   const machineKey = print ? "material" : "machine";
   const bots = useMemo(() => options([], jobs, "bot").sort(byOrder(SUGGEST.bot)), [jobs]);
-  const subsystems = useMemo(() => options([], jobs, "subsystem").sort(byOrder(SUGGEST.subsystem)), [jobs]);
+  const subsystems = useMemo(() => options([], jobs, "subsystem").sort(byOrder(teamSubsystems)), [jobs, teamSubsystems]);
   const machines = useMemo(() => options([], jobs, machineKey).sort(byOrder(print ? SUGGEST.filament : SUGGEST.machine)), [jobs, machineKey, print]);
 
   // counts ignore the status filter so the chips say what each one would show
@@ -253,7 +257,8 @@ export function TrackerTable({
   const need = (j: FabPart) => needed(j, j.design_id ? (copies[j.design_id] ?? 1) : 1);
   const lists = {
     bot: options(SUGGEST.bot, jobs, "bot"),
-    subsystem: options(SUGGEST.subsystem, jobs, "subsystem"),
+    // only the team list (a cell still shows its own value); edit it with "Subsystems"
+    subsystem: teamSubsystems,
     material: options(print ? SUGGEST.filament : SUGGEST.material, jobs, "material"),
     stock_dims: options(SUGGEST.stock_dims, jobs, "stock_dims"),
     machine: options(SUGGEST.machine, jobs, "machine"),
@@ -389,10 +394,10 @@ export function TrackerTable({
     }
     // a subsystem filter with nothing in it yet still gets a row to add into
     if (subsystem && !map.size) map.set(subsystem, []);
-    return [...map.entries()].sort(([a], [b]) => byOrder(SUGGEST.subsystem)(a, b));
-  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded]);
+    return [...map.entries()].sort(([a], [b]) => byOrder(teamSubsystems)(a, b));
+  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded, teamSubsystems]);
 
-  const addTo = subsystem || addInto || groups[0]?.[0] || SUGGEST.subsystem[0] || NO_SUBSYSTEM;
+  const addTo = subsystem || addInto || groups[0]?.[0] || teamSubsystems[0] || NO_SUBSYSTEM;
 
   /** Add parts by name into a group: they show at once, saved in the background, with the group's bot and subsystem. */
   function addNames(group: string, rows: FabJob[], names: string[], extra: Record<string, string> = {}, place = group) {
@@ -553,6 +558,9 @@ export function TrackerTable({
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           {!print && <AutoMatchButton />}
+          <button type="button" className="btn btn-ghost text-sm flex-1 sm:flex-none" aria-expanded={editingSubsystems} onClick={() => setEditingSubsystems((v) => !v)}>
+            Subsystems
+          </button>
           <button type="button" className="btn btn-ghost text-sm flex-1 sm:flex-none" onClick={() => setImporting(true)}>
             Import from sheet
           </button>
@@ -561,6 +569,15 @@ export function TrackerTable({
           </button>
         </div>
       </div>
+
+      {editingSubsystems && (
+        <SubsystemEditor
+          list={teamSubsystems}
+          parts={jobs}
+          onClose={() => setEditingSubsystems(false)}
+          onRenamed={(from, to) => setSubsystem((s) => (s.toLowerCase() === from.toLowerCase() ? to : s))}
+        />
+      )}
 
       {moved && (
         <p className="mb-3 text-sm" role="status">
@@ -1108,6 +1125,136 @@ function BarSelect({ label, value, options, onChange }: { label: string; value: 
       ))}
       <option value={OTHER}>Other…</option>
     </select>
+  );
+}
+
+/**
+ * The team's subsystem list: add, rename, reorder, remove. Renaming moves the
+ * parts filed under the old name; removing only takes it off the list.
+ */
+function SubsystemEditor({
+  list,
+  parts,
+  onClose,
+  onRenamed,
+}: {
+  list: string[];
+  parts: FabPart[];
+  onClose: () => void;
+  onRenamed: (from: string, to: string) => void;
+}) {
+  const seq = useRef(list.length);
+  const row = (name: string, original = "") => ({ key: ++seq.current, name, original });
+  const [rows, setRows] = useState(() => list.map((n, i) => ({ key: i, name: n, original: n })));
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const count = (name: string) => parts.filter((p) => p.subsystem.trim().toLowerCase() === name.trim().toLowerCase()).length;
+  const listed = (name: string) => rows.some((r) => r.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const unlisted = options([], parts, "subsystem").filter((n) => !listed(n) && !rows.some((r) => r.original.toLowerCase() === n.toLowerCase()));
+
+  function add(name: string) {
+    const v = name.trim();
+    if (!v || listed(v)) return;
+    setRows((r) => [...r, row(v)]);
+  }
+  function move(i: number, by: number) {
+    setRows((r) => {
+      const j = i + by;
+      if (j < 0 || j >= r.length) return r;
+      const next = [...r];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  async function save() {
+    setError(null);
+    setPending(true);
+    const renames = rows.filter((r) => r.original && r.name.trim() && r.name.trim() !== r.original).map((r) => [r.original, r.name.trim()] as [string, string]);
+    const res = await saveSubsystems(
+      rows.map((r) => r.name),
+      renames,
+    ).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Couldn't save — check your connection" }));
+    setPending(false);
+    if (!res.ok) return setError(res.error);
+    for (const [from, to] of renames) onRenamed(from, to);
+    onClose();
+  }
+
+  return (
+    <div className="card p-4 mb-4">
+      <div className="flex items-baseline gap-2 mb-1">
+        <h2 className="font-semibold">Subsystems</h2>
+        <button type="button" className="ml-auto text-sm hover:underline" style={{ color: "var(--muted)" }} onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+      <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>
+        The list every Subsystem dropdown offers, in this order. Onshape assemblies add their own name when imported. Renaming moves the parts filed under the old name; removing one leaves its parts as they are.
+      </p>
+      <ul className="flex flex-col gap-1.5 mb-3">
+        {rows.map((r, i) => {
+          const n = r.original ? count(r.original) : 0;
+          return (
+            <li key={r.key} className="flex items-center gap-1.5">
+              <input
+                className="input flex-1 min-w-0"
+                value={r.name}
+                aria-label={`Subsystem ${i + 1}`}
+                onChange={(e) => setRows((rs) => rs.map((x) => (x.key === r.key ? { ...x, name: e.target.value } : x)))}
+              />
+              <span className="mono text-xs w-16 text-right shrink-0" style={{ color: "var(--muted)" }} title="Parts on this tracker">
+                {n ? `${n} part${n === 1 ? "" : "s"}` : ""}
+              </span>
+              <button type="button" className="btn btn-ghost text-xs px-2 py-1" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${r.name} up`}>
+                ↑
+              </button>
+              <button type="button" className="btn btn-ghost text-xs px-2 py-1" disabled={i === rows.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${r.name} down`}>
+                ↓
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost text-xs px-2 py-1"
+                style={{ color: "var(--bad)" }}
+                onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
+                aria-label={`Remove ${r.name}`}
+              >
+                Remove
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <form
+        className="flex gap-2 mb-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add(draft);
+          setDraft("");
+        }}
+      >
+        <input className="input flex-1 min-w-0" placeholder="+ New subsystem, then Enter" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="New subsystem" />
+        <button type="submit" className="btn btn-ghost text-sm" disabled={!draft.trim() || listed(draft)}>
+          Add
+        </button>
+      </form>
+      {unlisted.length > 0 && (
+        <p className="text-sm mb-3 flex flex-wrap items-center gap-1.5" style={{ color: "var(--muted)" }}>
+          Parts also use:
+          {unlisted.map((n) => (
+            <button key={n} type="button" className="chip hover:underline" onClick={() => add(n)} title={`Add ${n} to the list`}>
+              + {n} <span className="mono">{count(n)}</span>
+            </button>
+          ))}
+        </p>
+      )}
+      <div className="flex items-center gap-3">
+        <button type="button" className="btn btn-primary text-sm" disabled={pending} onClick={save}>
+          {pending ? "Saving…" : "Save list"}
+        </button>
+        <ErrorText error={error} />
+      </div>
+    </div>
   );
 }
 

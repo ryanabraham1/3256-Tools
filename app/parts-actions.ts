@@ -405,8 +405,9 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
       onshape_key: key,
       source: line.source,
       name,
-      part_number: line.partNumber || meta?.partNumber || "",
-      description: line.description || meta?.description || "",
+      // a part # / description typed on the site stays when Onshape has none
+      part_number: line.partNumber || meta?.partNumber || old?.part_number || "",
+      description: line.description || meta?.description || old?.description || "",
       quantity: line.quantity,
       properties: props,
       missing: false,
@@ -432,10 +433,16 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
       row.hardware = !!line.standard;
       const vendor = findProp(props, "Vendor") || findProp(props, "Supplier") || findProp(props, "Manufacturer");
       const url = [findProp(props, "Product URL"), findProp(props, "URL"), findProp(props, "Link"), findProp(props, "Vendor URL")].find((u) => /^https?:\/\//i.test(u));
-      if (vendor) row.vendor = vendor;
-      if (url) row.url = url;
-      const price = Number((findProp(props, "Price") || findProp(props, "Unit price") || findProp(props, "Cost")).replace(/[$,\s]/g, ""));
-      if (price > 0) row.unit_price = Math.round(price * 100) / 100;
+      const priceOf = (pr: Record<string, string>) => Number((findProp(pr, "Price") || findProp(pr, "Unit price") || findProp(pr, "Cost")).replace(/[$,\s]/g, ""));
+      const price = priceOf(props);
+      // Onshape only fills a blank, or updates what it set last time; a value typed on the site wins
+      const was = old?.properties ?? {};
+      const wasVendor = findProp(was, "Vendor") || findProp(was, "Supplier") || findProp(was, "Manufacturer");
+      const wasUrl = [findProp(was, "Product URL"), findProp(was, "URL"), findProp(was, "Link"), findProp(was, "Vendor URL")].find((u) => /^https?:\/\//i.test(u)) ?? "";
+      const wasPrice = priceOf(was) > 0 ? Math.round(priceOf(was) * 100) / 100 : null;
+      if (vendor && (!old?.vendor || old.vendor === wasVendor)) row.vendor = vendor;
+      if (url && (!old?.url || old.url === wasUrl)) row.url = url;
+      if (price > 0 && (old?.unit_price == null || old.unit_price === wasPrice)) row.unit_price = Math.round(price * 100) / 100;
     }
     let partId: string;
     if (old) {
@@ -612,6 +619,50 @@ export async function addPart(fd: FormData): Promise<FabResult<string>> {
   });
 }
 
+const packOf = (fd: FormData) => {
+  const n = num(fd, "pack_size");
+  return n && n > 1 ? Math.round(n) : null;
+};
+function priceOf(fd: FormData): number | null {
+  const v = str(fd, "unit_price").replace(/[$,\s]/g, "");
+  const n = v ? Number(v) : null;
+  if (n !== null && !(Number.isFinite(n) && n >= 0)) throw new Error("Price should be a number, like 13.99");
+  return n === null ? null : Math.round(n * 100) / 100;
+}
+
+/** Add a bought part to the COTS BOM by hand (not from Onshape), filed under a mechanism. */
+export async function addCotsPart(fd: FormData): Promise<FabResult<string>> {
+  return run(async () => {
+    const name = str(fd, "name");
+    if (!name) throw new Error("Enter the part name");
+    const quantity = Math.round(num(fd, "quantity") ?? 1);
+    if (!(quantity >= 1)) throw new Error("Quantity should be at least 1");
+    const subsystem = str(fd, "subsystem").replace(/^\d+\.\s*/, "").slice(0, 60);
+    const row: Record<string, unknown> = {
+      name,
+      kind: "cots",
+      status: "not_started",
+      cots_status: COTS_STATUSES.includes(str(fd, "cots_status") as CotsStatus) ? str(fd, "cots_status") : "needed",
+      quantity,
+      spare_qty: Math.max(0, Math.round(num(fd, "spare_qty") ?? 0)),
+      subsystem,
+      bot: str(fd, "bot"),
+      url: str(fd, "url"),
+      part_number: str(fd, "part_number"),
+      vendor: str(fd, "vendor"),
+      unit_price: priceOf(fd),
+      pack_size: packOf(fd),
+      hardware: str(fd, "hardware") === "1",
+      designer: await getPerson(),
+    };
+    const { data, error } = await db().from("fab_parts").insert(row).select("id").single();
+    if (error) throw error;
+    await logPart(data.id as string, "import", { by_hand: true, kind: "cots" });
+    if (subsystem) await addSubsystems([subsystem]);
+    return data.id as string;
+  });
+}
+
 /** Edit a part: only the fields the form sent change. */
 export async function updatePart(fd: FormData): Promise<FabResult<string>> {
   return run(async () => {
@@ -659,16 +710,8 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
     if (fd.has("vendor")) patch.vendor = str(fd, "vendor");
     if (fd.has("url")) patch.url = str(fd, "url");
     if (fd.has("part_number")) patch.part_number = str(fd, "part_number");
-    if (fd.has("pack_size")) {
-      const n = num(fd, "pack_size");
-      patch.pack_size = n && n > 1 ? Math.round(n) : null;
-    }
-    if (fd.has("unit_price")) {
-      const v = str(fd, "unit_price").replace(/[$,\s]/g, "");
-      const n = v ? Number(v) : null;
-      if (n !== null && !(Number.isFinite(n) && n >= 0)) throw new Error("Price should be a number, like 13.99");
-      patch.unit_price = n === null ? null : Math.round(n * 100) / 100;
-    }
+    if (fd.has("pack_size")) patch.pack_size = packOf(fd);
+    if (fd.has("unit_price")) patch.unit_price = priceOf(fd);
     if (["material_text", "stock_dims", "length_text", "kind"].some((k) => k in patch && patch[k] !== part[k as keyof FabPart])) await fillFromText(patch, part);
     const changed = Object.keys(patch).filter((k) => {
       const before = part[k as keyof FabPart];

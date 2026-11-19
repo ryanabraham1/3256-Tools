@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { findCotsLinks, setCotsStatus, setPartsSubsystem, setSpares, updatePart } from "@/app/parts-actions";
+import { addCotsPart, findCotsLinks, setCotsStatus, setPartsSubsystem, setSpares, updatePart } from "@/app/parts-actions";
 import { COTS_LABEL, COTS_STATUSES, COTS_TONE, KIND_LABEL, multiplierOf, PART_KINDS, SPARE_LABEL, SPARE_MODES, type CotsStatus, type SpareMode } from "@/lib/parts";
 import { Empty } from "./ui";
 import { DeletePartSheet } from "./delete-part-sheet";
@@ -72,6 +72,7 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
   const [editing, setEditing] = useState<BomLine | null>(null);
+  const [adding, setAdding] = useState<string | null>(null); // the mechanism a new line goes into
   const [deleting, setDeleting] = useState<BomLine | null>(null);
   const [findNote, setFindNote] = useState<string | null>(null);
   const find = useFabAction(findCotsLinks, (n) => setFindNote(n ?? null));
@@ -133,15 +134,27 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
   const total = shown.reduce((s, l) => s + (l.unit_price ?? 0) * buyQty(l), 0);
   const unpriced = shown.filter((l) => l.unit_price === null).length;
 
+  const addSheet = (
+    <Sheet open={adding !== null} onClose={() => setAdding(null)} eyebrow="COTS" title="Add a bought part">
+      {adding !== null && <AddLine mechs={mechs} mech={adding} bots={bots} bot={bot} onDone={() => setAdding(null)} />}
+    </Sheet>
+  );
+
   if (!lines.length) {
     return (
-      <Empty>
-        No bought parts yet. Syncing a design from{" "}
-        <Link href="/tracker/designs" className="underline" style={{ color: "var(--purple)" }}>
-          Onshape
-        </Link>{" "}
-        puts its COTS parts (motors, belts, gears, bearings) and hardware here.
-      </Empty>
+      <div className="flex flex-col gap-3">
+        <Empty>
+          No bought parts yet. Syncing a design from{" "}
+          <Link href="/tracker/designs" className="underline" style={{ color: "var(--purple)" }}>
+            Onshape
+          </Link>{" "}
+          puts its COTS parts (motors, belts, gears, bearings) and hardware here, or add one by hand.
+        </Empty>
+        <button type="button" className="btn btn-primary self-start" onClick={() => setAdding("")}>
+          + Add part
+        </button>
+        {addSheet}
+      </div>
     );
   }
 
@@ -182,6 +195,9 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
           </select>
         )}
         <input className="input flex-1 min-w-40" placeholder="Search parts, vendors…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the BOM" />
+        <button type="button" className="btn btn-primary text-sm" onClick={() => setAdding(mech === NO_MECH ? "" : mech)}>
+          + Add part
+        </button>
         <button type="button" className="btn btn-ghost text-sm" onClick={copyList} disabled={!count("needed")}>
           {copied === "list" ? "Copied ✓" : `Copy buy list (${count("needed")})`}
         </button>
@@ -283,7 +299,7 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
       {sections.map(([title, rows]) =>
         rows.length ? (
           <section key={title}>
-            <MechHead title={title} rows={rows} all={byBot.filter((l) => mechOf(l) === title)} />
+            <MechHead title={title} rows={rows} all={byBot.filter((l) => mechOf(l) === title)} onAdd={() => setAdding(title === NO_MECH ? "" : title)} />
             <ul className="card divide-y" style={{ borderColor: "var(--line)" }}>
               {rows.map((l) => (
                 <Row
@@ -310,6 +326,7 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
       <Sheet open={!!editing} onClose={() => setEditing(null)} eyebrow="COTS" title={editing?.name ?? ""}>
         {editing && <EditLine key={editing.id} l={editing} mechs={mechs} onDone={() => setEditing(null)} />}
       </Sheet>
+      {addSheet}
       {deleting && (
         <DeletePartSheet
           part={deleting}
@@ -325,7 +342,7 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
  * A mechanism's heading, with how much of it to order: 1×, 1.5× or 2× what the
  * robots need (the extra goes on as spares, for every line in the mechanism).
  */
-function MechHead({ title, rows, all }: { title: string; rows: BomLine[]; all: BomLine[] }) {
+function MechHead({ title, rows, all, onAdd }: { title: string; rows: BomLine[]; all: BomLine[]; onAdd: () => void }) {
   const a = useFabAction(setSpares);
   const [want, setWant] = useState<number | null>(null);
   // shows the pick at once; the saved spares take over when the page refreshes
@@ -342,6 +359,9 @@ function MechHead({ title, rows, all }: { title: string; rows: BomLine[]; all: B
           </span>
         )}
       </h2>
+      <button type="button" className="text-xs underline" style={{ color: "var(--purple)" }} onClick={onAdd}>
+        + add
+      </button>
       <span className="ml-auto flex items-center gap-1 text-xs" title={`Order more of everything in ${title}: the extra is added as spares`}>
         <span style={{ color: "var(--muted)" }}>Order</span>
         {MULTS.map(({ m, mode, label }) => (
@@ -364,6 +384,74 @@ function MechHead({ title, rows, all }: { title: string; rows: BomLine[]; all: B
       </span>
       {a.error && <ErrorText error={a.error} />}
     </div>
+  );
+}
+
+function MechField({ mechs, value }: { mechs: string[]; value: string }) {
+  return (
+    <Field label="Mechanism">
+      <input name="subsystem" className="input" defaultValue={value} list="bom-mechs" placeholder="Intake, Shooter…" />
+      <datalist id="bom-mechs">
+        {mechs.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
+    </Field>
+  );
+}
+
+/** A bought part added by hand: what it is, where to buy it, how many, and which mechanism it's for. */
+function AddLine({ mechs, mech, bots, bot, onDone }: { mechs: string[]; mech: string; bots: string[]; bot: string; onDone: () => void }) {
+  const a = useFabAction(addCotsPart, onDone);
+  return (
+    <form className="flex flex-col gap-3" onSubmit={a.submit}>
+      <Field label="Name">
+        <input name="name" className="input" required autoFocus placeholder="Kraken X60" />
+      </Field>
+      <Field label="Link">
+        <input name="url" className="input" placeholder="https://wcproducts.com/…" inputMode="url" />
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Part #">
+          <input name="part_number" className="input mono" placeholder="WCP-1634" />
+        </Field>
+        <Field label="Vendor">
+          <input name="vendor" className="input" placeholder="WCP, AndyMark, REV…" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Qty needed">
+          <input name="quantity" type="number" min={1} className="input mono" defaultValue={1} inputMode="numeric" required />
+        </Field>
+        <Field label="Spares">
+          <input name="spare_qty" type="number" min={0} className="input mono" defaultValue={0} inputMode="numeric" />
+        </Field>
+        <Field label="Unit price">
+          <input name="unit_price" className="input mono" placeholder="13.99" inputMode="decimal" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <MechField mechs={mechs} value={mech} />
+        <Field label="Sold in packs of" hint="Blank = sold each">
+          <input name="pack_size" className="input mono" placeholder="5" inputMode="numeric" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2 items-end">
+        <Field label="Bot">
+          <input name="bot" className="input" defaultValue={bot} list="bom-bots" placeholder="Comp bot" />
+          <datalist id="bom-bots">
+            {bots.map((b) => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
+        </Field>
+        <label className="flex items-center gap-2 text-sm pb-2">
+          <input type="checkbox" name="hardware" value="1" /> Hardware (bolts, nuts…)
+        </label>
+      </div>
+      <ErrorText error={a.error} />
+      <SubmitButton pending={a.pending} label="Add part" />
+    </form>
   );
 }
 
@@ -392,15 +480,13 @@ function EditLine({ l, mechs, onDone }: { l: BomLine; mechs: string[]; onDone: (
       <Field label="Vendor">
         <input name="vendor" className="input" defaultValue={l.vendor} placeholder="WCP, AndyMark, REV…" />
       </Field>
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Mechanism">
-          <input name="subsystem" className="input" defaultValue={l.subsystem} list="bom-mechs" placeholder="Intake, Shooter…" />
-          <datalist id="bom-mechs">
-            {mechs.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
+      {!l.onshape_key && (
+        <Field label="Qty needed" hint="Per robot set, before spares">
+          <input name="quantity" type="number" min={1} className="input mono" defaultValue={l.base} inputMode="numeric" />
         </Field>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <MechField mechs={mechs} value={l.subsystem} />
         <Field label="Spares" hint={`On top of ${l.base} for the robots`}>
           <input name="spare_qty" type="number" min={0} className="input mono" defaultValue={l.spare} inputMode="numeric" />
         </Field>
@@ -493,6 +579,9 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
             </option>
           ))}
         </select>
+        <button type="button" className="btn btn-ghost text-xs shrink-0" aria-label={`Edit ${l.name}`} onClick={onEdit}>
+          Edit
+        </button>
         <button type="button" className="btn btn-danger text-xs shrink-0" aria-label={`Delete ${l.name}`} onClick={onDelete}>
           Delete
         </button>

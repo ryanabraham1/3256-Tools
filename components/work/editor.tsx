@@ -8,6 +8,7 @@ import {
   type WorkData,
   type WorkItem,
   type WorkKind,
+  assignableMember,
 } from "@/lib/work";
 import { Icon, PriorityIcon, StatusIcon, statusLabel } from "./icons";
 import { PropertyPicker } from "./property-picker";
@@ -142,7 +143,7 @@ export function EntitySelect({
 }) {
   return <PropertyPicker disabled={disabled} value={value ?? ""} label={KIND_NAMES[kind]} onChange={onChange}
     icon={<Icon name={kind === "project" ? "projects" : kind} size={15} />}
-    options={[{ value: "", label: empty }, ...items.filter(i => i.kind === kind && !i.deleted_at && !i.archived && i.id !== exclude).map(i => ({ value: i.id, label: i.title }))]} />;
+    options={[{ value: "", label: empty }, ...items.filter(i => (kind === "member" ? assignableMember(i, value) : i.kind === kind && !i.deleted_at && !i.archived) && i.id !== exclude).map(i => ({ value: i.id, label: i.title }))]} />;
 }
 function IssueComposer({
   preset,
@@ -219,7 +220,7 @@ function IssueComposer({
       { value: "", label: empty },
       ...(kind === "member" && actor ? [{ value: actor, label: "Me" }] : []),
       ...items
-        .filter((i) => i.kind === kind && !i.archived && !i.deleted_at && !(kind === "member" && i.id === actor))
+        .filter((i) => (kind === "member" ? assignableMember(i, data[key]) && i.id !== actor : i.kind === kind && !i.archived && !i.deleted_at))
         .map((i) => ({ value: i.id, label: kind === "team" ? i.data.identifier || i.title : i.title })),
     ];
     const picked = options.find((o) => o.value === (data[key] ?? ""));

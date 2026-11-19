@@ -12,6 +12,7 @@ import {
   type WorkData,
   type WorkItem,
   type WorkKind,
+  assignableMember,
 } from "@/lib/work";
 import { useIssueMenu, type IssueActions } from "./issue-menu";
 import { MultiPicker, PropertyPicker } from "./property-picker";
@@ -131,7 +132,7 @@ export function useIssueLookup(items: WorkItem[]): IssueLookup {
       byId: new Map(items.map((i) => [i.id, i])),
       statusOptions: statuses.map((s) => ({ value: s, label: statusLabel(s), icon: <StatusIcon status={s} /> })),
       statusValue: new Map(statuses.map((s) => [s.toLowerCase(), s])),
-      memberOptions: [{ value: "", label: "Unassigned" }, ...live.filter((i) => i.kind === "member").map((m) => ({ value: m.id, label: m.title }))],
+      memberOptions: [{ value: "", label: "Unassigned" }, ...live.filter((i) => assignableMember(i)).map((m) => ({ value: m.id, label: m.title }))],
       today: today(),
     };
   }, [items]);

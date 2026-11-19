@@ -1,5 +1,5 @@
 "use client";
-import { PRIORITIES, STATUSES, uniqueStatuses, type WorkFilter, type WorkItem } from "@/lib/work";
+import { assignableMember, PRIORITIES, STATUSES, uniqueStatuses, type WorkFilter, type WorkItem } from "@/lib/work";
 import { EntitySelect, Field } from "./editor";
 import { Icon, StatusIcon, statusLabel } from "./icons";
 import { PropertyPicker } from "./property-picker";
@@ -37,7 +37,7 @@ export function IssueFilterFields({
               { value: "", label: "Everyone" },
               { value: "unassigned", label: "Unassigned" },
               ...items
-                .filter((i) => i.kind === "member" && !i.archived && !i.deleted_at)
+                .filter((i) => assignableMember(i, filter.assignee))
                 .map((m) => ({ value: m.id, label: m.title })),
             ]}
           />

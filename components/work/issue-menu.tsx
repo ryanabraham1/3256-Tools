@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { issueCode, PRIORITIES, STATUSES, uniqueStatuses, type WorkData, type WorkItem } from "@/lib/work";
+import { assignableMember, issueCode, PRIORITIES, STATUSES, uniqueStatuses, type WorkData, type WorkItem } from "@/lib/work";
 import { copyText, useContextMenu } from "../context-menu";
 import { Icon, StatusIcon, statusLabel } from "./icons";
 
@@ -62,7 +62,7 @@ export function useIssueMenu(items: WorkItem[], actions: IssueActions) {
   const run = (fn: () => void) => { setMenu(null); fn(); };
   const status = issue?.data.status ?? "Backlog";
   const labels = items.filter(i => i.kind === "label" && !i.archived && !i.deleted_at);
-  const members = items.filter(i => i.kind === "member" && !i.archived && !i.deleted_at);
+  const members = items.filter(i => assignableMember(i, issue?.data.assignee));
   const current = issue?.data.labels ?? [];
 
   let body: ReactNode = null;

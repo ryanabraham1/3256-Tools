@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
-import { filterIssues, isBlocked, type WorkData, type WorkFilter, type WorkItem } from "@/lib/work";
+import { assignableMember, filterIssues, isBlocked, type WorkData, type WorkFilter, type WorkItem } from "@/lib/work";
 import { Empty, IssueBoard, IssueList } from "./collections";
 import { IssueFilterFields, type FilterKey } from "./filter-fields";
 import { Icon, statusLabel } from "./icons";
@@ -103,7 +103,7 @@ export function IssueBrowser({
   // A new task starts inside whatever is being looked at: the filtered team and project, plus the group it was added to.
   const create = (preset: WorkData = {}) =>
     onCreate({ ...(filter.team ? { team: filter.team } : {}), ...(filter.project ? { project: filter.project } : {}), ...preset });
-  const members = items.filter((i) => i.kind === "member" && !i.archived && !i.deleted_at);
+  const members = items.filter((i) => assignableMember(i));
 
   return (
     <div className="work-issue-browser" data-embedded={embedded}>

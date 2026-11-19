@@ -2497,5 +2497,5 @@ button.work-project-emblem:hover { background:var(--purple-soft); }
 .work-compose-picker .work-property-button:hover { background:var(--surface); }
 .work-compose-picker[data-empty=true] .work-property-button { color:var(--muted); }
 .work-compose-picker .work-picker-chevron { display:none; }
-.work-kbd-hint { margin-left:8px; padding:1px 5px; border-radius:4px; background:#fff3; font:inherit; font-size:11.5px; opacity:.85; }
+.work-shell .work-kbd-hint, .work-kbd-hint { margin-left:8px; padding:1px 6px; border:1px solid #fff9; border-radius:4px; background:#ffffff26; color:#fff; font:inherit; font-size:12px; font-weight:600; }
 @media (max-width: 640px) { .work-kbd-hint { display:none; } .work-quick-add { min-height:44px; } }

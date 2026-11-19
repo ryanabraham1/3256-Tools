@@ -104,7 +104,13 @@ export type WorkItem = {
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Members only, set when the workspace loads: their access was removed or disabled in Admin. Not stored. */
+  inactive?: boolean;
 };
+/** People who can be picked as an assignee or lead. Removed/disabled people keep their member row so old tasks still show their name. */
+export function assignableMember(i: WorkItem, keep?: string) {
+  return i.kind === "member" && !i.archived && !i.deleted_at && (!i.inactive || i.id === keep);
+}
 export type WorkEvent = {
   id: string;
   item_id: string;

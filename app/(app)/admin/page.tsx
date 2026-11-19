@@ -13,10 +13,13 @@ export default async function AdminPage() {
   return (
     <div className="max-w-4xl mx-auto">
       <Link href="/" className="text-sm inline-flex min-h-11 items-center" style={{ color: "var(--muted)" }}>← Home</Link>
-      <p className="eyebrow mt-3" style={{ color: "var(--muted)" }}>Team administration</p>
-      <h1 className="display text-3xl sm:text-4xl mt-1">People &amp; access</h1>
-      <p className="text-sm mt-3 mb-6 max-w-xl" style={{ color: "var(--muted)" }}>Manage who can use 3256 Tools and what they can change. These permissions apply across all team tools.</p>
-      <section className="card p-4 sm:p-6" aria-label="Manage team accounts">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mt-1 mb-3">
+        <h1 className="display text-2xl sm:text-3xl">People &amp; access</h1>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          Admins manage access · Members edit · Viewers read · People sign in with their own Google account
+        </p>
+      </div>
+      <section className="card p-0 overflow-hidden" aria-label="Manage team accounts">
         <AccessPanel accounts={accounts} currentEmail={user.email} />
       </section>
     </div>

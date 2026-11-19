@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, type MouseEvent } from "react";
 import { copyText, useContextMenu, type MenuEntry } from "../context-menu";
-import { issueCode, KIND_NAMES, uniqueStatuses, type WorkData, type WorkItem, type WorkKind } from "@/lib/work";
+import { assignableMember, issueCode, KIND_NAMES, uniqueStatuses, type WorkData, type WorkItem, type WorkKind } from "@/lib/work";
 import { statusLabel } from "./icons";
 
 export function itemRoute(item: WorkItem) {
@@ -51,7 +51,7 @@ export function useItemMenu(items: WorkItem[], a: ItemActions) {
     }
 
     const favorite = !!a.actor && !!item.data.favorites?.includes(a.actor);
-    const members = items.filter(i => i.kind === "member" && !i.archived && !i.deleted_at);
+    const members = items.filter(i => assignableMember(i, item.data.assignee));
     const planned = ["project", "initiative"].includes(item.kind);
     const out: MenuEntry[] = [
       item.kind === "view" ? { label: "Apply view", icon: "→", onSelect: () => a.onOpen(item) } : { label: `Open ${name}`, icon: "→", onSelect: () => a.onOpen(item) },

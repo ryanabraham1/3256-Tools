@@ -42,7 +42,7 @@ export async function getWork(full = false): Promise<WorkSnapshot> {
   try {
     const db = supabaseAdmin();
     // Recurring-task upkeep runs alongside the reads; anything it creates shows on the next refresh.
-    const [maintenance, items, events, receipts, robot] = await Promise.all([
+    const [maintenance, items, events, receipts, robot, access] = await Promise.all([
       db.rpc("advance_work"),
       collect<WorkSnapshot["items"][number]>((from, to) =>
         db.from("work_items").select("*").order("number").range(from, to),
@@ -66,8 +66,14 @@ export async function getWork(full = false): Promise<WorkSnapshot> {
           .range(from, to),
       ),
       robotIssues(),
+      db.from("work_access").select("member_id,disabled"),
     ]);
     if (maintenance.error) throw maintenance.error;
+    // People removed or disabled in Admin keep their member row (old tasks still name them) but can't be assigned new work.
+    if (!access.error && access.data) {
+      const active = new Set(access.data.filter((a) => !a.disabled && a.member_id).map((a) => a.member_id as string));
+      for (const i of items) if (i.kind === "member" && !active.has(i.id)) i.inactive = true;
+    }
     const snapshot = { now: new Date().toISOString(), items, events, receipts, ...robot };
     return full ? snapshot : compactWorkSnapshot(snapshot);
   } catch (e) {

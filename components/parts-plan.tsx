@@ -47,7 +47,7 @@ export interface SparePart {
 interface Group {
   material: FabMaterial;
   parts: PlanPart[];
-  sheet?: { plans: SheetPlan[]; tooBig: { id: string; name: string }[]; skippedCutouts: number; machine: FabMachine | null; gap: number };
+  sheet?: { plans: SheetPlan[]; tooBig: { id: string; name: string }[]; skippedCutouts: number; machine: FabMachine | null; gap: number; margin: number };
   stick?: { plans: StickPlan[]; tooBig: { id: string; name: string }[] };
   /** new stock to buy */
   buy: number;
@@ -117,6 +117,8 @@ export function PartsPlan({
       if (isSheet(material)) {
         const machine = machineId ? (machineById.get(machineId) ?? null) : null;
         const g = gap + (machine?.tool_diameter_mm ?? 0);
+        // the router needs an edge clear for clamps; a laser doesn't
+        const edge = Math.max(margin, machine?.workhold_mm ?? 0);
         const items = ps.flatMap((p) => {
           const w = p.geometry?.width ?? p.width;
           const h = p.geometry?.height ?? p.length;
@@ -130,7 +132,7 @@ export function PartsPlan({
           clean.map((s) => ({ pieceId: s.id, w: s.width_mm!, l: s.length_mm, zones: s.dead_zones.map(zoneToNest) })),
           {
             gap: g,
-            margin,
+            margin: edge,
             bed: machine?.bed_w_mm && machine.bed_l_mm ? { w: machine.bed_w_mm, l: machine.bed_l_mm } : null,
             full: material.full_width_mm && material.full_length_mm ? { w: material.full_width_mm, l: material.full_length_mm } : null,
           },
@@ -139,7 +141,7 @@ export function PartsPlan({
         out.push({
           material,
           parts: ps,
-          sheet: { plans: res.sheets, tooBig: res.tooBig, skippedCutouts: stock.length - clean.length, machine, gap: g },
+          sheet: { plans: res.sheets, tooBig: res.tooBig, skippedCutouts: stock.length - clean.length, machine, gap: g, margin: edge },
           buy: res.sheets.filter((s) => s.pieceId === null).length,
         });
       } else {
@@ -254,7 +256,6 @@ export function PartsPlan({
           where={where}
           project={project}
           designName={designName}
-          margin={margin}
           onSkip={(id) => setSkip((s) => toggle(s, id))}
         />
       ))}
@@ -410,7 +411,6 @@ function MaterialGroup({
   where,
   project,
   designName,
-  margin,
   onSkip,
 }: {
   g: Group;
@@ -418,7 +418,6 @@ function MaterialGroup({
   where: Map<string, string>;
   project: string;
   designName: Map<string, string>;
-  margin: number;
   onSkip: (id: string) => void;
 }) {
   const m = g.material;
@@ -488,7 +487,7 @@ function MaterialGroup({
 
       <div className={g.sheet ? "grid gap-3 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col gap-2"}>
         {g.sheet?.plans.map((s, i) => (
-          <SheetCard key={i} m={m} s={s} n={i + 1} geomById={geomById} units={units} where={where} project={project} margin={margin} gap={g.sheet!.gap} />
+          <SheetCard key={i} m={m} s={s} n={i + 1} geomById={geomById} units={units} where={where} project={project} margin={g.sheet!.margin} gap={g.sheet!.gap} />
         ))}
         {g.stick?.plans.map((s, i) => (
           <StickCard key={i} m={m} s={s} units={units} where={where} project={project} />

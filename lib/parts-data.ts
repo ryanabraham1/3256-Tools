@@ -47,6 +47,7 @@ export function toMachine(r: Record<string, unknown>): FabMachine {
     min_web_mm: N(r.min_web_mm),
     max_length_mm: N(r.max_length_mm),
     max_diameter_mm: N(r.max_diameter_mm),
+    workhold_mm: N(r.workhold_mm),
     thickness_limits: (r.thickness_limits as string) ?? "",
   };
 }

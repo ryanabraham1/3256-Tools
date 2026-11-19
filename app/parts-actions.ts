@@ -910,7 +910,7 @@ async function takeFromRack(part: FabPart, count: number): Promise<string> {
     const res = nestSheets(
       Array.from({ length: count }, () => ({ id: part.id, name: part.name, w, h })),
       pieces.filter((p) => p.width_mm).map((p) => ({ pieceId: p.id, w: p.width_mm!, l: p.length_mm, zones: p.dead_zones.map(zoneToNest) })),
-      { gap, margin: settings.nest_margin_mm, bed: best?.bed_w_mm && best.bed_l_mm ? { w: best.bed_w_mm, l: best.bed_l_mm } : null, full: null },
+      { gap, margin: Math.max(settings.nest_margin_mm, best?.workhold_mm ?? 0), bed: best?.bed_w_mm && best.bed_l_mm ? { w: best.bed_w_mm, l: best.bed_l_mm } : null, full: null },
     );
     for (const sheet of res.sheets) {
       await cutPlannedSheet(sheet.pieceId!, sheet, gap, project);
@@ -1247,6 +1247,7 @@ export async function saveMachine(fd: FormData): Promise<FabResult> {
       min_web_mm: pos("min_web_mm"),
       max_length_mm: pos("max_length_mm"),
       max_diameter_mm: pos("max_diameter_mm"),
+      ...(fd.has("workhold_mm") ? { workhold_mm: pos("workhold_mm") } : {}),
       materials: str(fd, "materials"),
       notes: str(fd, "notes"),
       // the form sends a hidden "0" plus the checkbox's "1" when ticked
@@ -1254,7 +1255,15 @@ export async function saveMachine(fd: FormData): Promise<FabResult> {
     };
     // bed stored short side first
     if (row.bed_w_mm && row.bed_l_mm && row.bed_w_mm > row.bed_l_mm) [row.bed_w_mm, row.bed_l_mm] = [row.bed_l_mm, row.bed_w_mm];
-    const { error } = id ? await db().from("fab_machines").update(row).eq("id", id) : await db().from("fab_machines").insert(row);
+    const write = (r: Record<string, unknown>) => (id ? db().from("fab_machines").update(r).eq("id", id) : db().from("fab_machines").insert(r));
+    let { error } = await write(row);
+    if (error && /workhold/.test(error.message)) {
+      // before the migration: save the rest, and only complain if a workholding edge was entered
+      if ((row as { workhold_mm?: number | null }).workhold_mm) throw new Error("Run supabase/migrations/20261119170000_machine_workholding.sql first, then try again");
+      const { workhold_mm: _skip, ...rest } = row as Record<string, unknown>;
+      void _skip;
+      ({ error } = await write(rest));
+    }
     if (error) throw error;
   });
 }

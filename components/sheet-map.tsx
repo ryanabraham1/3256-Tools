@@ -32,6 +32,8 @@ export function SheetMap({
   locked = [],
   onChange,
   units,
+  backdrop,
+  areas = [],
 }: {
   length: number;
   width: number;
@@ -39,6 +41,10 @@ export function SheetMap({
   locked?: Zone[];
   onChange: (z: Zone[]) => void;
   units: Units;
+  /** a straightened photo of the sheet, drawn under the map */
+  backdrop?: string | null;
+  /** what each machine can reach on this sheet (bed size, workholding edge), outlined */
+  areas?: { name: string; zone: Zone }[];
 }) {
   const hatch = useId().replace(/:/g, "");
   const svg = useRef<SVGSVGElement>(null);
@@ -132,6 +138,7 @@ export function SheetMap({
           <Hatch id={`${hatch}-old`} color="var(--muted)" />
         </defs>
         <rect x={0} y={0} width={L} height={W} fill="var(--surface)" stroke="var(--ink)" strokeWidth={px * 1.5} />
+        {backdrop && <image href={backdrop} x={0} y={0} width={L} height={W} preserveAspectRatio="none" opacity={0.9} pointerEvents="none" />}
         {Array.from({ length: Math.floor(L / g) }, (_, i) => (
           <line key={`gx${i}`} x1={(i + 1) * g} y1={0} x2={(i + 1) * g} y2={W} stroke="var(--line)" strokeWidth={px * 0.6} />
         ))}
@@ -151,6 +158,14 @@ export function SheetMap({
             pointerEvents="none"
           />
         )}
+        {areas.map((a, i) => (
+          <g key={`a${i}`} pointerEvents="none">
+            <rect x={a.zone.x} y={a.zone.y} width={a.zone.w} height={a.zone.h} fill="none" stroke="var(--purple)" strokeWidth={px * 1.4} strokeDasharray={`${px * 6} ${px * 3}`} />
+            <text x={a.zone.x + px * 4} y={a.zone.y + a.zone.h - px * 4} fontSize={px * 11} fill="var(--purple)" fontWeight={600}>
+              {a.name}
+            </text>
+          </g>
+        ))}
         {locked.map((z, i) => (
           <rect key={`l${i}`} x={z.x} y={z.y} width={z.w} height={z.h} fill={`url(#${hatch}-old)`} stroke="var(--muted)" strokeWidth={px} pointerEvents="none" />
         ))}

@@ -251,6 +251,8 @@ export interface FabMachine {
   min_web_mm: number | null;
   max_length_mm: number | null;
   max_diameter_mm: number | null;
+  /** edge kept clear for workholding (clamps, screws), mm; null = none */
+  workhold_mm: number | null;
   materials: string;
   active: boolean;
   notes: string;
@@ -270,9 +272,9 @@ export function thicknessLimit(m: Pick<FabMachine, "max_thickness_mm" | "thickne
 
 /** Which machine fields matter for each process (drives the Machines form and the checks). */
 export const PROCESS_FIELDS: Record<MachineProcess, (keyof FabMachine)[]> = {
-  router: ["bed_w_mm", "bed_l_mm", "max_thickness_mm", "tool_diameter_mm", "min_hole_mm", "min_web_mm"],
-  laser: ["bed_w_mm", "bed_l_mm", "max_thickness_mm", "tool_diameter_mm", "min_hole_mm", "min_web_mm"],
-  waterjet: ["bed_w_mm", "bed_l_mm", "max_thickness_mm", "tool_diameter_mm", "min_hole_mm", "min_web_mm"],
+  router: ["bed_w_mm", "bed_l_mm", "workhold_mm", "max_thickness_mm", "tool_diameter_mm", "min_hole_mm", "min_web_mm"],
+  laser: ["bed_w_mm", "bed_l_mm", "workhold_mm", "max_thickness_mm", "tool_diameter_mm", "min_hole_mm", "min_web_mm"],
+  waterjet: ["bed_w_mm", "bed_l_mm", "workhold_mm", "max_thickness_mm", "tool_diameter_mm", "min_hole_mm", "min_web_mm"],
   mill: ["bed_w_mm", "bed_l_mm", "max_thickness_mm"],
   lathe: ["max_length_mm", "max_diameter_mm"],
   saw: ["max_length_mm"],
@@ -287,7 +289,24 @@ export const MACHINE_FIELD_LABEL: Partial<Record<keyof FabMachine, (p: MachinePr
   min_web_mm: () => "Thinnest web",
   max_length_mm: (p) => (p === "lathe" ? "Between centres" : "Longest stock"),
   max_diameter_mm: () => "Swing (max diameter)",
+  workhold_mm: () => "Workholding edge",
 };
+
+/** Sheet-cutting machines. */
+export const SHEET_PROCESSES: MachineProcess[] = ["router", "laser", "waterjet"];
+
+/**
+ * How much of a sheet a machine can cut in one setup: the bed's size (lined up
+ * with the sheet's long side), less the edge kept clear for workholding.
+ */
+export function usableOn(m: Pick<FabMachine, "bed_w_mm" | "bed_l_mm" | "workhold_mm">, sheet: { w: number; l: number }, margin = 0) {
+  const w0 = Math.min(sheet.w, sheet.l);
+  const l0 = Math.max(sheet.w, sheet.l);
+  const w = m.bed_w_mm ? Math.min(w0, m.bed_w_mm) : w0;
+  const l = m.bed_l_mm ? Math.min(l0, m.bed_l_mm) : l0;
+  const edge = Math.max(margin, m.workhold_mm ?? 0);
+  return { w: Math.max(0, w - 2 * edge), l: Math.max(0, l - 2 * edge), bedLimited: w < w0 || l < l0, edge };
+}
 
 export interface PartsSettings {
   onshape_process_prop: string;

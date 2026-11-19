@@ -28,6 +28,8 @@ import { fmtDate, fmtDateTime } from "@/lib/format";
 import { fmtLength, fmtRect, type Units } from "@/lib/units";
 import { Sheet } from "./sheet";
 import { SheetMap, SheetThumb } from "./sheet-map";
+import { SheetPhoto } from "./sheet-photo";
+import { SHEET_PROCESSES, thicknessLimit, usableOn, type FabMachine } from "@/lib/parts";
 import { Empty } from "./ui";
 import { UndoButton } from "./fab-undo";
 import { ErrorText, Field, LengthInput, RectInput, SubmitButton, UnitsToggle, useFabAction } from "./fab-ui";
@@ -46,6 +48,8 @@ export function FabMaterialDetail({
   events,
   settings,
   units,
+  machines = [],
+  margin = 0,
 }: {
   material: FabMaterial;
   pieces: FabPiece[];
@@ -54,6 +58,9 @@ export function FabMaterialDetail({
   events: FabEvent[];
   settings: FabSettings;
   units: Units;
+  machines?: FabMachine[];
+  /** the cut plan's edge margin on every sheet, mm */
+  margin?: number;
 }) {
   const [open, setOpen] = useState<Open>(null);
   const close = () => setOpen(null);
@@ -293,7 +300,7 @@ export function FabMaterialDetail({
         {open?.kind === "move" && <MoveForm piece={open.piece} locations={locations} onDone={close} />}
       </Sheet>
       <Sheet open={open?.kind === "edit"} onClose={close} eyebrow={open && "piece" in open ? fmtPiece(m, open.piece, units) : ""} title="Edit piece">
-        {open?.kind === "edit" && <EditForm m={m} piece={open.piece} units={units} onDone={close} />}
+        {open?.kind === "edit" && <EditForm m={m} piece={open.piece} units={units} machines={machines} margin={margin} onDone={close} />}
       </Sheet>
     </>
   );
@@ -570,10 +577,33 @@ function MoveForm({ piece, locations, onDone }: { piece: FabPiece; locations: Fa
   );
 }
 
-function EditForm({ m, piece, units, onDone }: { m: FabMaterial; piece: FabPiece; units: Units; onDone: () => void }) {
+/** Active sheet machines that can cut this material (its list of materials, its thickness limit). */
+function sheetMachines(m: FabMaterial, machines: FabMachine[]): FabMachine[] {
+  const mat = m.material.toLowerCase();
+  return machines.filter((x) => {
+    if (!x.active || !SHEET_PROCESSES.includes(x.process)) return false;
+    const allowed = x.materials
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (allowed.length && !allowed.some((a) => mat.includes(a))) return false;
+    const lim = thicknessLimit(x, m.material);
+    return !(lim.mm !== null && m.wall_mm !== null && m.wall_mm > lim.mm + 0.01);
+  });
+}
+
+function EditForm({ m, piece, units, machines, margin, onDone }: { m: FabMaterial; piece: FabPiece; units: Units; machines: FabMachine[]; margin: number; onDone: () => void }) {
   const a = useFabAction(editPiece, onDone);
   const [zones, setZones] = useState<Zone[]>(piece.dead_zones);
   const [size, setSize] = useState<{ w: number | null; l: number | null }>({ w: piece.width_mm, l: piece.length_mm });
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const [backdrop, setBackdrop] = useState<string | null>(null);
+  const [showOn, setShowOn] = useState<string | null>(null);
+  const cutters = isSheet(m) ? sheetMachines(m, machines) : [];
+  const L = Math.max(size.w ?? 0, size.l ?? 0);
+  const W = Math.min(size.w ?? 0, size.l ?? 0);
+  const reach = cutters.map((x) => ({ x, u: usableOn(x, { w: W, l: L }, margin) }));
+  const shown = reach.find((r) => r.x.id === showOn);
   const scrap = useFabAction(scrapPiece, onDone);
   return (
     <div className="flex flex-col gap-5">
@@ -587,7 +617,73 @@ function EditForm({ m, piece, units, onDone }: { m: FabMaterial; piece: FabPiece
               <div>
                 <span className="label">Unusable areas</span>
                 {/* Sheets are kept width ≤ length; draw the way they'll be saved. */}
-                <SheetMap length={Math.max(size.w, size.l)} width={Math.min(size.w, size.l)} zones={zones} onChange={setZones} units={units} />
+                <SheetMap
+                  length={L}
+                  width={W}
+                  zones={zones}
+                  onChange={setZones}
+                  units={units}
+                  backdrop={backdrop}
+                  areas={shown ? [{ name: shown.x.name, zone: { x: shown.u.edge, y: shown.u.edge, w: shown.u.l, h: shown.u.w } }] : []}
+                />
+                {photoOpen ? (
+                  <div className="mt-2">
+                    <SheetPhoto
+                      length={L}
+                      width={W}
+                      onCancel={() => setPhotoOpen(false)}
+                      onApply={(found, url, replace) => {
+                        setZones(replace ? found : [...zones, ...found]);
+                        setBackdrop(url);
+                        setPhotoOpen(false);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <button type="button" className="text-xs underline mt-1" style={{ color: "var(--purple)" }} onClick={() => setPhotoOpen(true)}>
+                    📷 Mark from a photo
+                  </button>
+                )}
+              </div>
+            ) : null}
+            {size.w && size.l && reach.length > 0 ? (
+              <div>
+                <span className="label">What each machine can use</span>
+                <ul className="flex flex-col gap-1 text-sm">
+                  {reach.map(({ x, u }) => (
+                    <li key={x.id}>
+                      <button
+                        type="button"
+                        className="w-full flex flex-wrap items-baseline gap-x-2 text-left rounded px-1 -mx-1"
+                        style={{ background: showOn === x.id ? "var(--purple-soft)" : undefined }}
+                        onClick={() => setShowOn(showOn === x.id ? null : x.id)}
+                        aria-pressed={showOn === x.id}
+                      >
+                        <span className="font-medium">{x.name}</span>
+                        <span className="mono">{fmtRect(u.w, u.l, units)}</span>
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>
+                          {[
+                            u.bedLimited && x.bed_w_mm && x.bed_l_mm && `bed is ${fmtRect(x.bed_w_mm, x.bed_l_mm, units)}`,
+                            u.edge > 0 && `${fmtLength(u.edge, units)} edge ${x.workhold_mm && x.workhold_mm >= margin ? "for workholding" : "margin"}`,
+                            !x.bed_w_mm && "bed size not set",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                        <span className="text-xs ml-auto" style={{ color: "var(--purple)" }}>
+                          {showOn === x.id ? "hide" : "show"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+                  Bed sizes and workholding edges are set on{" "}
+                  <Link href="/tracker/machines" className="underline">
+                    Machines
+                  </Link>
+                  .
+                </p>
               </div>
             ) : null}
             <label className="flex items-center gap-3 text-sm">

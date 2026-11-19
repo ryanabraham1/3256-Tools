@@ -12,6 +12,7 @@ const HINT: Partial<Record<keyof FabMachine, string>> = {
   tool_diameter_mm: "Router: the end mill you cut plate with. Sets the smallest inside radius and narrowest slot.",
   min_hole_mm: "Smaller holes get flagged (router: defaults to the bit).",
   min_web_mm: "Thinner strips of material get flagged.",
+  workhold_mm: "Edge kept clear for clamps or screws. The cut plan keeps parts out of it. Blank = none.",
 };
 
 export function PartsMachines({ machines, settings, units }: { machines: FabMachine[]; settings: PartsSettings; units: Units }) {

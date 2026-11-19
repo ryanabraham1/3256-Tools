@@ -39,7 +39,7 @@ export function AccessPanel({
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return accounts
-      .filter((a) => !q || a.email.toLowerCase().includes(q))
+      .filter((a) => !q || a.email.toLowerCase().includes(q) || a.name?.toLowerCase().includes(q))
       .sort((a, b) =>
         Number(a.disabled) - Number(b.disabled) ||
         ROLE_ORDER[a.role] - ROLE_ORDER[b.role] ||
@@ -138,7 +138,9 @@ export function AccessPanel({
               className={`flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1.5 px-3 py-2 sm:py-1.5 border-b border-[var(--line)] last:border-b-0 hover:bg-[color-mix(in_srgb,var(--line)_30%,transparent)] ${a.disabled ? "opacity-60" : ""}`}
             >
               <div className="min-w-0 flex-1 basis-full sm:basis-auto flex items-center gap-2">
-                <span className="text-sm truncate" title={a.email}>{a.email}</span>
+                <span className="min-w-0 truncate text-sm" title={a.email}>
+                  {a.name ? <>{a.name} <span className="text-[var(--muted)]">{a.email}</span></> : a.email}
+                </span>
                 {self && <span className="text-xs text-[var(--muted)] shrink-0">(you)</span>}
                 {status && (
                   <span className="text-[11px] leading-none px-1.5 py-1 rounded border border-[var(--line)] text-[var(--muted)] shrink-0">

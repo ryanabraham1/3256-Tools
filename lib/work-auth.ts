@@ -18,6 +18,8 @@ export type WorkAccess = {
   disabled: boolean;
   user_id: string | null;
   member_id: string | null;
+  /** The member's display name, when they have a member row. */
+  name?: string;
 };
 export async function workAuthClient() {
   const jar = await cookies();
@@ -95,5 +97,13 @@ export async function getWorkAccess(): Promise<WorkAccess[]> {
     .select("email,role,disabled,user_id,member_id")
     .order("email");
   if (error) throw error;
-  return data ?? [];
+  const ids = (data ?? []).map((a) => a.member_id).filter(Boolean) as string[];
+  const { data: members } = ids.length
+    ? await supabaseAdmin().from("work_items").select("id,title").in("id", ids)
+    : { data: [] as { id: string; title: string }[] };
+  const names = new Map((members ?? []).map((m) => [m.id, m.title]));
+  return (data ?? []).map((a) => {
+    const name = a.member_id ? names.get(a.member_id) : undefined;
+    return name && name.toLowerCase() !== a.email.toLowerCase() ? { ...a, name } : a;
+  });
 }

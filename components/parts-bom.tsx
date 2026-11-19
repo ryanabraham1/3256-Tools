@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { findCotsLinks, setCotsStatus, updatePart } from "@/app/parts-actions";
-import { COTS_LABEL, COTS_STATUSES, COTS_TONE, KIND_LABEL, PART_KINDS, type CotsStatus } from "@/lib/parts";
+import { findCotsLinks, setCotsStatus, setPartsSubsystem, setSpares, updatePart } from "@/app/parts-actions";
+import { COTS_LABEL, COTS_STATUSES, COTS_TONE, KIND_LABEL, multiplierOf, PART_KINDS, SPARE_LABEL, SPARE_MODES, type CotsStatus, type SpareMode } from "@/lib/parts";
 import { Empty } from "./ui";
 import { DeletePartSheet } from "./delete-part-sheet";
 import { Sheet } from "./sheet";
@@ -39,6 +39,11 @@ export interface BomLine {
   description: string;
   /** across every robot the design is for, plus spares */
   need: number;
+  /** across every robot the design is for, without spares */
+  base: number;
+  spare: number;
+  /** the mechanism it's for ("" = not filed) */
+  subsystem: string;
   design: string;
   bot: string;
   vendor: string;
@@ -52,9 +57,17 @@ export interface BomLine {
 
 type Filter = "open" | "all" | CotsStatus;
 
-export function PartsBom({ lines }: { lines: BomLine[] }) {
+const NO_MECH = "No mechanism";
+const MULTS = [
+  { m: 1, mode: "none", label: "1×" },
+  { m: 1.5, mode: "half", label: "1.5×" },
+  { m: 2, mode: "double", label: "2×" },
+] as const;
+
+export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: string[] }) {
   const [filter, setFilter] = useState<Filter>("open");
   const [bot, setBot] = useState("");
+  const [mech, setMech] = useState("");
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
@@ -64,19 +77,34 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
   const find = useFabAction(findCotsLinks, (n) => setFindNote(n ?? null));
   const missing = lines.filter((l) => !l.url || l.unit_price === null).length;
   const bulk = useFabAction(setCotsStatus, () => setPicked(new Set()));
+  const bulkSpares = useFabAction(setSpares, () => setPicked(new Set()));
+  const bulkMove = useFabAction(setPartsSubsystem, () => setPicked(new Set()));
+  const [newMech, setNewMech] = useState<string | null>(null);
   const bots = useMemo(() => [...new Set(lines.map((l) => l.bot).filter(Boolean))].sort(), [lines]);
+  /** The team's mechanisms in order, then any other names lines are filed under. */
+  const mechs = useMemo(() => {
+    const out = [...subsystems];
+    for (const l of lines) if (l.subsystem && !out.some((s) => s.toLowerCase() === l.subsystem.toLowerCase())) out.push(l.subsystem);
+    return out;
+  }, [lines, subsystems]);
+  const mechOf = (l: BomLine) => mechs.find((s) => s.toLowerCase() === l.subsystem.toLowerCase()) ?? NO_MECH;
 
-  const base = lines.filter(
-    (l) => (!bot || l.bot === bot) && (!q || `${l.name} ${l.part_number} ${l.vendor} ${l.description}`.toLowerCase().includes(q.toLowerCase())),
+  const byBot = lines.filter((l) => !bot || l.bot === bot);
+  const base = byBot.filter(
+    (l) => (!mech || mechOf(l) === mech) && (!q || `${l.name} ${l.part_number} ${l.vendor} ${l.description} ${l.subsystem}`.toLowerCase().includes(q.toLowerCase())),
   );
   const count = (f: Filter) => base.filter((l) => (f === "all" ? true : f === "open" ? l.status !== "have" : l.status === f)).length;
   const shown = base
     .filter((l) => (filter === "all" ? true : filter === "open" ? l.status !== "have" : l.status === filter))
-    .sort((a, b) => COTS_STATUSES.indexOf(a.status) - COTS_STATUSES.indexOf(b.status) || a.vendor.localeCompare(b.vendor) || a.name.localeCompare(b.name));
-  const sections: [string, BomLine[]][] = [
-    ["Parts", shown.filter((l) => !l.hardware)],
-    ["Hardware", shown.filter((l) => l.hardware)],
-  ];
+    .sort(
+      (a, b) =>
+        Number(a.hardware) - Number(b.hardware) ||
+        COTS_STATUSES.indexOf(a.status) - COTS_STATUSES.indexOf(b.status) ||
+        a.vendor.localeCompare(b.vendor) ||
+        a.name.localeCompare(b.name),
+    );
+  // one section per mechanism, in the team's order; lines not filed anywhere last
+  const sections: [string, BomLine[]][] = [...mechs, NO_MECH].map((m) => [m, shown.filter((l) => mechOf(l) === m)] as [string, BomLine[]]).filter(([, rows]) => rows.length);
 
   const flash = (what: string) => {
     setCopied(what);
@@ -143,6 +171,16 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
             ))}
           </select>
         )}
+        {mechs.length > 0 && (
+          <select className="input w-auto" value={mech} onChange={(e) => setMech(e.target.value)} aria-label="Mechanism">
+            <option value="">All mechanisms</option>
+            {[...mechs, NO_MECH]
+              .filter((m) => byBot.some((l) => mechOf(l) === m))
+              .map((m) => (
+                <option key={m}>{m}</option>
+              ))}
+          </select>
+        )}
         <input className="input flex-1 min-w-40" placeholder="Search parts, vendors…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the BOM" />
         <button type="button" className="btn btn-ghost text-sm" onClick={copyList} disabled={!count("needed")}>
           {copied === "list" ? "Copied ✓" : `Copy buy list (${count("needed")})`}
@@ -183,7 +221,60 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
           <button type="button" className="text-sm underline ml-auto" onClick={() => setPicked(new Set())}>
             clear
           </button>
-          <ErrorText error={bulk.error} />
+          <div className="w-full flex flex-wrap items-center gap-2">
+            <span style={{ color: "var(--muted)" }}>Spares:</span>
+            {SPARE_MODES.map((m: SpareMode) => (
+              <button
+                key={m}
+                type="button"
+                className="btn btn-ghost text-sm"
+                disabled={bulkSpares.pending}
+                title={m === "half" ? "Order 1.5× what the robots need" : m === "double" ? "Order 2× what the robots need" : undefined}
+                onClick={() => bulkSpares.call({ ids: [...picked].join(","), mode: m })}
+              >
+                {SPARE_LABEL[m]}
+              </button>
+            ))}
+            {newMech === null ? (
+              <select
+                className="input py-1 text-sm w-auto ml-auto"
+                value=""
+                disabled={bulkMove.pending}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__new__") setNewMech("");
+                  else if (v) bulkMove.call({ ids: [...picked].join(","), subsystem: v === NO_MECH ? "" : v });
+                }}
+                aria-label="Move picked lines to a mechanism"
+              >
+                <option value="">Move to mechanism…</option>
+                {mechs.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+                <option value={NO_MECH}>No mechanism</option>
+                <option value={"__new__"}>+ New mechanism…</option>
+              </select>
+            ) : (
+              <form
+                className="flex gap-2 ml-auto"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newMech.trim()) return;
+                  bulkMove.call({ ids: [...picked].join(","), subsystem: newMech.trim() });
+                  setNewMech(null);
+                }}
+              >
+                <input className="input py-1 text-sm w-44" autoFocus placeholder="Mechanism name" value={newMech} onChange={(e) => setNewMech(e.target.value)} aria-label="New mechanism name" />
+                <button type="submit" className="btn btn-primary text-sm" disabled={!newMech.trim()}>
+                  Move
+                </button>
+                <button type="button" className="text-sm underline" onClick={() => setNewMech(null)}>
+                  cancel
+                </button>
+              </form>
+            )}
+          </div>
+          <ErrorText error={bulk.error ?? bulkSpares.error ?? bulkMove.error} />
         </div>
       )}
 
@@ -192,9 +283,7 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
       {sections.map(([title, rows]) =>
         rows.length ? (
           <section key={title}>
-            <h2 className="eyebrow mb-2" style={{ color: "var(--muted)" }}>
-              {title} <span className="mono">{rows.length}</span>
-            </h2>
+            <MechHead title={title} rows={rows} all={byBot.filter((l) => mechOf(l) === title)} />
             <ul className="card divide-y" style={{ borderColor: "var(--line)" }}>
               {rows.map((l) => (
                 <Row
@@ -219,7 +308,7 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
       )}
 
       <Sheet open={!!editing} onClose={() => setEditing(null)} eyebrow="COTS" title={editing?.name ?? ""}>
-        {editing && <EditLine key={editing.id} l={editing} onDone={() => setEditing(null)} />}
+        {editing && <EditLine key={editing.id} l={editing} mechs={mechs} onDone={() => setEditing(null)} />}
       </Sheet>
       {deleting && (
         <DeletePartSheet
@@ -232,7 +321,53 @@ export function PartsBom({ lines }: { lines: BomLine[] }) {
   );
 }
 
-function EditLine({ l, onDone }: { l: BomLine; onDone: () => void }) {
+/**
+ * A mechanism's heading, with how much of it to order: 1×, 1.5× or 2× what the
+ * robots need (the extra goes on as spares, for every line in the mechanism).
+ */
+function MechHead({ title, rows, all }: { title: string; rows: BomLine[]; all: BomLine[] }) {
+  const a = useFabAction(setSpares);
+  const [want, setWant] = useState<number | null>(null);
+  // shows the pick at once; the saved spares take over when the page refreshes
+  const at = a.pending ? want : multiplierOf(all);
+  const parts = rows.filter((l) => !l.hardware).length;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2">
+      <h2 className="eyebrow" style={{ color: "var(--muted)" }}>
+        {title} <span className="mono">{rows.length}</span>
+        {parts > 0 && parts < rows.length && (
+          <span className="normal-case tracking-normal">
+            {" "}
+            · {parts} part{parts === 1 ? "" : "s"}, {rows.length - parts} hardware
+          </span>
+        )}
+      </h2>
+      <span className="ml-auto flex items-center gap-1 text-xs" title={`Order more of everything in ${title}: the extra is added as spares`}>
+        <span style={{ color: "var(--muted)" }}>Order</span>
+        {MULTS.map(({ m, mode, label }) => (
+          <button
+            key={m}
+            type="button"
+            className="tile tile-chip text-xs mono"
+            style={{ padding: "2px 8px", minHeight: 0 }}
+            data-selected={at === m}
+            disabled={a.pending}
+            aria-label={`Order ${label} for ${title}`}
+            onClick={() => {
+              setWant(m);
+              a.call({ ids: all.map((l) => l.id).join(","), mode });
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </span>
+      {a.error && <ErrorText error={a.error} />}
+    </div>
+  );
+}
+
+function EditLine({ l, mechs, onDone }: { l: BomLine; mechs: string[]; onDone: () => void }) {
   const a = useFabAction(updatePart, onDone);
   return (
     <form className="flex flex-col gap-3" onSubmit={a.submit}>
@@ -257,6 +392,19 @@ function EditLine({ l, onDone }: { l: BomLine; onDone: () => void }) {
       <Field label="Vendor">
         <input name="vendor" className="input" defaultValue={l.vendor} placeholder="WCP, AndyMark, REV…" />
       </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Mechanism">
+          <input name="subsystem" className="input" defaultValue={l.subsystem} list="bom-mechs" placeholder="Intake, Shooter…" />
+          <datalist id="bom-mechs">
+            {mechs.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label="Spares" hint={`On top of ${l.base} for the robots`}>
+          <input name="spare_qty" type="number" min={0} className="input mono" defaultValue={l.spare} inputMode="numeric" />
+        </Field>
+      </div>
       <ErrorText error={a.error} />
       <SubmitButton pending={a.pending} label="Save" />
     </form>
@@ -271,7 +419,10 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
   return (
     <li className="p-3 flex flex-wrap items-start gap-3" style={{ borderColor: "var(--line)", opacity: cur === "have" ? 0.65 : 1 }}>
       <input type="checkbox" className="mt-1.5" checked={picked} onChange={onPick} aria-label={`Pick ${l.name}`} />
-      <span className="mono text-lg font-semibold w-10 text-right shrink-0" title={l.pack_size ? `${l.need} needed, sold ${l.pack_size} to a pack` : undefined}>
+      <span
+        className="mono text-lg font-semibold w-10 text-right shrink-0"
+        title={[l.pack_size && `${l.need} needed, sold ${l.pack_size} to a pack`, l.spare > 0 && `${l.base} for the robots + ${l.spare} spare`].filter(Boolean).join(" · ") || undefined}
+      >
         {buyQty(l)}×
       </span>
       <div className="min-w-0 flex-1 basis-36">
@@ -296,7 +447,7 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
           )}
         </p>
         <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
-          {[l.part_number, l.vendor, l.bot || l.design, l.material].filter(Boolean).join(" · ")}
+          {[l.part_number, l.vendor, l.bot || l.design, l.material, l.spare > 0 && `incl. ${l.spare} spare`].filter(Boolean).join(" · ")}
           {l.url && (
             <>
               {" · "}

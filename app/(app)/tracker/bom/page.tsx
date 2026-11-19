@@ -1,4 +1,4 @@
-import { getDesigns, getParts } from "@/lib/parts-data";
+import { getDesigns, getParts, getSubsystems } from "@/lib/parts-data";
 import { PartsBom, type BomLine } from "@/components/parts-bom";
 import { PageHead } from "@/components/fab-ui";
 
@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** The COTS BOM: bought parts and hardware from the designs being built — what to buy and whether it's here. */
 export default async function BomPage() {
-  const [parts, designs] = await Promise.all([getParts(), getDesigns({ includeArchived: true })]);
+  const [parts, designs, subsystems] = await Promise.all([getParts(), getDesigns({ includeArchived: true }), getSubsystems()]);
   const design = new Map(designs.map((d) => [d.id, d]));
   const lines: BomLine[] = parts
     .filter((p) => p.kind === "cots" && !(p.design_id && design.get(p.design_id)?.archived))
@@ -19,6 +19,9 @@ export default async function BomPage() {
         part_number: p.part_number,
         description: p.description,
         need: p.quantity * (d?.copies ?? 1) + p.spare_qty,
+        base: p.quantity * (d?.copies ?? 1),
+        spare: p.spare_qty,
+        subsystem: p.subsystem.trim(),
         design: d?.name ?? "",
         bot: p.bot || d?.bot || "",
         vendor: p.vendor,
@@ -33,7 +36,7 @@ export default async function BomPage() {
   return (
     <>
       <PageHead eyebrow="Fab tracker" title="COTS BOM" />
-      <PartsBom lines={lines} />
+      <PartsBom lines={lines} subsystems={subsystems} />
     </>
   );
 }

@@ -2,7 +2,7 @@ import { getFabSettings, getLocations, getMaterials, getStockPieces, getUnits } 
 import { getDesigns, getMachines, getParts, getPartsSettings } from "@/lib/parts-data";
 import { checkPart } from "@/lib/dfm";
 import { BEFORE_CUT, isStockKind, toCut } from "@/lib/parts";
-import { PartsPlan, type PlanPart } from "@/components/parts-plan";
+import { PartsPlan, type PlanPart, type SparePart } from "@/components/parts-plan";
 import { PageHead, UnitsToggle } from "@/components/fab-ui";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +27,18 @@ export default async function PlanPage() {
   const matById = new Map(materials.map((m) => [m.id, m]));
 
   const plan: PlanPart[] = [];
+  // every stock part of a design being built, to pick spares from (done ones too)
+  const spareable: SparePart[] = parts
+    .filter((p) => isStockKind(p.kind) && p.status !== "not_needed" && p.status !== "outsourced" && !(p.design_id && !designById.has(p.design_id)))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      bot: p.bot,
+      subsystem: p.subsystem.trim(),
+      base: p.quantity * (p.design_id ? (designById.get(p.design_id)?.copies ?? 1) : 1),
+      spare: p.spare_qty,
+      status: p.status,
+    }));
   for (const p of parts) {
     // stock parts not cut yet (SendCutSend / not needed / in progress are out)
     if (!isStockKind(p.kind) || !BEFORE_CUT.includes(p.status)) continue;
@@ -44,6 +56,7 @@ export default async function PlanPage() {
       kind: p.kind,
       design_id: p.design_id,
       toCut: left,
+      spare: p.spare_qty,
       material_id: material?.id ?? null,
       material_text: p.material_text,
       length: p.size_l_mm,
@@ -65,6 +78,7 @@ export default async function PlanPage() {
       </PageHead>
       <PartsPlan
         parts={plan}
+        spareable={spareable}
         designs={designs.map((d) => ({ id: d.id, name: d.name, copies: d.copies }))}
         materials={materials}
         pieces={pieces}

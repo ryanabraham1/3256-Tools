@@ -483,6 +483,39 @@ export function needed(p: Pick<FabPart, "quantity" | "spare_qty">, copies = 1): 
   return p.quantity * copies + (p.spare_qty ?? 0);
 }
 
+/**
+ * Quick spares: one more each, enough for 1.5× or 2× what the robots need,
+ * or none. Used by the COTS BOM (whole mechanisms or picked lines) and the cut plan.
+ */
+export type SpareMode = "plus1" | "half" | "double" | "none";
+export const SPARE_MODES: SpareMode[] = ["plus1", "half", "double", "none"];
+export const SPARE_LABEL: Record<SpareMode, string> = { plus1: "+1 spare", half: "1.5×", double: "2×", none: "No spares" };
+export const isSpareMode = (v: string): v is SpareMode => (SPARE_MODES as string[]).includes(v);
+
+/** The spare count a mode gives, for `base` needed on the robots (quantity × copies). */
+export function sparesFor(mode: SpareMode, base: number, current: number): number {
+  switch (mode) {
+    case "plus1":
+      return current + 1;
+    case "half":
+      return Math.ceil(base / 2);
+    case "double":
+      return base;
+    case "none":
+      return 0;
+  }
+}
+
+/** The multiplier a set of lines is at, if they all agree (1 = no spares), else null. */
+export function multiplierOf(lines: { base: number; spare: number }[]): 1 | 1.5 | 2 | null {
+  if (!lines.length) return null;
+  for (const m of [1, 1.5, 2] as const) {
+    const mode: SpareMode = m === 1 ? "none" : m === 1.5 ? "half" : "double";
+    if (lines.every((l) => l.spare === sparesFor(mode, l.base, l.spare))) return m;
+  }
+  return null;
+}
+
 /** How many copies are still to be cut. */
 export function toCut(p: Pick<FabPart, "quantity" | "spare_qty" | "cut_qty">, copies = 1): number {
   return Math.max(0, needed(p, copies) - p.cut_qty);

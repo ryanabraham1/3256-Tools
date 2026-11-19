@@ -20,6 +20,8 @@ import {
   isPrintedMaterial,
   COTS_STATUSES,
   isReferenceBody,
+  isSpareMode,
+  sparesFor,
   isUnnamedBody,
   isStockKind,
   kindFromMaterial,
@@ -747,6 +749,63 @@ export async function setCotsStatus(fd: FormData): Promise<FabResult> {
     if (!ids.length) throw new Error("Nothing picked");
     const { error } = await db().from("fab_parts").update({ cots_status: status }).in("id", ids).eq("kind", "cots");
     if (error) throw error;
+  });
+}
+
+/**
+ * Spares for picked parts (COTS lines or parts to make): +1, enough for 1.5×
+ * or 2× what the robots need, or none. A made part that was already done goes
+ * back to Spares Needed, with what's made counted as cut, so only the extra
+ * copies land in the cut plan.
+ */
+export async function setSpares(fd: FormData): Promise<FabResult<number>> {
+  return run(async () => {
+    const mode = str(fd, "mode");
+    if (!isSpareMode(mode)) throw new Error("Pick how many spares");
+    const ids = str(fd, "ids").split(",").filter(Boolean);
+    if (!ids.length) throw new Error("Nothing picked");
+    const { data, error } = await db().from("fab_parts").select("id, kind, status, quantity, spare_qty, cut_qty, design_id").in("id", ids);
+    if (error) throw error;
+    const rows = (data ?? []) as Pick<FabPart, "id" | "kind" | "status" | "quantity" | "spare_qty" | "cut_qty" | "design_id">[];
+    const designIds = [...new Set(rows.map((r) => r.design_id).filter((x): x is string => !!x))];
+    const copies = new Map<string, number>();
+    if (designIds.length) {
+      const { data: ds, error: e } = await db().from("fab_designs").select("id, copies").in("id", designIds);
+      if (e) throw e;
+      for (const d of ds ?? []) copies.set(d.id as string, (d.copies as number) ?? 1);
+    }
+    let changed = 0;
+    await Promise.all(
+      rows.map(async (r) => {
+        const c = r.design_id ? (copies.get(r.design_id) ?? 1) : 1;
+        const spare = sparesFor(mode, r.quantity * c, r.spare_qty ?? 0);
+        const patch: Record<string, unknown> = {};
+        if (spare !== r.spare_qty) patch.spare_qty = spare;
+        const done = r.status === "finished" || r.status === "spares_finished";
+        if (r.kind !== "cots" && done && spare > (r.spare_qty ?? 0)) {
+          patch.status = "spares_needed";
+          patch.status_changed_at = new Date().toISOString();
+          patch.cut_qty = Math.max(r.cut_qty, needed(r, c));
+        }
+        if (!Object.keys(patch).length) return;
+        const { error: u } = await db().from("fab_parts").update(patch).eq("id", r.id);
+        if (u) throw u;
+        changed++;
+      }),
+    );
+    return changed;
+  });
+}
+
+/** File picked COTS lines under a mechanism (subsystem); a new name joins the team list. */
+export async function setPartsSubsystem(fd: FormData): Promise<FabResult> {
+  return run(async () => {
+    const ids = str(fd, "ids").split(",").filter(Boolean);
+    if (!ids.length) throw new Error("Nothing picked");
+    const sub = str(fd, "subsystem").replace(/^\d+\.\s*/, "").slice(0, 60);
+    const { error } = await db().from("fab_parts").update({ subsystem: sub }).in("id", ids);
+    if (error) throw error;
+    if (sub) await addSubsystems([sub]);
   });
 }
 

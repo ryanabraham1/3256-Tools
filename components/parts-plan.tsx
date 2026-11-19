@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { commitSheet, commitStick } from "@/app/parts-actions";
+import { commitSheet, commitStick, setSpares } from "@/app/parts-actions";
 import { addOrder } from "@/app/fab-actions";
 import { isSheet, materialName, type FabLocation, type FabMaterial, type FabPiece } from "@/lib/fab";
-import { KIND_LABEL, type FabMachine, type PartKind } from "@/lib/parts";
+import { BEFORE_CUT, KIND_LABEL, SPARE_LABEL, SPARE_MODES, type FabMachine, type PartKind } from "@/lib/parts";
+import { STATUS_LABEL, type JobStatus } from "@/lib/tracker";
 import { layerName, svgPath, transformLoop, writeDxf, type Loop } from "@/lib/geom";
 import { nestSheets, nestSticks, zoneToNest, type SheetPlan, type StickPlan } from "@/lib/nest";
 import type { Level } from "@/lib/dfm";
@@ -21,12 +22,26 @@ export interface PlanPart {
   kind: PartKind;
   design_id: string | null;
   toCut: number;
+  /** spares included in the count */
+  spare: number;
   material_id: string | null;
   material_text: string;
   length: number | null;
   width: number | null;
   geometry: { loops: Loop[]; width: number; height: number } | null;
   dfm: { level: Level; why: string | null; warns: number; machineId: string | null };
+}
+
+/** A stock part spares can be added to, cut or not. */
+export interface SparePart {
+  id: string;
+  name: string;
+  bot: string;
+  subsystem: string;
+  /** needed on the robots (quantity × copies), without spares */
+  base: number;
+  spare: number;
+  status: JobStatus;
 }
 
 interface Group {
@@ -40,6 +55,7 @@ interface Group {
 
 export function PartsPlan({
   parts,
+  spareable,
   designs,
   materials,
   pieces,
@@ -51,6 +67,7 @@ export function PartsPlan({
   units,
 }: {
   parts: PlanPart[];
+  spareable: SparePart[];
   designs: { id: string; name: string; copies: number }[];
   materials: FabMaterial[];
   pieces: FabPiece[];
@@ -150,12 +167,15 @@ export function PartsPlan({
 
   if (!parts.length) {
     return (
-      <Empty>
-        Nothing is waiting on stock. Parts show up here while they&apos;re in the first column(s) of the Plate, Tube &amp; bar or Shaft boards.{" "}
-        <Link href="/tracker/board" className="underline" style={{ color: "var(--purple)" }}>
-          Open the board →
-        </Link>
-      </Empty>
+      <div className="parts-plan flex flex-col gap-4">
+        <Empty>
+          Nothing is waiting on stock. Parts show up here while they&apos;re in the first column(s) of the Plate, Tube &amp; bar or Shaft boards.{" "}
+          <Link href="/tracker/board" className="underline" style={{ color: "var(--purple)" }}>
+            Open the board →
+          </Link>
+        </Empty>
+        {spareable.length > 0 && <SparesPanel parts={spareable} />}
+      </div>
     );
   }
 
@@ -191,6 +211,8 @@ export function PartsPlan({
           </label>
         )}
       </section>
+
+      {spareable.length > 0 && <SparesPanel parts={spareable} />}
 
       {(cantMake.length > 0 || noMaterial.length > 0) && (
         <section className="card p-4 flex flex-col gap-2">
@@ -246,6 +268,118 @@ export function PartsPlan({
         </p>
       )}
     </div>
+  );
+}
+
+const NO_SUB = "No subsystem";
+
+/**
+ * Pick parts (or a whole subsystem) to cut spares of: +1 each, 1.5× or 2× what
+ * the robots need. Parts already made go back to Spares Needed, so just the
+ * extra copies land in the plan.
+ */
+function SparesPanel({ parts }: { parts: SparePart[] }) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [q, setQ] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const a = useFabAction(setSpares, (n) => {
+    setNote(n ? `Updated ${n} part${n === 1 ? "" : "s"}` : "No change");
+    setPicked(new Set());
+  });
+  const shown = parts.filter((p) => !q || `${p.name} ${p.subsystem} ${p.bot}`.toLowerCase().includes(q.toLowerCase()));
+  const groups = new Map<string, SparePart[]>();
+  for (const p of [...shown].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }))) {
+    const k = p.subsystem || NO_SUB;
+    groups.set(k, [...(groups.get(k) ?? []), p]);
+  }
+  const withSpares = parts.filter((p) => p.spare > 0).length;
+
+  return (
+    <details className="card p-4">
+      <summary className="cursor-pointer flex flex-wrap items-baseline gap-2">
+        <span className="text-xl font-medium tracking-tight">Cut spares</span>
+        <span className="text-sm" style={{ color: "var(--muted)" }}>
+          Pick parts to cut extras of{withSpares > 0 && ` · ${withSpares} have spares now`}
+        </span>
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">
+        <input className="input" placeholder="Search parts, subsystems…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search parts for spares" />
+        <div className="flex flex-wrap items-center gap-2 text-sm sticky top-0 py-1" style={{ background: "var(--surface)", zIndex: 1 }}>
+          <span className="font-medium">{picked.size} picked</span>
+          {SPARE_MODES.map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={m === "plus1" ? "btn btn-primary text-sm" : "btn btn-ghost text-sm"}
+              disabled={!picked.size || a.pending}
+              title={m === "half" ? "Cut 1.5× what the robots need" : m === "double" ? "Cut 2× what the robots need" : undefined}
+              onClick={() => {
+                setNote(null);
+                a.call({ ids: [...picked].join(","), mode: m });
+              }}
+            >
+              {SPARE_LABEL[m]}
+            </button>
+          ))}
+          {picked.size > 0 && (
+            <button type="button" className="text-sm underline" onClick={() => setPicked(new Set())}>
+              clear
+            </button>
+          )}
+          {note && !a.error && (
+            <span role="status" style={{ color: "var(--muted)" }}>
+              {note}
+            </span>
+          )}
+          <ErrorText error={a.error} />
+        </div>
+        <div className="flex flex-col gap-3 max-h-96 overflow-y-auto">
+          {[...groups].map(([sub, ps]) => {
+            const all = ps.every((p) => picked.has(p.id));
+            return (
+              <div key={sub}>
+                <label className="eyebrow flex items-center gap-2 mb-1" style={{ color: "var(--muted)" }}>
+                  <input
+                    type="checkbox"
+                    checked={all}
+                    onChange={() =>
+                      setPicked((s) => {
+                        const n = new Set(s);
+                        for (const p of ps) {
+                          if (all) n.delete(p.id);
+                          else n.add(p.id);
+                        }
+                        return n;
+                      })
+                    }
+                    aria-label={`Pick all of ${sub}`}
+                  />
+                  {sub} <span className="mono">{ps.length}</span>
+                </label>
+                <ul className="flex flex-col gap-1 text-sm">
+                  {ps.map((p) => (
+                    <li key={p.id}>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={picked.has(p.id)} onChange={() => setPicked((s) => toggle(s, p.id))} />
+                        <span className="min-w-0 truncate">{p.name}</span>
+                        <span className="mono text-xs shrink-0" style={{ color: "var(--muted)" }}>
+                          {p.base}
+                          {p.spare > 0 && <b style={{ color: "var(--purple)" }}> +{p.spare} spare</b>}
+                        </span>
+                        <span className="text-xs ml-auto shrink-0" style={{ color: "var(--muted)" }}>
+                          {BEFORE_CUT.includes(p.status) ? "" : STATUS_LABEL[p.status]}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+          {!shown.length && <p className="text-sm" style={{ color: "var(--muted)" }}>No parts match.</p>}
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -368,7 +502,9 @@ function MaterialGroup({
         <ul className="mt-2 flex flex-col gap-1 text-sm">
           {g.parts.map((p) => (
             <li key={p.id} className="flex items-center gap-2">
-              <span className="mono w-8 text-right">×{p.toCut}</span>
+              <span className="mono w-8 text-right" title={p.spare ? `incl. ${p.spare} spare` : undefined}>
+                ×{p.toCut}
+              </span>
               <Link href={`/tracker/${p.id}`} className="underline min-w-0 truncate">
                 {p.name}
               </Link>

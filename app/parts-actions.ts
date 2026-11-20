@@ -911,7 +911,7 @@ async function takeFromRack(part: FabPart, count: number): Promise<string> {
     const best = checkPart({ part, material, machines, processProp: settings.onshape_process_prop, units: "in" }).best?.machine;
     const gap = settings.nest_gap_mm + (best?.tool_diameter_mm ?? 0);
     const res = nestSheets(
-      Array.from({ length: count }, () => ({ id: part.id, name: part.name, w, h })),
+      Array.from({ length: count }, () => ({ id: part.id, name: part.name, w, h, loops: part.geometry?.loops ?? null })),
       pieces.filter((p) => p.width_mm).map((p) => ({ pieceId: p.id, w: p.width_mm!, l: p.length_mm, zones: p.dead_zones.map(zoneToNest) })),
       { gap, margin: Math.max(settings.nest_margin_mm, best?.workhold_mm ?? 0), bed: best?.bed_w_mm && best.bed_l_mm ? { w: best.bed_w_mm, l: best.bed_l_mm } : null, full: null },
     );

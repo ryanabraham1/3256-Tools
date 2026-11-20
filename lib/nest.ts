@@ -2,10 +2,15 @@
  * Cut planning: put the parts waiting on stock onto the sheets and sticks the
  * rack actually has, offcuts first, and say what's still short.
  *
- * Sheets use a MaxRects packer on each part's bounding box (with 90° turns),
- * placing bottom-left so the unused material stays in one clean strip that can
- * go back on the rack. Sticks use best-fit decreasing with the blade kerf.
+ * Sheets with real part outlines are nested true-shape (lib/nest-shape.ts):
+ * parts fit into each other's notches and holes, turned in 90° steps. Plain
+ * boxes (no outline yet) use a MaxRects packer. Both place bottom-left so the
+ * unused material stays in one clean strip that can go back on the rack.
+ * Sticks use best-fit decreasing with the blade kerf.
  */
+
+import type { Loop } from "./geom";
+import { Grid, outlineArea, partMask, type Angle, type Mask } from "./nest-shape";
 
 export interface SheetItem {
   /** part id */
@@ -13,6 +18,8 @@ export interface SheetItem {
   name: string;
   w: number;
   h: number;
+  /** the real outline, normalised to [0, w] × [0, h]; null = a plain box */
+  loops?: Loop[] | null;
 }
 export interface Placement {
   id: string;
@@ -20,8 +27,10 @@ export interface Placement {
   /** lower-left corner of the part's box on the sheet, mm (x across the width, y along the length) */
   x: number;
   y: number;
-  /** turned 90° */
+  /** turned 90° or 270° (the box is h × w) */
   rotated: boolean;
+  /** how far it's turned, counter-clockwise (missing on plans made before true-shape nesting = 0 or 90) */
+  angle?: Angle;
   w: number;
   h: number;
 }
@@ -150,6 +159,7 @@ export function nestSheets(items: SheetItem[], stock: SheetStock[], o: SheetNest
 
   const plans: SheetPlan[] = [];
   const fill = (s: SheetStock): SheetPlan | null => {
+    if (left.some((it) => it.loops?.length)) return shapeFill(s);
     const u = usable(s);
     if (u.w <= 0 || u.h <= 0) return null;
     const bin = new Bin(u.w, u.h);
@@ -170,6 +180,7 @@ export function nestSheets(items: SheetItem[], stock: SheetStock[], o: SheetNest
         x: margin + spot.x,
         y: margin + spot.y,
         rotated: spot.rotated,
+        angle: spot.rotated ? 90 : 0,
         w: spot.rotated ? it.h : it.w,
         h: spot.rotated ? it.w : it.h,
       });
@@ -178,6 +189,77 @@ export function nestSheets(items: SheetItem[], stock: SheetStock[], o: SheetNest
     left = rest;
     // leftover strips only make sense on a sheet with nothing cut out of it yet
     return { ...s, placements, remaining: s.zones?.length ? [] : leftovers(s, placements, gap, minKeep), yield: yieldOf(placements, u) };
+  };
+
+  // true-shape: each part drawn on a grid from its outline, slid bottom-left
+  const byId = new Map(items.map((it) => [it.id, it]));
+  const masks = new Map<string, Mask>();
+  const areas = new Map<string, number>();
+  const areaOf = (it: SheetItem) => {
+    if (!it.loops?.length) return it.w * it.h;
+    if (!areas.has(it.id)) areas.set(it.id, outlineArea(it.loops) || it.w * it.h);
+    return areas.get(it.id)!;
+  };
+  const shapeFill = (s: SheetStock): SheetPlan | null => {
+    const W = o.bed ? Math.min(s.w, o.bed.w) : s.w;
+    const L = o.bed ? Math.min(s.l, o.bed.l) : s.l;
+    // the grid runs half a gap past the margin: every part is grown by half a gap
+    const o0 = margin - gap / 2;
+    const ew = W - 2 * margin + gap;
+    const el = L - 2 * margin + gap;
+    if (ew <= 0 || el <= 0) return null;
+    const c = Math.min(2, Math.max(0.5, Math.max(ew, el) / 1400));
+    const grid = new Grid(Math.floor(ew / c), Math.floor(el / c));
+    for (const z of s.zones ?? []) {
+      const x0 = Math.floor((z.x - gap / 2 - o0) / c);
+      const x1 = Math.ceil((z.x + z.w + gap / 2 - o0) / c) - 1;
+      for (let j = Math.floor((z.y - gap / 2 - o0) / c); j <= Math.ceil((z.y + z.h + gap / 2 - o0) / c) - 1; j++) grid.fill(j, x0, x1);
+    }
+    const maskOf = (it: SheetItem, a: Angle) => {
+      const k = `${it.id}|${a}|${c}`;
+      if (!masks.has(k)) masks.set(k, partMask(it.loops ?? null, it.w, it.h, a, c, gap / 2));
+      return masks.get(k)!;
+    };
+    // a copy of the same part can't fit anywhere an earlier copy didn't: resume from there
+    const resume = new Map<string, { X: number; Y: number }>();
+    const placements: Placement[] = [];
+    const rest: SheetItem[] = [];
+    for (const it of left) {
+      const angles: Angle[] = it.loops?.length ? [0, 90, 180, 270] : [0, 90];
+      let best: { a: Angle; m: Mask; X: number; Y: number } | null = null;
+      for (const a of angles) {
+        const m = maskOf(it, a);
+        const k = `${it.id}|${a}`;
+        const from = resume.get(k) ?? { X: 0, Y: 0 };
+        const spot = from.Y >= grid.H ? null : grid.find(m, from.Y, from.X);
+        resume.set(k, spot ?? { X: 0, Y: grid.H });
+        if (!spot) continue;
+        // lowest top edge, then left-most: keeps the used area to one end
+        const top = (spot.Y + m.mh) * c;
+        if (!best || top < (best.Y + best.m.mh) * c - 1e-6 || (Math.abs(top - (best.Y + best.m.mh) * c) < 1e-6 && spot.X < best.X)) best = { a, m, ...spot };
+      }
+      if (!best) {
+        rest.push(it);
+        continue;
+      }
+      grid.place(best.m, best.X, best.Y);
+      const turned = best.a === 90 || best.a === 270;
+      placements.push({
+        id: it.id,
+        name: it.name,
+        x: o0 + best.X * c + best.m.pad,
+        y: o0 + best.Y * c + best.m.pad,
+        rotated: turned,
+        angle: best.a,
+        w: turned ? it.h : it.w,
+        h: turned ? it.w : it.h,
+      });
+    }
+    if (!placements.length) return null;
+    left = rest;
+    const used = placements.reduce((t, p) => t + areaOf(byId.get(p.id)!), 0);
+    const room = Math.max(1, (W - 2 * margin) * (L - 2 * margin));
+    return { ...s, placements, remaining: s.zones?.length ? [] : leftovers(s, placements, gap, minKeep), yield: Math.min(1, used / room) };
   };
 
   for (const s of [...stock].sort((a, b) => a.w * a.l - b.w * b.l)) {

@@ -7,7 +7,7 @@ import { addOrder } from "@/app/fab-actions";
 import { isSheet, materialName, type FabLocation, type FabMaterial, type FabPiece } from "@/lib/fab";
 import { BEFORE_CUT, KIND_LABEL, SPARE_LABEL, SPARE_MODES, type FabMachine, type PartKind } from "@/lib/parts";
 import { STATUS_LABEL, type JobStatus } from "@/lib/tracker";
-import { layerName, svgPath, transformLoop, writeDxf, type Loop } from "@/lib/geom";
+import { layerName, placeLoop, svgPath, writeDxf, type Loop } from "@/lib/geom";
 import { nestSheets, nestSticks, zoneToNest, type SheetPlan, type StickPlan } from "@/lib/nest";
 import type { Level } from "@/lib/dfm";
 import { fmtLength, fmtRect, type Units } from "@/lib/units";
@@ -94,8 +94,9 @@ export function PartsPlan({
   const noMaterial = inScope.filter((p) => p.dfm.level !== "fail" && !p.material_id);
   const planned = inScope.filter((p) => p.dfm.level !== "fail" && p.material_id && !skip.has(p.id) && (useWarn || p.dfm.level !== "warn"));
 
-  // (the React Compiler memoises this chain; the nesting only reruns when the scope changes)
-  const groups: Group[] = (() => {
+  // true-shape nesting is real work: only redo it when what's being planned changes
+  const plannedKey = planned.map((p) => `${p.id}:${p.toCut}`).join(",");
+  const groups: Group[] = useMemo(() => {
     // one group per stock material — and for sheet parts, per machine, so router
     // and xTool parts each get sheets laid out for that machine's bed and bit
     const by = new Map<string, PlanPart[]>();
@@ -123,7 +124,7 @@ export function PartsPlan({
           const w = p.geometry?.width ?? p.width;
           const h = p.geometry?.height ?? p.length;
           if (!w || !h) return [];
-          return Array.from({ length: p.toCut }, () => ({ id: p.id, name: p.name, w, h }));
+          return Array.from({ length: p.toCut }, () => ({ id: p.id, name: p.name, w, h, loops: p.geometry?.loops ?? null }));
         });
         // part-cut sheets are fine as long as the rack knows where the cuts are
         const clean = stock.filter((s) => s.width_mm && (!s.has_cutouts || s.dead_zones.length > 0));
@@ -157,7 +158,9 @@ export function PartsPlan({
       }
     }
     return out.sort((a, b) => b.buy - a.buy || materialName(a.material).localeCompare(materialName(b.material)));
-  })();
+    // `planned` is rebuilt every render; its key says when it changed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannedKey, matById, machineById, pieces, gap, margin, kerf]);
 
   const totalCopies = planned.reduce((s, p) => s + p.toCut, 0);
   const fromStock = groups.reduce((s, g) => s + (g.sheet?.plans ?? g.stick?.plans ?? []).filter((x) => x.pieceId).length, 0);
@@ -552,7 +555,7 @@ function SheetCard({
   const placed = s.placements.map((p) => {
     const g = geomById.get(p.id);
     const loops = g
-      ? g.loops.map((l) => transformLoop(l, p.rotated, g.height, p.x, p.y))
+      ? g.loops.map((l) => placeLoop(l, p.angle ?? (p.rotated ? 90 : 0), g.width, g.height, p.x, p.y))
       : [rect(p.x, p.y, p.w, p.h)];
     return { ...p, loops, hasOutline: !!g };
   });

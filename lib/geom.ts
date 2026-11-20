@@ -180,6 +180,18 @@ function rot90(p: Pt, h: number): Pt {
   return [h - p[1], p[0]];
 }
 
+/**
+ * Place a normalised outline (w × h) on a sheet: turned `angle`° CCW, its box's
+ * lower-left corner at (dx, dy). Turning keeps arcs' direction, so bulges stay.
+ */
+export function placeLoop(l: Loop, angle: 0 | 90 | 180 | 270, w: number, h: number, dx: number, dy: number): Loop {
+  const t = (p: Pt): Pt => {
+    const q: Pt = angle === 90 ? [h - p[1], p[0]] : angle === 180 ? [w - p[0], h - p[1]] : angle === 270 ? [p[1], w - p[0]] : p;
+    return [q[0] + dx, q[1] + dy];
+  };
+  return { segs: l.segs.map((s) => ({ a: t(s.a), b: t(s.b), bulge: s.bulge })) };
+}
+
 export function transformLoop(l: Loop, rotated: boolean, h: number, dx: number, dy: number): Loop {
   const t = (p: Pt): Pt => {
     const q = rotated ? rot90(p, h) : p;

@@ -47,10 +47,10 @@ export const isStockKind = (k: PartKind) => STOCK_KINDS.includes(k);
  * these (to In Progress / Finished) is when it comes off the rack; the cut
  * plan's "Mark cut" moves it to In Progress.
  */
-export const BEFORE_CUT: JobStatus[] = ["not_started", "have_cam", "spares_needed"];
+export const BEFORE_CUT: JobStatus[] = ["not_started", "cad_done", "cad_revise", "have_cam", "cam_revise", "spares_needed"];
 export const AFTER_CUT: JobStatus = "in_progress";
 /** Moving from a before-cut status to one of these means the stock got used. */
-export const USES_STOCK: JobStatus[] = ["in_progress", "finished", "spares_finished"];
+export const USES_STOCK: JobStatus[] = ["in_progress", "needs_deburring", "finished", "spares_finished"];
 
 /** Cut to length from stick stock: tubes, bars and rods (lathe/saw work). */
 export const isLengthKind = (k: PartKind) => k === "tube" || k === "shaft";
@@ -181,6 +181,8 @@ export interface FabPart {
   hardware: boolean;
   quantity: number;
   cut_qty: number;
+  /** how many are made so far, while it's in progress (the tracker's slider) */
+  done_qty: number;
   material_id: string | null;
   material_locked: boolean;
   material_text: string;

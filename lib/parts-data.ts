@@ -32,6 +32,8 @@ export function toPart(r: Record<string, unknown>): FabPart {
     // null until the length_spec migration is run
     length_spec: (r.length_spec as FabPart["length_spec"]) ?? null,
     assignees: (r.assignees as string[]) ?? [],
+    // 0 until the tracker_stages migration is run
+    done_qty: Number(r.done_qty ?? 0),
     properties: (r.properties as Record<string, string>) ?? {},
   };
 }

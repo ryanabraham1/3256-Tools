@@ -10,11 +10,27 @@ export const TRACKERS: Tracker[] = ["machining", "print"];
 export const TRACKER_LABEL: Record<Tracker, string> = { machining: "Machining", print: "3D printing" };
 export const isTracker = (v: unknown): v is Tracker => TRACKERS.includes(v as Tracker);
 
-export type JobStatus = "not_started" | "have_cam" | "in_progress" | "outsourced" | "spares_needed" | "spares_finished" | "finished" | "not_needed";
+export type JobStatus =
+  | "not_started"
+  | "cad_done"
+  | "cad_revise"
+  | "have_cam"
+  | "cam_revise"
+  | "in_progress"
+  | "needs_deburring"
+  | "outsourced"
+  | "spares_needed"
+  | "spares_finished"
+  | "finished"
+  | "not_needed";
 export const STATUS_LABEL: Record<JobStatus, string> = {
   not_started: "Not Started",
-  have_cam: "Have Drawing/CAM",
+  cad_done: "Done with CAD",
+  cad_revise: "Needs CAD Revision",
+  have_cam: "Done with CAM",
+  cam_revise: "Needs CAM Revision",
   in_progress: "In Progress",
+  needs_deburring: "Needs Deburring",
   outsourced: "SendCutSend",
   spares_needed: "Spares Needed",
   spares_finished: "Spares Finished",
@@ -23,8 +39,12 @@ export const STATUS_LABEL: Record<JobStatus, string> = {
 };
 export const STATUS_TONE: Record<JobStatus, "muted" | "info" | "purple" | "warn" | "good" | "bad"> = {
   not_started: "muted",
+  cad_done: "info",
+  cad_revise: "bad",
   have_cam: "info",
+  cam_revise: "bad",
   in_progress: "purple",
+  needs_deburring: "warn",
   outsourced: "info",
   spares_needed: "warn",
   spares_finished: "good",
@@ -33,7 +53,7 @@ export const STATUS_TONE: Record<JobStatus, "muted" | "info" | "purple" | "warn"
 };
 /** Statuses each tracker offers, in workflow order. */
 export const STATUSES: Record<Tracker, JobStatus[]> = {
-  machining: ["not_started", "have_cam", "in_progress", "outsourced", "finished", "spares_needed", "spares_finished"],
+  machining: ["not_started", "cad_done", "cad_revise", "have_cam", "cam_revise", "in_progress", "needs_deburring", "outsourced", "finished", "spares_needed", "spares_finished"],
   print: ["not_started", "in_progress", "finished", "spares_needed", "spares_finished", "not_needed"],
 };
 export const ALL_STATUSES = Object.keys(STATUS_LABEL) as JobStatus[];
@@ -217,6 +237,10 @@ export function statusFromText(s: string): JobStatus | null {
   if (t.startsWith("inprog")) return "in_progress";
   if (t.startsWith("notstart")) return "not_started";
   if (t.startsWith("notneed")) return "not_needed";
+  if (t.includes("deburr")) return "needs_deburring";
+  if (t.includes("revis") && t.includes("cad")) return "cad_revise";
+  if (t.includes("revis") && t.includes("cam")) return "cam_revise";
+  if (t.includes("cad") && !t.includes("cam")) return "cad_done";
   if (t.startsWith("have") || t.includes("cam")) return "have_cam";
   if (t.includes("sendcutsend") || t.includes("outsourc")) return "outsourced";
   return null;

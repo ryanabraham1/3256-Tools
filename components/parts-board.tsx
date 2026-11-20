@@ -97,7 +97,7 @@ export function PartsBoard({
 
   const onBoard = (p: BoardPart) => (view === "all" ? trackerOf(p.kind) === "machining" : p.kind === view);
   // the sheet's statuses; the rarer ones only get a column when something's in them
-  const RARE: JobStatus[] = ["outsourced", "spares_needed", "spares_finished", "not_needed"];
+  const RARE: JobStatus[] = ["cad_revise", "cam_revise", "outsourced", "spares_needed", "spares_finished", "not_needed"];
   const stages = STATUSES[tracker].filter((st) => !RARE.includes(st) || filtered.some((p) => onBoard(p) && p.status === st));
   const [tab, setTab] = useState<JobStatus>("not_started");
   const tabKey = stages.includes(tab) ? tab : stages[0];
@@ -365,7 +365,16 @@ function PartSheet({
   if (!part) return <Sheet open={false} onClose={onClose}>{null}</Sheet>;
   const stages = STATUSES[trackerOf(part.kind)];
   // the usual next step: not started → (CAM →) in progress → finished
-  const next: JobStatus | undefined = { not_started: "in_progress", have_cam: "in_progress", in_progress: "finished", spares_needed: "spares_finished" }[part.status as string] as JobStatus | undefined;
+  const next: JobStatus | undefined = {
+    not_started: "in_progress",
+    cad_done: "have_cam",
+    cad_revise: "cad_done",
+    have_cam: "in_progress",
+    cam_revise: "have_cam",
+    in_progress: "finished",
+    needs_deburring: "finished",
+    spares_needed: "spares_finished",
+  }[part.status as string] as JobStatus | undefined;
   const mineNow = !!person && part.assignees.some((a) => a.toLowerCase() === person.toLowerCase());
   return (
     <Sheet open onClose={onClose} eyebrow={`${KIND_LABEL[part.kind]} · ${STATUS_LABEL[part.status]} · ${timeAgo(part.status_changed_at)}`} title={part.name}>

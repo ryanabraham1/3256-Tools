@@ -11,6 +11,7 @@ import {
   priorityLabel,
   PRIORITIES,
   readSheet,
+  splitPeople,
   STATUS_LABEL,
   STATUS_TONE,
   STATUSES,
@@ -68,7 +69,10 @@ function optimistic(field: string, v: string): Partial<FabPart> {
       const n = v.replace("#", "") ? Number(v.replace("#", "")) : null;
       return n === null || (Number.isInteger(n) && n >= 0 && n <= 4) ? { priority: n } : {};
     }
+    case "dri":
+      return { assignees: splitPeople(v) };
     case "quantity":
+    case "done_qty":
     case "spare_qty": {
       const n = Number(v);
       return v && Number.isFinite(n) ? { [field]: Math.max(0, Math.round(n)) } : {};
@@ -268,7 +272,7 @@ export function TrackerTable({
 
   /** The sheet's columns, in its order. Status and Part stay put while the rest scrolls. */
   const cols: { key: string; label: string; w: number; pin?: number; render: (j: FabPart) => React.ReactNode }[] = [
-    { key: "status", label: "Status", w: 150, pin: 0, render: (j) => <StatusSelect job={j} /> },
+    { key: "status", label: "Status", w: 150, pin: 0, render: (j) => <StatusSelect job={j} need={need(j)} /> },
     {
       key: "part",
       label: "Part #_Name",
@@ -336,7 +340,17 @@ export function TrackerTable({
           { key: "tap", label: "Tapped?", w: 100, render: (j: FabPart) => <DropCell part={j} field="tapped" value={j.tapped} choices={lists.tapped} /> },
           { key: "machine", label: "Machine", w: 160, render: (j: FabPart) => <DropCell part={j} field="machine" value={j.machine} choices={lists.machine} /> },
         ]),
-    { key: "designer", label: "Design DRI", w: 120, render: (j) => <PersonCell part={j} field="designer" value={j.designer} members={members} /> },
+    { key: "designer", label: "Design DRI", w: 120, render: (j) => <PersonCell part={j} field="designer" value={j.designer} members={members} label="Design DRI" /> },
+    ...(print
+      ? []
+      : [
+          {
+            key: "fabdri",
+            label: "Fab DRI",
+            w: 120,
+            render: (j: FabPart) => <PersonCell part={j} field="dri" value={j.assignees.join(", ")} members={members} label="Fabrication DRI" />,
+          },
+        ]),
     {
       key: "file",
       label: print ? "STL File" : "Drawing/CAM File",
@@ -599,6 +613,25 @@ export function TrackerTable({
           );
         })}
       </div>
+
+      {status === "in_progress" && (() => {
+        const going = base.filter((j) => j.status === "in_progress");
+        const made = going.reduce((s, j) => s + Math.min(j.done_qty, need(j)), 0);
+        const total = going.reduce((s, j) => s + need(j), 0);
+        return total > 0 ? (
+          <div className="card p-3 mb-3 flex items-center gap-3 text-sm">
+            <span>
+              <b className="mono">{made}</b> of <b className="mono">{total}</b> made across {going.length} part{going.length === 1 ? "" : "s"} in progress
+            </span>
+            <span className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "var(--paper)", minWidth: 80 }}>
+              <span className="block h-full" style={{ width: `${(made / total) * 100}%`, background: "var(--purple)" }} />
+            </span>
+            <span className="mono" style={{ color: "var(--muted)" }}>
+              {Math.round((made / total) * 100)}%
+            </span>
+          </div>
+        ) : null;
+      })()}
 
       {/* filters */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
@@ -869,7 +902,7 @@ function Cell({ part, field, value, list, numeric, missing }: { part: FabPart; f
  * A searchable people dropdown: the workspace's members first, then type to
  * filter. Enter picks the highlighted one (or whatever was typed), Esc closes.
  */
-function PersonCell({ part, field, value, members }: { part: FabPart; field: string; value: string; members: string[] }) {
+function PersonCell({ part, field, value, members, label }: { part: FabPart; field: string; value: string; members: string[]; label: string }) {
   const { save, errors } = useSave();
   const error = errors[`${part.id}:${field}`];
   const btn = useRef<HTMLButtonElement>(null);
@@ -918,7 +951,7 @@ function PersonCell({ part, field, value, members }: { part: FabPart; field: str
         data-error={!!error}
         style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
         title={error ?? (value || undefined)}
-        aria-label={`Design DRI for ${part.name}`}
+        aria-label={`${label} for ${part.name}`}
         aria-haspopup="listbox"
         aria-expanded={!!at}
         onClick={() => (at ? setAt(null) : open())}
@@ -1275,7 +1308,44 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
  * Status as a pill you can change in place. Moving a stock part to In
  * Progress / Finished takes its stock off the rack; the note says what.
  */
-function StatusSelect({ job }: { job: FabJob }) {
+/**
+ * How many of an in-progress part are made: drag the slider. The count shows
+ * as you drag and saves when you let go.
+ */
+function ProgressSlider({ job, need }: { job: FabJob; need: number }) {
+  const { save, errors } = useSave();
+  const error = errors[`${job.id}:done_qty`];
+  const max = Math.max(1, need);
+  const [drag, setDrag] = useState<number | null>(null);
+  const v = Math.min(max, drag ?? job.done_qty);
+  const commit = () => {
+    if (drag !== null && drag !== job.done_qty) save(job, "done_qty", String(drag));
+    setDrag(null);
+  };
+  return (
+    <span className="flex items-center gap-1.5 text-xs" title={error ?? `${v} of ${need} made`}>
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={1}
+        value={v}
+        onChange={(e) => setDrag(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        className="w-20"
+        style={{ accentColor: "var(--purple)" }}
+        aria-label={`How many of ${job.name} are made`}
+      />
+      <span className="mono shrink-0" style={{ color: error ? "var(--bad)" : v >= need ? "var(--good)" : "var(--muted)" }}>
+        {v}/{need}
+      </span>
+    </span>
+  );
+}
+
+function StatusSelect({ job, need }: { job: FabJob; need: number }) {
   const { save, errors, notes } = useSave();
   const error = errors[`${job.id}:status`];
   const note = notes[job.id];
@@ -1298,6 +1368,7 @@ function StatusSelect({ job }: { job: FabJob }) {
           </option>
         ))}
       </select>
+      {job.status === "in_progress" && <ProgressSlider job={job} need={need} />}
       {error && (
         <span className="text-xs" style={{ color: "var(--bad)" }}>
           {error}
@@ -1326,7 +1397,16 @@ function NeedsPill({ job }: { job: FabJob }) {
 function JobCard({ job: j, print, stock, need, onOpen, onMove, onDelete }: { job: FabJob; print: boolean; stock: Stock; need: number; onOpen: () => void; onMove: () => void; onDelete: () => void }) {
   const details = print
     ? [j.material_text, j.infill && `${j.infill} infill`, j.designer && `Design ${j.designer}`]
-    : [KIND_LABEL[j.kind], j.material_text, j.stock_dims, j.length_text && `L ${j.length_text}`, j.tapped && `tap: ${j.tapped}`, j.machine, j.designer && `Design ${j.designer}`];
+    : [
+        KIND_LABEL[j.kind],
+        j.material_text,
+        j.stock_dims,
+        j.length_text && `L ${j.length_text}`,
+        j.tapped && `tap: ${j.tapped}`,
+        j.machine,
+        j.designer && `Design ${j.designer}`,
+        j.assignees.length > 0 && `Fab ${j.assignees.join(", ")}`,
+      ];
   return (
     <div className="tracker-job-card flex flex-col gap-2" style={{ opacity: isDone(j.status) ? 0.65 : 1 }}>
       <div className="flex items-start gap-2">
@@ -1345,7 +1425,7 @@ function JobCard({ job: j, print, stock, need, onOpen, onMove, onDelete }: { job
             {j.cut_qty > 0 && isStockKind(j.kind) && j.cut_qty < need && ` · cut ${j.cut_qty}/${need}`}
           </span>
         </button>
-        <StatusSelect job={j} />
+        <StatusSelect job={j} need={need} />
       </div>
       <button type="button" className="flex flex-wrap gap-1.5 text-left" onClick={onOpen}>
         {details.filter(Boolean).map((d, i) => (
@@ -1567,6 +1647,7 @@ function JobForm({
               <TextField name="tapped" label="Tapped?" value={v("tapped")} list="tr-tapped" />
               <TextField name="machine" label="Machine" value={v("machine")} list="tr-machine" />
               <TextField name="designer" label="Design DRI" value={j ? v("designer") : defaults.designer} list="tr-people" />
+              <TextField name="dri" label="Fab DRI" value={v("dri")} list="tr-people" />
               </div>
             <Field label="Cut from (on the rack)" hint="Matched from the material and dims automatically; pick one to lock it. Stock is taken off the rack when the part goes In Progress / Finished.">
               <select name="material_id" className="input" defaultValue={j?.material_locked ? (j.material_id ?? "") : "auto"}>

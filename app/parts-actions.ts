@@ -80,6 +80,8 @@ async function run<T>(fn: () => Promise<T>): Promise<FabResult<T>> {
     return { ok: true, data };
   } catch (e) {
     const msg = e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? String(e.message) : String(e);
+    // the CAD/CAM/deburring stages and the progress slider need their migration first
+    if (/fab_parts_status_check|done_qty/.test(msg)) return { ok: false, error: "Run supabase/migrations/20261119190000_tracker_stages.sql first, then try again" };
     return { ok: false, error: msg };
   }
 }
@@ -695,6 +697,7 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
     }
     if (fd.has("length_spec")) patch.length_spec = lengthSpecOf(fd);
     if (fd.has("cut_qty")) patch.cut_qty = Math.max(0, Math.round(num(fd, "cut_qty") ?? 0));
+    if (fd.has("done_qty")) patch.done_qty = Math.max(0, Math.round(num(fd, "done_qty") ?? 0));
     if (fd.has("material_id")) {
       const m = str(fd, "material_id");
       if (m === "auto") {

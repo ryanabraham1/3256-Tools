@@ -591,7 +591,13 @@ export function sheetDefaults(
                 ? "Aluminum Sheet"
                 : "";
       out.stock_dims = thickLabel(rack?.wall_mm ?? p.size_t_mm);
-      out.machine = out.material_text === "SRPP" || out.material_text === "Birch" ? "Laser Cutter" : "CNC Router";
+      const t = rack?.wall_mm ?? p.size_t_mm;
+      out.machine =
+        out.material_text === "SRPP" || out.material_text === "Birch"
+          ? "Laser Cutter"
+          : out.material_text === "Aluminum Sheet" && t !== null && Math.abs(t - IN / 8) < 0.3
+            ? "xTool MetalFab"
+            : "CNC Router";
       break;
     }
     case "tube": {

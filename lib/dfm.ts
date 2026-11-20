@@ -201,6 +201,13 @@ export interface DfmResult {
   unchecked: number;
 }
 
+/** The xTool MetalFab (fiber laser that cuts metal), told apart from the CO2 laser by name. */
+export const isXtool = (m: Pick<FabMachine, "process" | "name">) => m.process === "laser" && /x\s*tool|metal\s*fab/i.test(m.name);
+
+/** 1/8" aluminum sheet: the team cuts all of it on the xTool. */
+export const isEighthAluminum = (material: string, thickMm: number | null) =>
+  thickMm !== null && Math.abs(thickMm - 25.4 / 8) < 0.3 && /alum|\b(50\d\d|60\d\d|70\d\d)\b|\bal\b/i.test(material);
+
 const RANK: Record<Level, number> = { ok: 0, info: 1, warn: 2, fail: 3 };
 const worst = (issues: Issue[]): Level => issues.reduce<Level>((w, i) => (RANK[i.level] > RANK[w] ? i.level : w), "ok");
 
@@ -384,8 +391,17 @@ export function checkPart({ part, material, machines, processProp, units }: DfmI
     notes.push({ level: "warn", text: `No ${names} in Machines yet, so ${KIND_LABEL[part.kind].toLowerCase()} parts aren't checked — add yours` });
   }
 
+  // 1/8" aluminum plates go on the xTool whenever it can make them (unless the
+  // model's Process property names another machine)
+  const toXtool = part.kind === "plate" && (hint === null || hint === "laser") && isEighthAluminum(matName, thick);
+  const xtool = toXtool ? checks.find((c) => isXtool(c.machine)) : undefined;
+  const pinned = xtool && xtool.level !== "fail" ? xtool : null;
+  if (pinned) notes.push({ level: "info", text: `1/8" aluminum — goes on the ${pinned.machine.name}` });
+  else if (xtool) notes.push({ level: "info", text: `1/8" aluminum normally goes on the ${xtool.machine.name}, but it can't make this one` });
+
   const sorted = [...checks].sort(
     (a, b) =>
+      Number(b === pinned) - Number(a === pinned) ||
       RANK[a.level] - RANK[b.level] ||
       Number(b.machine.process === hint) - Number(a.machine.process === hint) ||
       a.issues.filter((i) => i.level !== "ok").length - b.issues.filter((i) => i.level !== "ok").length,

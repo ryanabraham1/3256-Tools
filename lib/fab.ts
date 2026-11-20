@@ -81,6 +81,8 @@ export interface FabMaterial {
   url: string;
   unit_cost: number | null;
   min_amount: number | null;
+  /** space between parts in the cut plan, mm, on top of the bit; null = the team default */
+  nest_gap_mm?: number | null;
   notes: string;
   archived: boolean;
   created_at: string;

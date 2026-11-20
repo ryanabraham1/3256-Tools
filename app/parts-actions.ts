@@ -909,7 +909,7 @@ async function takeFromRack(part: FabPart, count: number): Promise<string> {
     const h = part.geometry?.height ?? part.size_l_mm;
     if (!w || !h) return "No size on this part, so no stock was taken — set its size or outline.";
     const best = checkPart({ part, material, machines, processProp: settings.onshape_process_prop, units: "in" }).best?.machine;
-    const gap = settings.nest_gap_mm + (best?.tool_diameter_mm ?? 0);
+    const gap = (material.nest_gap_mm ?? settings.nest_gap_mm) + (best?.tool_diameter_mm ?? 0);
     const res = nestSheets(
       Array.from({ length: count }, () => ({ id: part.id, name: part.name, w, h, loops: part.geometry?.loops ?? null })),
       pieces.filter((p) => p.width_mm).map((p) => ({ pieceId: p.id, w: p.width_mm!, l: p.length_mm, zones: p.dead_zones.map(zoneToNest) })),
@@ -1283,6 +1283,17 @@ const NEEDS_SUBSYSTEMS_MIGRATION = "Run supabase/migrations/20261118170000_fab_s
 async function writeSubsystems(list: string[]) {
   const { error } = await db().from("fab_settings").update({ subsystems: list }).eq("id", 1);
   if (error) throw /subsystems/.test(error.message) ? new Error(NEEDS_SUBSYSTEMS_MIGRATION) : error;
+}
+
+/** The cut plan's space between parts for one material (blank = back to the team default). */
+export async function setNestGap(fd: FormData): Promise<FabResult> {
+  return run(async () => {
+    const v = str(fd, "gap_mm");
+    const n = v ? Number(v) : null;
+    if (n !== null && !(Number.isFinite(n) && n >= 0 && n <= 100)) throw new Error("Spacing should be 0–100 mm");
+    const { error } = await db().from("fab_materials").update({ nest_gap_mm: n === null ? null : Math.round(n * 100) / 100 }).eq("id", str(fd, "material_id"));
+    if (error) throw /nest_gap/.test(error.message) ? new Error("Run supabase/migrations/20261119210000_material_nest_gap.sql first, then try again") : error;
+  });
 }
 
 /** Escape a value for an exact, case-insensitive ilike match. */

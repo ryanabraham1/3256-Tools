@@ -34,6 +34,7 @@ function toMaterial(r: Record<string, unknown>): FabMaterial {
     full_width_mm: N(r.full_width_mm),
     unit_cost: N(r.unit_cost),
     min_amount: N(r.min_amount),
+    nest_gap_mm: N(r.nest_gap_mm),
   };
 }
 function toPiece(r: Record<string, unknown>): FabPiece {

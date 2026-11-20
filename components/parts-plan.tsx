@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { commitSheet, commitStick, setSpares } from "@/app/parts-actions";
+import { commitSheet, commitStick, setNestGap, setSpares } from "@/app/parts-actions";
 import { addOrder } from "@/app/fab-actions";
 import { isSheet, materialName, type FabLocation, type FabMaterial, type FabPiece } from "@/lib/fab";
 import { BEFORE_CUT, KIND_LABEL, SPARE_LABEL, SPARE_MODES, type FabMachine, type PartKind } from "@/lib/parts";
@@ -12,7 +12,7 @@ import { nestSheets, nestSticks, zoneToNest, type SheetPlan, type StickPlan } fr
 import type { Level } from "@/lib/dfm";
 import { fmtLength, fmtRect, type Units } from "@/lib/units";
 import { Empty } from "./ui";
-import { ErrorText, useFabAction } from "./fab-ui";
+import { ErrorText, LengthInput, useFabAction } from "./fab-ui";
 import { ConfirmButton } from "./confirm-button";
 
 export interface PlanPart {
@@ -47,7 +47,18 @@ export interface SparePart {
 interface Group {
   material: FabMaterial;
   parts: PlanPart[];
-  sheet?: { plans: SheetPlan[]; tooBig: { id: string; name: string }[]; skippedCutouts: number; machine: FabMachine | null; gap: number; margin: number };
+  sheet?: {
+    plans: SheetPlan[];
+    tooBig: { id: string; name: string }[];
+    skippedCutouts: number;
+    machine: FabMachine | null;
+    /** edge to edge between parts: the extra space plus the bit */
+    gap: number;
+    margin: number;
+    /** the extra space on top of the bit, and whether it's this material's own */
+    extra: number;
+    custom: boolean;
+  };
   stick?: { plans: StickPlan[]; tooBig: { id: string; name: string }[] };
   /** new stock to buy */
   buy: number;
@@ -117,7 +128,9 @@ export function PartsPlan({
       const stock = pieces.filter((x) => x.material_id === mid && !taken.has(x.id));
       if (isSheet(material)) {
         const machine = machineId ? (machineById.get(machineId) ?? null) : null;
-        const g = gap + (machine?.tool_diameter_mm ?? 0);
+        // this material's own spacing (thick plate on the router wants room for tabs), else the team's
+        const extra = material.nest_gap_mm ?? gap;
+        const g = extra + (machine?.tool_diameter_mm ?? 0);
         // the router needs an edge clear for clamps; a laser doesn't
         const edge = Math.max(margin, machine?.workhold_mm ?? 0);
         const items = ps.flatMap((p) => {
@@ -142,7 +155,7 @@ export function PartsPlan({
         out.push({
           material,
           parts: ps,
-          sheet: { plans: res.sheets, tooBig: res.tooBig, skippedCutouts: stock.length - clean.length, machine, gap: g, margin: edge },
+          sheet: { plans: res.sheets, tooBig: res.tooBig, skippedCutouts: stock.length - clean.length, machine, gap: g, margin: edge, extra, custom: material.nest_gap_mm != null },
           buy: res.sheets.filter((s) => s.pieceId === null).length,
         });
       } else {
@@ -259,6 +272,7 @@ export function PartsPlan({
           where={where}
           project={project}
           designName={designName}
+          defaultGap={gap}
           onSkip={(id) => setSkip((s) => toggle(s, id))}
         />
       ))}
@@ -414,6 +428,7 @@ function MaterialGroup({
   where,
   project,
   designName,
+  defaultGap,
   onSkip,
 }: {
   g: Group;
@@ -421,6 +436,7 @@ function MaterialGroup({
   where: Map<string, string>;
   project: string;
   designName: Map<string, string>;
+  defaultGap: number;
   onSkip: (id: string) => void;
 }) {
   const m = g.material;
@@ -466,6 +482,8 @@ function MaterialGroup({
           <span className="pill pill-good">Enough on the rack</span>
         )}
       </div>
+
+      {g.sheet && <Spacing m={m} sheet={g.sheet} defaultGap={defaultGap} units={units} />}
 
       {tooBig.length > 0 && (
         <p className="text-sm" style={{ color: "var(--bad)" }}>
@@ -522,6 +540,76 @@ function MaterialGroup({
         </ul>
       </details>
     </section>
+  );
+}
+
+/**
+ * Space between parts for this material: scale it (1.5× for router tabs on
+ * thick plate) or type it. Saved on the material, so the whole team's plan
+ * and the automatic stock-taking use it.
+ */
+function Spacing({ m, sheet, defaultGap, units }: { m: FabMaterial; sheet: NonNullable<Group["sheet"]>; defaultGap: number; units: Units }) {
+  const [open, setOpen] = useState(false);
+  const save = useFabAction(setNestGap, () => setOpen(false));
+  const [typed, setTyped] = useState<number | null>(sheet.extra);
+  const bit = sheet.gap - sheet.extra;
+  const base = defaultGap + bit; // edge to edge with the team default
+  const set = (extra: number | null) => save.call({ material_id: m.id, gap_mm: extra === null ? "" : String(Math.max(0, Math.round(extra * 100) / 100)) });
+  const scale = base > 0 ? sheet.gap / base : 1;
+  return (
+    <div className="text-sm flex flex-col gap-2">
+      <p style={{ color: "var(--muted)" }}>
+        <span style={{ color: "var(--ink)" }}>
+          {fmtLength(sheet.gap, units)} between parts
+        </span>
+        {bit > 0 && ` (${fmtLength(sheet.extra, units)} + ${fmtLength(bit, units)} bit)`}
+        {sheet.custom && Math.abs(scale - 1) > 0.01 && ` · ${Math.round(scale * 100) / 100}× the usual`}
+        {" · "}
+        <button type="button" className="underline" style={{ color: "var(--purple)" }} onClick={() => setOpen(!open)}>
+          {open ? "close" : "change"}
+        </button>
+      </p>
+      {open && (
+        <div className="card p-3 flex flex-col gap-2" style={{ background: "var(--paper)" }}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs" style={{ color: "var(--muted)" }}>
+              Scale
+            </span>
+            {[1, 1.5, 2, 3].map((k) => (
+              <button
+                key={k}
+                type="button"
+                className="tile tile-chip text-xs mono"
+                style={{ padding: "2px 10px", minHeight: 0 }}
+                data-selected={Math.abs(scale - k) < 0.01}
+                disabled={save.pending}
+                onClick={() => set(k === 1 ? null : base * k - bit)}
+              >
+                {k}×
+              </button>
+            ))}
+          </div>
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (typed !== null) set(typed);
+            }}
+          >
+            <div className="flex-1">
+              <LengthInput name="" label={bit > 0 ? "Or type the space (on top of the bit)" : "Or type the space"} units={units} defaultMm={sheet.extra} onChange={setTyped} />
+            </div>
+            <button type="submit" className="btn btn-primary text-sm" disabled={save.pending || typed === null}>
+              Save
+            </button>
+          </form>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            For every {materialName(m)} sheet. Leave room for tabs on thick plate. Usual: {fmtLength(base, units)}.
+          </p>
+          <ErrorText error={save.error} />
+        </div>
+      )}
+    </div>
   );
 }
 

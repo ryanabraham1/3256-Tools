@@ -22,6 +22,7 @@ export default async function BomPage() {
         base: p.quantity * (d?.copies ?? 1),
         spare: p.spare_qty,
         copies: d?.copies ?? 1,
+        have: p.done_qty,
         subsystem: p.subsystem.trim(),
         design: d?.name ?? "",
         bot: p.bot || d?.bot || "",

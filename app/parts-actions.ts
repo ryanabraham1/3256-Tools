@@ -765,6 +765,8 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
     if (fd.has("length_spec")) patch.length_spec = lengthSpecOf(fd);
     if (fd.has("cut_qty")) patch.cut_qty = Math.max(0, Math.round(num(fd, "cut_qty") ?? 0));
     if (fd.has("done_qty")) patch.done_qty = Math.max(0, Math.round(num(fd, "done_qty") ?? 0));
+    // COTS keeps its on-hand count in done_qty; it doesn't carry over to or from the tracker's made count
+    else if (isPartKind(patch.kind) && (patch.kind === "cots") !== (part.kind === "cots") && part.done_qty) patch.done_qty = 0;
     if (fd.has("material_id")) {
       const m = str(fd, "material_id");
       if (m === "auto") {
@@ -941,6 +943,7 @@ export async function editCotsParts(fd: FormData): Promise<FabResult<number>> {
       const kind = str(fd, "kind");
       if (!isPartKind(kind) || kind === "cots") throw new Error("Pick what kind of part we make");
       patch.kind = kind;
+      patch.done_qty = 0; // the on-hand count isn't a made count
       patch.status = "not_started";
       patch.status_changed_at = new Date().toISOString();
     }

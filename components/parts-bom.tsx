@@ -9,8 +9,10 @@ import { DeletePartSheet } from "./delete-part-sheet";
 import { Sheet } from "./sheet";
 import { ErrorText, Field, SubmitButton, useFabAction } from "./fab-ui";
 
+/** How many still to buy (needed less what's on hand), in units. */
+const toBuy = (l: Pick<BomLine, "need" | "have">) => Math.max(0, l.need - l.have);
 /** How many to order: packs when it's sold in packs. */
-const buyQty = (l: Pick<BomLine, "need" | "pack_size">) => (l.pack_size ? Math.ceil(l.need / l.pack_size) : l.need);
+const buyQty = (l: Pick<BomLine, "need" | "have" | "pack_size">) => (l.pack_size ? Math.ceil(toBuy(l) / l.pack_size) : toBuy(l));
 
 const money = (n: number | null) => (n === null ? "" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
@@ -43,6 +45,8 @@ export interface BomLine {
   /** across every robot the design is for, without spares */
   base: number;
   spare: number;
+  /** already on hand, so not bought; kept through Onshape syncs (stored in done_qty) */
+  have: number;
   /** robot sets the design is built for (base = quantity × copies) */
   copies: number;
   /** the mechanism it's for ("" = not filed) */
@@ -633,7 +637,7 @@ function EditLine({ l, mechs, onDone }: { l: BomLine; mechs: string[]; onDone: (
           <input name="unit_price" className="input mono" defaultValue={l.unit_price ?? ""} placeholder="13.99" inputMode="decimal" />
         </Field>
       </div>
-      <Field label="Sold in packs of" hint={`Blank = sold each. ${l.need} needed.`}>
+      <Field label="Sold in packs of" hint={`Blank = sold each. ${toBuy(l)} to buy.`}>
         <input name="pack_size" className="input mono" defaultValue={l.pack_size ?? ""} placeholder="5" inputMode="numeric" />
       </Field>
       <Field label="Vendor">
@@ -649,11 +653,14 @@ function EditLine({ l, mechs, onDone }: { l: BomLine; mechs: string[]; onDone: (
         </Field>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <MechField mechs={mechs} value={l.subsystem} />
         <Field label="Spares" hint={`On top of ${l.base} for the robots`}>
           <input name="spare_qty" type="number" min={0} className="input mono" defaultValue={l.spare} inputMode="numeric" />
         </Field>
+        <Field label="Already have" hint="Taken off what to buy">
+          <input name="done_qty" type="number" min={0} className="input mono" defaultValue={l.have} inputMode="numeric" />
+        </Field>
       </div>
+      <MechField mechs={mechs} value={l.subsystem} />
       <ErrorText error={a.error} />
       <SubmitButton pending={a.pending} label="Save" />
     </form>
@@ -684,14 +691,14 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
               {l.pack_size && (
                 <span style={{ color: "var(--muted)" }}>
                   {" "}
-                  · {l.need} needed
+                  · {toBuy(l)} to buy
                 </span>
               )}
             </>
           )}
         </p>
         <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
-          {[l.part_number, l.vendor, l.bot || l.design, l.material, l.spare > 0 && `incl. ${l.spare} spare`].filter(Boolean).join(" · ")}
+          {[l.part_number, l.vendor, l.bot || l.design, l.material, l.spare > 0 && `incl. ${l.spare} spare`, l.have > 0 && `${l.have} on hand`].filter(Boolean).join(" · ")}
           {l.url && (
             <>
               {" · "}
@@ -749,44 +756,55 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
 }
 
 /**
- * How many to buy, with − / + right on the line (works on phones, where the
- * Edit sheet is a long scroll). Lines from Onshape take their count from the
- * model on every sync, so − / + changes their spares; a line added by hand
- * changes its quantity. Packs step a whole pack at a time.
+ * How many to buy, with − / + right on the line (works on phones). + adds a
+ * spare, or first takes back one counted as on hand; − takes a spare off, then
+ * counts one as already on hand ("need 8, have 2" buys 6). Both survive Onshape
+ * syncs, which only reset the count the model needs. Packs step a whole pack.
  */
 function Amount({ l }: { l: BomLine }) {
   const a = useFabAction(updatePart);
-  const server = `${l.base}/${l.spare}`;
-  const [want, setWant] = useState<{ at: string; base: number; spare: number } | null>(null);
+  const server = `${l.base}/${l.spare}/${l.have}`;
+  const [want, setWant] = useState<{ at: string; spare: number; have: number } | null>(null);
   // shows each tap at once; the saved numbers take over when the page refreshes
-  const cur = want && (a.pending || want.at === server) && !a.error ? want : { base: l.base, spare: l.spare };
-  const copies = Math.max(1, l.copies);
-  const shown = { ...l, need: cur.base + cur.spare };
-  const bySpares = !!l.onshape_key;
-  const step = bySpares ? (l.pack_size ?? 1) : copies;
-  const canLess = bySpares ? cur.spare > 0 : cur.base > copies;
+  const cur = want && (a.pending || want.at === server) && !a.error ? want : { spare: l.spare, have: l.have };
+  const need = l.base + cur.spare;
+  const shown = { need, have: cur.have, pack_size: l.pack_size };
+  const step = l.pack_size ?? 1;
   const bump = (dir: 1 | -1) => {
-    const next = bySpares ? { base: cur.base, spare: Math.max(0, cur.spare + dir * step) } : { base: Math.max(copies, cur.base + dir * step), spare: cur.spare };
-    setWant({ at: server, ...next });
-    a.call(bySpares ? { id: l.id, spare_qty: String(next.spare) } : { id: l.id, quantity: String(next.base / copies) });
+    let { spare, have } = cur;
+    if (dir > 0) {
+      if (have > 0) have = Math.max(0, have - step);
+      else spare += step;
+    } else if (spare > 0) spare = Math.max(0, spare - step);
+    else have = Math.min(need, have + step);
+    setWant({ at: server, spare, have });
+    a.call({ id: l.id, spare_qty: String(spare), done_qty: String(have) });
   };
   const btn = "btn btn-ghost w-8 h-8 p-0 text-base shrink-0";
+  const tip = [
+    `${l.base} for the robots`,
+    cur.spare > 0 && `+ ${cur.spare} spare`,
+    cur.have > 0 && `− ${cur.have} on hand`,
+    l.pack_size && `sold ${l.pack_size} to a pack`,
+  ].filter(Boolean).join(" · ");
   return (
     <span className="flex flex-col items-center shrink-0">
       <span className="flex items-center gap-1">
-        <button type="button" className={btn} disabled={!canLess} onClick={() => bump(-1)} aria-label={`One less ${l.name}`} title={bySpares ? "One fewer spare" : "One fewer"}>
+        <button type="button" className={btn} disabled={toBuy(shown) <= 0} onClick={() => bump(-1)} aria-label={`Buy one less ${l.name}`} title={cur.spare > 0 ? "One fewer spare" : "We already have one more"}>
           −
         </button>
-        <span
-          className="mono text-lg font-semibold min-w-8 text-center"
-          title={[l.pack_size && `${shown.need} needed, sold ${l.pack_size} to a pack`, cur.spare > 0 && `${cur.base} for the robots + ${cur.spare} spare`].filter(Boolean).join(" · ") || undefined}
-        >
+        <span className="mono text-lg font-semibold min-w-8 text-center" title={tip}>
           {buyQty(shown)}×
         </span>
-        <button type="button" className={btn} onClick={() => bump(1)} aria-label={`One more ${l.name}`} title={bySpares ? "One more spare" : "One more"}>
+        <button type="button" className={btn} onClick={() => bump(1)} aria-label={`Buy one more ${l.name}`} title={cur.have > 0 ? "One fewer on hand" : "One more spare"}>
           +
         </button>
       </span>
+      {cur.have > 0 && (
+        <span className="text-[11px] mono" style={{ color: "var(--muted)" }}>
+          {cur.have} on hand
+        </span>
+      )}
       {a.error && <ErrorText error={a.error} />}
     </span>
   );

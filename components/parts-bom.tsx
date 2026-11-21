@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { addCotsPart, editCotsParts, findCotsLinks, setCotsStatus, setPartsSubsystem, setSpares, updatePart } from "@/app/parts-actions";
 import { COTS_LABEL, COTS_STATUSES, COTS_TONE, KIND_LABEL, multiplierOf, PART_KINDS, SPARE_LABEL, SPARE_MODES, type CotsStatus, type SpareMode } from "@/lib/parts";
 import { Empty } from "./ui";
@@ -15,11 +15,12 @@ const buyQty = (l: Pick<BomLine, "need" | "pack_size">) => (l.pack_size ? Math.c
 const money = (n: number | null) => (n === null ? "" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 /** The team's buy-list columns: Name, Link, Part #, Qty, Unit price, Total. */
-function sheetRows(sections: [string, BomLine[]][]): string[][] {
+function sheetRows(sections: [string, BomLine[]][], headings: boolean): string[][] {
   const out: string[][] = [];
-  for (const [, rows] of sections) {
+  for (const [title, rows] of sections) {
     if (!rows.length) continue;
-    if (out.length) out.push(["", "", "", "", "", ""]); // a blank row between parts and hardware, like the sheet
+    if (out.length) out.push(["", "", "", "", "", ""]); // a blank row between sections, like the sheet
+    if (headings) out.push([title, "", "", "", "", ""]);
     for (const l of rows) {
       const name = l.pack_size ? `${l.name} (${l.pack_size}-pack)` : l.name;
       out.push([name, l.url, l.part_number, String(buyQty(l)), money(l.unit_price), l.unit_price === null ? "" : money(l.unit_price * buyQty(l))]);
@@ -57,7 +58,31 @@ export interface BomLine {
 
 type Filter = "open" | "all" | CotsStatus;
 
-const NO_MECH = "No mechanism";
+const NO_MECH = "No subsystem";
+const ALL = "Everything";
+
+const GROUP_KEY = "cots-bom:grouped";
+const groupListeners = new Set<() => void>();
+function groupSubscribe(fn: () => void) {
+  groupListeners.add(fn);
+  return () => groupListeners.delete(fn);
+}
+// kept in memory too, so the toggle still works where storage is blocked
+let groupedMem = true;
+function groupedNow() {
+  try {
+    return localStorage.getItem(GROUP_KEY) === null ? groupedMem : localStorage.getItem(GROUP_KEY) !== "0";
+  } catch {
+    return groupedMem;
+  }
+}
+function setGrouped(v: boolean) {
+  groupedMem = v;
+  try {
+    localStorage.setItem(GROUP_KEY, v ? "1" : "0");
+  } catch {}
+  groupListeners.forEach((fn) => fn());
+}
 const MULTS = [
   { m: 1, mode: "none", label: "1×" },
   { m: 1.5, mode: "half", label: "1.5×" },
@@ -70,6 +95,8 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
   const [mech, setMech] = useState("");
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // split into a section per subsystem, or one list of everything (remembered per browser)
+  const grouped = useSyncExternalStore(groupSubscribe, groupedNow, () => true);
   const [copied, setCopied] = useState<string | null>(null);
   const [editing, setEditing] = useState<BomLine | null>(null);
   const [adding, setAdding] = useState<string | null>(null); // the mechanism a new line goes into
@@ -106,7 +133,11 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
         a.name.localeCompare(b.name),
     );
   // one section per mechanism, in the team's order; lines not filed anywhere last
-  const sections: [string, BomLine[]][] = [...mechs, NO_MECH].map((m) => [m, shown.filter((l) => mechOf(l) === m)] as [string, BomLine[]]).filter(([, rows]) => rows.length);
+  const sections: [string, BomLine[]][] = grouped
+    ? [...mechs, NO_MECH].map((m) => [m, shown.filter((l) => mechOf(l) === m)] as [string, BomLine[]]).filter(([, rows]) => rows.length)
+    : shown.length
+      ? [[ALL, shown]]
+      : [];
 
   const flash = (what: string) => {
     setCopied(what);
@@ -114,18 +145,23 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
   };
   function copyList() {
     const need = base.filter((l) => l.status === "needed");
-    const text = need
-      .map((l) => `${buyQty(l)} × ${l.name}${l.pack_size ? ` (${l.pack_size}-pack)` : ""}${l.part_number ? ` (${l.part_number})` : ""}${l.vendor ? ` — ${l.vendor}` : ""}${l.url ? ` ${l.url}` : ""}`)
-      .join("\n");
+    const line = (l: BomLine) => `${buyQty(l)} × ${l.name}${l.pack_size ? ` (${l.pack_size}-pack)` : ""}${l.part_number ? ` (${l.part_number})` : ""}${l.vendor ? ` — ${l.vendor}` : ""}${l.url ? ` ${l.url}` : ""}`;
+    const text = grouped
+      ? [...mechs, NO_MECH]
+          .map((m) => [m, need.filter((l) => mechOf(l) === m)] as const)
+          .filter(([, rows]) => rows.length)
+          .map(([m, rows]) => `${m}\n${rows.map(line).join("\n")}`)
+          .join("\n\n")
+      : need.map(line).join("\n");
     navigator.clipboard?.writeText(text).then(() => flash("list"));
   }
   /** Tab-separated, so it pastes straight into Google Sheets as columns. */
   function copySheet() {
-    navigator.clipboard?.writeText(tsv(sheetRows(sections))).then(() => flash("sheet"));
+    navigator.clipboard?.writeText(tsv(sheetRows(sections, grouped))).then(() => flash("sheet"));
   }
   function downloadCsv() {
     const header = ["Name", "Link", "Part #", "Qty", "Unit price", "Total"];
-    const blob = new Blob([csv([header, ...sheetRows(sections)]) + "\n"], { type: "text/csv" });
+    const blob = new Blob([csv([header, ...sheetRows(sections, grouped)]) + "\n"], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `cots-bom-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -186,8 +222,8 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
           </select>
         )}
         {mechs.length > 0 && (
-          <select className="input w-auto" value={mech} onChange={(e) => setMech(e.target.value)} aria-label="Mechanism">
-            <option value="">All mechanisms</option>
+          <select className="input w-auto" value={mech} onChange={(e) => setMech(e.target.value)} aria-label="Subsystem">
+            <option value="">All subsystems</option>
             {[...mechs, NO_MECH]
               .filter((m) => byBot.some((l) => mechOf(l) === m))
               .map((m) => (
@@ -195,6 +231,13 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
               ))}
           </select>
         )}
+        <div className="flex gap-1" role="radiogroup" aria-label="Group lines">
+          {([true, false] as const).map((g) => (
+            <button key={String(g)} type="button" role="radio" aria-checked={grouped === g} className="tile tile-chip text-sm" data-selected={grouped === g} onClick={() => setGrouped(g)}>
+              {g ? "By subsystem" : "One list"}
+            </button>
+          ))}
+        </div>
         <input className="input flex-1 min-w-40" placeholder="Search parts, vendors…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the BOM" />
         <button type="button" className="btn btn-primary text-sm" onClick={() => setAdding(mech === NO_MECH ? "" : mech)}>
           + Add part
@@ -265,14 +308,14 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
                   if (v === "__new__") setNewMech("");
                   else if (v) bulkMove.call({ ids: [...picked].join(","), subsystem: v === NO_MECH ? "" : v });
                 }}
-                aria-label="Move picked lines to a mechanism"
+                aria-label="Move picked lines to a subsystem"
               >
-                <option value="">Move to mechanism…</option>
+                <option value="">Move to subsystem…</option>
                 {mechs.map((m) => (
                   <option key={m}>{m}</option>
                 ))}
-                <option value={NO_MECH}>No mechanism</option>
-                <option value={"__new__"}>+ New mechanism…</option>
+                <option value={NO_MECH}>No subsystem</option>
+                <option value={"__new__"}>+ New subsystem…</option>
               </select>
             ) : (
               <form
@@ -284,7 +327,7 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
                   setNewMech(null);
                 }}
               >
-                <input className="input py-1 text-sm w-44" autoFocus placeholder="Mechanism name" value={newMech} onChange={(e) => setNewMech(e.target.value)} aria-label="New mechanism name" />
+                <input className="input py-1 text-sm w-44" autoFocus placeholder="Subsystem name" value={newMech} onChange={(e) => setNewMech(e.target.value)} aria-label="New subsystem name" />
                 <button type="submit" className="btn btn-primary text-sm" disabled={!newMech.trim()}>
                   Move
                 </button>
@@ -323,7 +366,12 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
       {sections.map(([title, rows]) =>
         rows.length ? (
           <section key={title}>
-            <MechHead title={title} rows={rows} all={byBot.filter((l) => mechOf(l) === title)} onAdd={() => setAdding(title === NO_MECH ? "" : title)} />
+            <MechHead
+              title={title}
+              rows={rows}
+              all={title === ALL ? byBot : byBot.filter((l) => mechOf(l) === title)}
+              onAdd={() => setAdding(title === NO_MECH || title === ALL ? (mech === NO_MECH ? "" : mech) : title)}
+            />
             <ul className="card divide-y" style={{ borderColor: "var(--line)" }}>
               {rows.map((l) => (
                 <Row
@@ -425,7 +473,7 @@ function MechHead({ title, rows, all, onAdd }: { title: string; rows: BomLine[];
 
 function MechField({ mechs, value }: { mechs: string[]; value: string }) {
   return (
-    <Field label="Mechanism">
+    <Field label="Subsystem">
       <input name="subsystem" className="input" defaultValue={value} list="bom-mechs" placeholder="Intake, Shooter…" />
       <datalist id="bom-mechs">
         {mechs.map((m) => (

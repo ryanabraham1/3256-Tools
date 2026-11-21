@@ -686,6 +686,7 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
       if (status !== part.status) {
         patch.status = status;
         patch.status_changed_at = new Date().toISOString();
+        if (!fd.has("cut_qty") && backBeforeCut(part, status)) patch.cut_qty = 0;
       }
     }
     if (!fd.has("status") && isPartKind(patch.kind) && patch.kind !== "cots" && part.kind !== "cots") {
@@ -731,6 +732,7 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
     if (patch.status) await logPart(part.id, "stage", { from: part.status, to: patch.status, by: str(fd, "by") });
     const other = changed.filter((k) => k !== "status");
     if (other.length) await logPart(part.id, "edit", { fields: other.join(", ") });
+    if (patch.status && patch.cut_qty === 0 && part.cut_qty > 0 && !fd.has("cut_qty")) return UNCUT_NOTE;
     return patch.status ? stockForStatus({ ...part, ...(patch as Partial<FabPart>), status: part.status }, patch.status as JobStatus) : "";
   });
 }
@@ -903,6 +905,7 @@ export async function setPartsSubsystem(fd: FormData): Promise<FabResult> {
  * Change a part's status (board drag, table dropdown, part page). A stock
  * part leaving Not Started / Have CAM for In Progress / Finished takes its
  * stock off the rack automatically; the returned note says what was taken.
+ * Moving it back before cut clears its cut count so it shows on the cut plan.
  */
 export async function setPartStatus(fd: FormData): Promise<FabResult<string>> {
   return run(async () => {
@@ -910,12 +913,28 @@ export async function setPartStatus(fd: FormData): Promise<FabResult<string>> {
     const status = str(fd, "status");
     if (!isJobStatus(status)) throw new Error("Pick a status");
     if (status === part.status) return "";
-    const { error } = await db().from("fab_parts").update({ status, status_changed_at: new Date().toISOString() }).eq("id", part.id);
+    const patch: Record<string, unknown> = { status, status_changed_at: new Date().toISOString() };
+    // moved back to before it was cut (not Spares Needed, where what's made stays
+    // made): it needs cutting again, so it's back on the cut plan
+    const uncut = backBeforeCut(part, status);
+    if (uncut) patch.cut_qty = 0;
+    const { error } = await db().from("fab_parts").update(patch).eq("id", part.id);
     if (error) throw error;
-    await logPart(part.id, "stage", { from: part.status, to: status, by: str(fd, "by") });
+    await logPart(part.id, "stage", { from: part.status, to: status, by: str(fd, "by"), uncut: uncut ? part.cut_qty : null });
+    if (uncut) return UNCUT_NOTE;
     return stockForStatus(part, status);
   });
 }
+
+/**
+ * A stock part moved from cut (In Progress and on) back to before cut needs
+ * cutting again, so its cut count clears and it's back on the cut plan. Not
+ * Spares Needed: what's made there stays made, only the extra copies are cut.
+ */
+function backBeforeCut(part: FabPart, to: JobStatus): boolean {
+  return isStockKind(part.kind) && USES_STOCK.includes(part.status) && BEFORE_CUT.includes(to) && to !== "spares_needed" && part.cut_qty > 0;
+}
+const UNCUT_NOTE = "Back on the cut plan. The stock taken for it is still marked used. Undo that cut in the stock log if it wasn't really cut.";
 
 /** When a status change means the part got made, take what's still uncut off the rack. */
 async function stockForStatus(part: FabPart, to: JobStatus): Promise<string> {

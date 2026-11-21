@@ -367,7 +367,10 @@ select.cell:hover, select.cell:focus {
 .sheet-table .pin { position: sticky; z-index: 1; background: var(--surface); }
 .sheet-table tbody tr:hover .pin { background: var(--paper); }
 /* the whole tracker scrolls inside one box like the sheet: header row and pinned columns stay put */
-.sheet-scroll { max-height: calc(100dvh - 96px); }
+/* sized to fit between the sticky top bar and the page's bottom padding (the phone/tablet tab bar below xl),
+   so scrolling the page all the way down never tucks the header row under the top bar */
+.sheet-scroll { max-height: calc(100dvh - var(--app-header-height, 56px) - 8px - 88px - env(safe-area-inset-bottom)); }
+@media (min-width: 1280px) { .sheet-scroll { max-height: calc(100dvh - var(--app-header-height, 56px) - 8px - 64px); } }
 .sheet-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--line); }
 .sheet-table thead th.pin { z-index: 3; }
 .sheet-table .group-row td { padding: 14px 0 6px; background: var(--paper); border-top: 1px solid var(--line); }

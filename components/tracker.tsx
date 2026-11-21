@@ -125,6 +125,25 @@ function options(base: string[], jobs: FabJob[], key: string): string[] {
   return [...seen.values()];
 }
 
+/**
+ * Scrolling down over the sheet moves the page first, until the sheet sits right under the top bar,
+ * and only then scrolls the rows, so the header row and pinned columns are always on screen (like a frozen sheet).
+ */
+function pageScrollsFirst(box: HTMLDivElement) {
+  const onWheel = (e: WheelEvent) => {
+    if (e.ctrlKey || e.deltaY <= 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height")) || 56;
+    const gap = box.getBoundingClientRect().top - bar - 8;
+    const room = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+    if (gap <= 1 || room <= 1) return;
+    e.preventDefault();
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1);
+    window.scrollBy(0, Math.min(dy, gap));
+  };
+  box.addEventListener("wheel", onWheel, { passive: false });
+  return () => box.removeEventListener("wheel", onWheel);
+}
+
 export function TrackerTable({
   tracker,
   parts: serverJobs,
@@ -569,7 +588,7 @@ export function TrackerTable({
   /** The sheet on desktop: one table that scrolls inside itself, with the header row and Status / Part columns frozen. */
   function deskTable(body: React.ReactNode, scroll: boolean) {
     return (
-      <div className={`hidden md:block card overflow-auto ${scroll ? "sheet-scroll" : ""}`}>
+      <div ref={scroll ? pageScrollsFirst : undefined} className={`hidden md:block card overflow-auto ${scroll ? "sheet-scroll" : ""}`}>
         <table className="sheet-table text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
           <colgroup>
             {cols.map((c) => (

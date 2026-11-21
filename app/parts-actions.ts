@@ -42,6 +42,7 @@ import {
   type PartSource,
 } from "@/lib/parts";
 import { toPartGeometry } from "@/lib/dfm";
+import { foldTwins, twinKey } from "@/lib/part-twins";
 import { rematchParts, rematchQuietly, type RematchResult } from "@/lib/parts-match";
 import { isJobStatus, jobKey, readSheet, SHEET_TO_PART, splitPeople, STATUSES, SUGGEST, TEXT_FIELDS, type ImportRow, type JobStatus } from "@/lib/tracker";
 import { checkPart } from "@/lib/dfm";
@@ -363,6 +364,33 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
   const fromAssembly = assemblySubsystem(design);
   if (fromAssembly) await addSubsystems([fromAssembly]);
 
+  // 3b. The same plate drawn as several bodies (one name, one outline): one
+  // row with the quantities added up, kept under the oldest row's key.
+  const twinOf = new Map<string, string>();
+  {
+    const groups = new Map<string, string[]>();
+    for (const [key, line] of merged) {
+      const shape = shapes.get(studioKey(line.source))?.get(line.source.partId);
+      if (!shape?.face || !shape.facts.flat) continue;
+      const name = line.name || metadata.get(studioKey(line.source))?.get(line.source.partId)?.name || shape.name;
+      if (!name || isReferenceBody(name) || isUnnamedBody(name)) continue;
+      const g = toPartGeometry(shape.face, "onshape", { pocketed: shape.facts.pocketed });
+      if (!g) continue;
+      const k = twinKey(name, shape.facts.t, g);
+      groups.set(k, [...(groups.get(k) ?? []), key]);
+    }
+    const age = (k: string) => existing.get(k)?.created_at ?? "~";
+    for (const keys of groups.values()) {
+      if (keys.length < 2) continue;
+      const [keep, ...rest] = [...keys].sort((a, b) => age(a).localeCompare(age(b)) || a.localeCompare(b));
+      for (const k of rest) {
+        merged.get(keep)!.quantity += merged.get(k)!.quantity;
+        merged.delete(k);
+        twinOf.set(k, keep);
+      }
+    }
+  }
+
   const seen = new Set<string>();
   let added = 0;
   let skippedProcess = 0;
@@ -470,6 +498,37 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     if (geometry && JSON.stringify(geometry.loops) !== JSON.stringify(old?.geometry?.loops ?? null)) dxfJobs.push({ partId, name, geometry });
   });
 
+  // 4a. Rows for copies now counted on another row fold into it: earliest
+  // stage, cut / made counts added up, files and history moved over.
+  const absorbed = new Map<string, FabPart[]>();
+  for (const [k, keep] of twinOf) {
+    const old = existing.get(k);
+    if (old) absorbed.set(keep, [...(absorbed.get(keep) ?? []), old]);
+    existing.delete(k);
+  }
+  let combined = 0;
+  for (const [keepKey, olds] of absorbed) {
+    const before = existing.get(keepKey);
+    if (!before) continue;
+    const fold = foldTwins([before, ...olds]);
+    const patch: Record<string, unknown> = { cut_qty: fold.cut_qty, done_qty: fold.done_qty, assignees: fold.assignees, spare_qty: fold.spare_qty };
+    if (fold.status !== before.status) {
+      patch.status = fold.status;
+      patch.status_changed_at = new Date().toISOString();
+    }
+    const ids = olds.map((o) => o.id);
+    const { error: e1 } = await db().from("fab_parts").update(patch).eq("id", before.id);
+    if (e1) throw e1;
+    for (const table of ["fab_part_files", "fab_part_events"]) {
+      const { error: e2 } = await db().from(table).update({ part_id: before.id }).in("part_id", ids);
+      if (e2) throw e2;
+    }
+    const { error: e3 } = await db().from("fab_parts").delete().in("id", ids);
+    if (e3) throw e3;
+    await logPart(before.id, "edit", { fields: "quantity", combined: olds.length });
+    combined += olds.length;
+  }
+
   // 4. Parts that left the design.
   const gone = [...existing.values()].filter((p) => !seen.has(p.onshape_key ?? "") && !p.missing);
   if (gone.length) {
@@ -489,6 +548,7 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     `${cots} COTS`,
     hw && `${hw} hardware`,
     added && `${added} new`,
+    combined && `${combined} duplicate plate${combined === 1 ? "" : "s"} combined`,
     gone.length && `${gone.length} no longer in the design`,
     skippedProcess && `${skippedProcess} skipped (${prop} says not needed)`,
     skippedRef && `${skippedRef} skipped (origin cubes, reference and unnamed bodies)`,

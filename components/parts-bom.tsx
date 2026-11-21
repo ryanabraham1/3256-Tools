@@ -43,6 +43,8 @@ export interface BomLine {
   /** across every robot the design is for, without spares */
   base: number;
   spare: number;
+  /** robot sets the design is built for (base = quantity × copies) */
+  copies: number;
   /** the mechanism it's for ("" = not filed) */
   subsystem: string;
   design: string;
@@ -637,9 +639,13 @@ function EditLine({ l, mechs, onDone }: { l: BomLine; mechs: string[]; onDone: (
       <Field label="Vendor">
         <input name="vendor" className="input" defaultValue={l.vendor} placeholder="WCP, AndyMark, REV…" />
       </Field>
-      {!l.onshape_key && (
+      {l.onshape_key ? (
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          {l.base} needed comes from Onshape and updates on every sync. To order more, add spares.
+        </p>
+      ) : (
         <Field label="Qty needed" hint="Per robot set, before spares">
-          <input name="quantity" type="number" min={1} className="input mono" defaultValue={l.base} inputMode="numeric" />
+          <input name="quantity" type="number" min={1} className="input mono" defaultValue={l.base / Math.max(1, l.copies)} inputMode="numeric" />
         </Field>
       )}
       <div className="grid grid-cols-2 gap-2">
@@ -662,12 +668,7 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
   return (
     <li className="p-3 flex flex-wrap items-start gap-3" style={{ borderColor: "var(--line)", opacity: cur === "have" ? 0.65 : 1 }}>
       <input type="checkbox" className="mt-1.5" checked={picked} onChange={onPick} aria-label={`Pick ${l.name}`} />
-      <span
-        className="mono text-lg font-semibold w-10 text-right shrink-0"
-        title={[l.pack_size && `${l.need} needed, sold ${l.pack_size} to a pack`, l.spare > 0 && `${l.base} for the robots + ${l.spare} spare`].filter(Boolean).join(" · ") || undefined}
-      >
-        {buyQty(l)}×
-      </span>
+      <Amount l={l} />
       <div className="min-w-0 flex-1 basis-36">
         <button type="button" className="font-medium break-words text-left hover:underline" onClick={onEdit}>
           {l.name}
@@ -744,5 +745,49 @@ function Row({ l, picked, onPick, onEdit, onDelete }: { l: BomLine; picked: bool
         </button>
       </div>
     </li>
+  );
+}
+
+/**
+ * How many to buy, with − / + right on the line (works on phones, where the
+ * Edit sheet is a long scroll). Lines from Onshape take their count from the
+ * model on every sync, so − / + changes their spares; a line added by hand
+ * changes its quantity. Packs step a whole pack at a time.
+ */
+function Amount({ l }: { l: BomLine }) {
+  const a = useFabAction(updatePart);
+  const server = `${l.base}/${l.spare}`;
+  const [want, setWant] = useState<{ at: string; base: number; spare: number } | null>(null);
+  // shows each tap at once; the saved numbers take over when the page refreshes
+  const cur = want && (a.pending || want.at === server) && !a.error ? want : { base: l.base, spare: l.spare };
+  const copies = Math.max(1, l.copies);
+  const shown = { ...l, need: cur.base + cur.spare };
+  const bySpares = !!l.onshape_key;
+  const step = bySpares ? (l.pack_size ?? 1) : copies;
+  const canLess = bySpares ? cur.spare > 0 : cur.base > copies;
+  const bump = (dir: 1 | -1) => {
+    const next = bySpares ? { base: cur.base, spare: Math.max(0, cur.spare + dir * step) } : { base: Math.max(copies, cur.base + dir * step), spare: cur.spare };
+    setWant({ at: server, ...next });
+    a.call(bySpares ? { id: l.id, spare_qty: String(next.spare) } : { id: l.id, quantity: String(next.base / copies) });
+  };
+  const btn = "btn btn-ghost w-8 h-8 p-0 text-base shrink-0";
+  return (
+    <span className="flex flex-col items-center shrink-0">
+      <span className="flex items-center gap-1">
+        <button type="button" className={btn} disabled={!canLess} onClick={() => bump(-1)} aria-label={`One less ${l.name}`} title={bySpares ? "One fewer spare" : "One fewer"}>
+          −
+        </button>
+        <span
+          className="mono text-lg font-semibold min-w-8 text-center"
+          title={[l.pack_size && `${shown.need} needed, sold ${l.pack_size} to a pack`, cur.spare > 0 && `${cur.base} for the robots + ${cur.spare} spare`].filter(Boolean).join(" · ") || undefined}
+        >
+          {buyQty(shown)}×
+        </span>
+        <button type="button" className={btn} onClick={() => bump(1)} aria-label={`One more ${l.name}`} title={bySpares ? "One more spare" : "One more"}>
+          +
+        </button>
+      </span>
+      {a.error && <ErrorText error={a.error} />}
+    </span>
   );
 }

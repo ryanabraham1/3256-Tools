@@ -134,6 +134,11 @@ export interface SheetNestOptions {
 export function nestSheets(items: SheetItem[], stock: SheetStock[], o: SheetNestOptions): SheetNestResult {
   const { gap, margin } = o;
   const minKeep = o.minKeep ?? 50.8;
+  // Areas already cut away are holes in the sheet: a part keeps the same clear
+  // margin from them as from the sheet's edge, so nothing lands in the thin
+  // webs left between old cutouts (they flex, and there's nothing to hold).
+  // `hole` is how far to grow a zone; parts already carry half a gap each side.
+  const hole = Math.max(gap, margin) - gap / 2;
   const usable = (s: { w: number; l: number }) => {
     let w = s.w;
     let l = s.l;
@@ -163,8 +168,9 @@ export function nestSheets(items: SheetItem[], stock: SheetStock[], o: SheetNest
     const u = usable(s);
     if (u.w <= 0 || u.h <= 0) return null;
     const bin = new Bin(u.w, u.h);
-    // parts keep a full gap clear of areas already cut away
-    for (const z of s.zones ?? []) bin.place({ x: z.x - margin, y: z.y - margin, w: z.w + gap, h: z.h + gap });
+    // parts keep the edge margin clear of areas already cut away (bin coords
+    // start at the margin, less the half gap every part carries)
+    for (const z of s.zones ?? []) bin.place({ x: z.x - margin + gap / 2 - hole, y: z.y - margin + gap / 2 - hole, w: z.w + 2 * hole, h: z.h + 2 * hole });
     const placements: Placement[] = [];
     const rest: SheetItem[] = [];
     for (const it of left) {
@@ -211,9 +217,9 @@ export function nestSheets(items: SheetItem[], stock: SheetStock[], o: SheetNest
     const c = Math.min(2, Math.max(0.5, Math.max(ew, el) / 1400));
     const grid = new Grid(Math.floor(ew / c), Math.floor(el / c));
     for (const z of s.zones ?? []) {
-      const x0 = Math.floor((z.x - gap / 2 - o0) / c);
-      const x1 = Math.ceil((z.x + z.w + gap / 2 - o0) / c) - 1;
-      for (let j = Math.floor((z.y - gap / 2 - o0) / c); j <= Math.ceil((z.y + z.h + gap / 2 - o0) / c) - 1; j++) grid.fill(j, x0, x1);
+      const x0 = Math.max(0, Math.floor((z.x - hole - o0) / c));
+      const x1 = Math.ceil((z.x + z.w + hole - o0) / c) - 1;
+      for (let j = Math.max(0, Math.floor((z.y - hole - o0) / c)); j <= Math.ceil((z.y + z.h + hole - o0) / c) - 1; j++) grid.fill(j, x0, x1);
     }
     const maskOf = (it: SheetItem, a: Angle) => {
       const k = `${it.id}|${a}|${c}`;

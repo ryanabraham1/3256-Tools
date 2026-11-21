@@ -5,7 +5,8 @@ import { useMemo, useState } from "react";
 import { commitSheet, commitStick, setNestGap, setSpares } from "@/app/parts-actions";
 import { addOrder } from "@/app/fab-actions";
 import { isSheet, materialName, type FabLocation, type FabMaterial, type FabPiece } from "@/lib/fab";
-import { BEFORE_CUT, KIND_LABEL, SPARE_LABEL, SPARE_MODES, type FabMachine, type PartKind } from "@/lib/parts";
+import { BEFORE_CUT, KIND_LABEL, SPARE_LABEL, SPARE_MODES, thickLabel, type FabMachine, type PartKind } from "@/lib/parts";
+import { makeZip } from "@/lib/zip";
 import { STATUS_LABEL, type JobStatus } from "@/lib/tracker";
 import { layerName, placeLoop, svgPath, writeDxf, type Loop } from "@/lib/geom";
 import { nestSheets, nestSticks, zoneToNest, type SheetPlan, type StickPlan } from "@/lib/nest";
@@ -28,6 +29,8 @@ export interface PlanPart {
   material_text: string;
   length: number | null;
   width: number | null;
+  /** sheet thickness, mm */
+  thick: number | null;
   geometry: { loops: Loop[]; width: number; height: number } | null;
   dfm: { level: Level; why: string | null; warns: number; machineId: string | null };
 }
@@ -232,6 +235,8 @@ export function PartsPlan({
 
       {spareable.length > 0 && <SparesPanel parts={spareable} />}
 
+      <DxfsByThickness parts={inScope.filter((p) => p.dfm.level !== "fail" && !skip.has(p.id) && (useWarn || p.dfm.level !== "warn"))} materials={matById} />
+
       {(cantMake.length > 0 || noMaterial.length > 0) && (
         <section className="card p-4 flex flex-col gap-2">
           <h2 className="text-xl font-medium tracking-tight">Needs attention first</h2>
@@ -400,6 +405,65 @@ function SparesPanel({ parts }: { parts: SparePart[] }) {
     </details>
   );
 }
+
+/**
+ * One zip per sheet thickness holding every plate's own outline DXF (named
+ * with how many to cut), for laying out by hand in the machine's software.
+ */
+function DxfsByThickness({ parts, materials }: { parts: PlanPart[]; materials: Map<string, FabMaterial> }) {
+  const byThick = new Map<string, PlanPart[]>();
+  for (const p of parts) {
+    if (p.kind !== "plate" || !p.geometry || p.thick === null) continue;
+    const k = thickLabel(p.thick).replace(/ thick$/, "");
+    byThick.set(k, [...(byThick.get(k) ?? []), p]);
+  }
+  const noOutline = parts.filter((p) => p.kind === "plate" && !p.geometry).length;
+  if (!byThick.size) return null;
+  const sorted = [...byThick].sort((a, b) => a[1][0].thick! - b[1][0].thick!);
+
+  function download(label: string, ps: PlanPart[]) {
+    const mats = new Set(ps.map((p) => p.material_id ?? ""));
+    const files = ps.map((p) => {
+      const g = p.geometry!;
+      const text = writeDxf([
+        { name: "OUTLINE", loops: g.loops.slice(0, 1), color: 7 },
+        { name: "HOLES", loops: g.loops.slice(1), color: 1 },
+      ]);
+      const mat = p.material_id ? materials.get(p.material_id) : undefined;
+      // more than one material at this thickness: a folder each, so they aren't cut together
+      const folder = mats.size > 1 ? `${safeFile(mat ? materialName(mat) : p.material_text || "No material")}/` : "";
+      return { name: `${folder}${safeFile(p.name)} x${p.toCut}.dxf`, text };
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([makeZip(files)], { type: "application/zip" }));
+    a.download = `plates-${label.replace(/"/g, "in").replace(/\//g, "-")}.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  return (
+    <section className="card p-4 flex flex-col gap-2">
+      <h2 className="text-xl font-medium tracking-tight">Part DXFs by thickness</h2>
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
+        Every plate&apos;s own outline, one file each, named with how many to cut.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {sorted.map(([label, ps]) => (
+          <button key={label} type="button" className="btn btn-ghost text-sm" onClick={() => download(label, ps)}>
+            Download {label} <span className="mono" style={{ color: "var(--muted)" }}>· {ps.length} part{ps.length > 1 ? "s" : ""}</span>
+          </button>
+        ))}
+      </div>
+      {noOutline > 0 && (
+        <p className="text-xs" style={{ color: "var(--warn)" }}>
+          {noOutline} plate{noOutline > 1 ? "s" : ""} with no outline yet left out — upload a DXF on the part or re-sync.
+        </p>
+      )}
+    </section>
+  );
+}
+
+const safeFile = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").trim() || "part";
 
 function toggle(s: Set<string>, id: string): Set<string> {
   const n = new Set(s);

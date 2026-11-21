@@ -61,6 +61,8 @@ export default async function PlanPage() {
       material_text: p.material_text,
       length: p.size_l_mm,
       width: p.size_w_mm,
+      // sheet thickness: the rack stock it's cut from beats the model's box
+      thick: material?.shape === "sheet" && material.wall_mm ? material.wall_mm : p.size_t_mm,
       geometry: p.geometry ? { loops: p.geometry.loops, width: p.geometry.width, height: p.geometry.height } : null,
       dfm: {
         level: dfm.level,

@@ -546,7 +546,7 @@ export function toCut(p: Pick<FabPart, "quantity" | "spare_qty" | "cut_qty">, co
 
 const IN = 25.4;
 /** '1/8" thick' etc. for a thickness in mm, when it's one of the sheet's sizes. */
-function thickLabel(mm: number | null): string {
+export function thickLabel(mm: number | null): string {
   if (mm === null) return "";
   const sizes: [number, string][] = [
     [1 / 32, '1/32" thick'],

@@ -1372,8 +1372,9 @@ async function markCut(counts: CommitCount[], what: string, advance = true) {
 
 /**
  * From the cut plan: the parts on a planned sheet / stick go In Progress (being
- * cut now). Only the status: no stock comes off the rack until "Mark cut", so
- * they stay on the plan until then. Parts already past it are left alone.
+ * cut now), with whoever clicked as their Fab DRI. No stock comes off the rack
+ * until "Mark cut", so they stay on the plan until then. Parts already past it
+ * are left alone.
  */
 export async function markPlanInProgress(fd: FormData): Promise<FabResult<number>> {
   return run(async () => {
@@ -1383,11 +1384,17 @@ export async function markPlanInProgress(fd: FormData): Promise<FabResult<number
     if (error) throw error;
     const moving = (data ?? []).filter((r) => BEFORE_CUT.includes(r.status as JobStatus)).map((r) => r.id as string);
     if (!moving.length) return 0;
-    const { error: e } = await db().from("fab_parts").update({ status: AFTER_CUT, status_changed_at: new Date().toISOString() }).in("id", moving);
-    if (e) throw e;
+    // whoever starts cutting them is their Fab DRI
     const by = (await requireWorkUser()).name;
+    const { error: e } = await db()
+      .from("fab_parts")
+      .update({ status: AFTER_CUT, status_changed_at: new Date().toISOString(), assignees: [by] })
+      .in("id", moving);
+    if (e) throw e;
     const from = new Map((data ?? []).map((r) => [r.id as string, r.status as string]));
-    await Promise.all(moving.map((id) => logPart(id, "stage", { from: from.get(id), to: AFTER_CUT, by, from_plan: true })));
+    await Promise.all(
+      moving.flatMap((id) => [logPart(id, "stage", { from: from.get(id), to: AFTER_CUT, by, from_plan: true }), logPart(id, "assign", { name: by, mode: "add" })]),
+    );
     return moving.length;
   });
 }

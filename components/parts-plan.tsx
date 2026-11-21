@@ -864,7 +864,7 @@ function MarkInProgress({ ids, statusById }: { ids: string[]; statusById: Map<st
   }
   return (
     <>
-      <button type="button" className="btn btn-ghost text-sm" disabled={a.pending} onClick={() => a.call({ ids: todo.join(",") })}>
+      <button type="button" className="btn btn-ghost text-sm" disabled={a.pending} onClick={() => a.call({ ids: todo.join(",") })} title="Moves them to In Progress with you as their Fab DRI">
         {a.pending ? "Working…" : `Mark in progress${todo.length < ids.length ? ` (${todo.length})` : ""}`}
       </button>
       <ErrorText error={a.error} />

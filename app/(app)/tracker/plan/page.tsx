@@ -1,7 +1,7 @@
 import { getFabSettings, getLocations, getMaterials, getStockPieces, getUnits } from "@/lib/fab-data";
 import { getDesigns, getMachines, getParts, getPartsSettings } from "@/lib/parts-data";
 import { checkPart } from "@/lib/dfm";
-import { BEFORE_CUT, isStockKind, toCut } from "@/lib/parts";
+import { BEFORE_CUT, isStockKind, needed, PLAN_STATUSES, toCut } from "@/lib/parts";
 import { PartsPlan, type PlanPart, type SparePart } from "@/components/parts-plan";
 import { PageHead, UnitsToggle } from "@/components/fab-ui";
 
@@ -40,12 +40,15 @@ export default async function PlanPage() {
       status: p.status,
     }));
   for (const p of parts) {
-    // stock parts not cut yet (SendCutSend / not needed / in progress are out)
-    if (!isStockKind(p.kind) || !BEFORE_CUT.includes(p.status)) continue;
+    // stock parts not cut yet, plus In Progress ones (hidden until picked in the
+    // plan's status filter); SendCutSend / deburring / finished are out
+    if (!isStockKind(p.kind) || !PLAN_STATUSES.includes(p.status)) continue;
     // parts of archived designs are out; parts added by hand without a design are in
     if (p.design_id && !designById.has(p.design_id)) continue;
     const copies = p.design_id ? (designById.get(p.design_id)?.copies ?? 1) : 1;
-    const left = toCut(p, copies);
+    // In Progress: moving there takes the stock off the rack (so the cut count is
+    // full), so what's left is what the progress slider hasn't marked made yet
+    const left = BEFORE_CUT.includes(p.status) ? toCut(p, copies) : Math.max(0, needed(p, copies) - p.done_qty);
     if (!left) continue;
     const material = p.material_id ? (matById.get(p.material_id) ?? null) : null;
     const dfm = checkPart({ part: p, material, machines, processProp: settings.onshape_process_prop, units });
@@ -54,6 +57,7 @@ export default async function PlanPage() {
       name: p.name,
       bot: p.bot,
       kind: p.kind,
+      status: p.status,
       design_id: p.design_id,
       toCut: left,
       spare: p.spare_qty,

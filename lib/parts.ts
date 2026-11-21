@@ -49,6 +49,8 @@ export const isStockKind = (k: PartKind) => STOCK_KINDS.includes(k);
  */
 export const BEFORE_CUT: JobStatus[] = ["not_started", "cad_done", "cad_revise", "have_cam", "cam_revise", "spares_needed"];
 export const AFTER_CUT: JobStatus = "in_progress";
+/** What the cut plan can show: parts waiting on stock, and In Progress ones on request. */
+export const PLAN_STATUSES: JobStatus[] = [...BEFORE_CUT, "in_progress"];
 /** Moving from a before-cut status to one of these means the stock got used. */
 export const USES_STOCK: JobStatus[] = ["in_progress", "needs_deburring", "finished", "spares_finished"];
 

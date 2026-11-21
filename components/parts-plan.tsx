@@ -5,9 +5,9 @@ import { useMemo, useState } from "react";
 import { commitSheet, commitStick, setNestGap, setSpares } from "@/app/parts-actions";
 import { addOrder } from "@/app/fab-actions";
 import { isSheet, materialName, type FabLocation, type FabMaterial, type FabPiece } from "@/lib/fab";
-import { BEFORE_CUT, KIND_LABEL, SPARE_LABEL, SPARE_MODES, thickLabel, type FabMachine, type PartKind } from "@/lib/parts";
+import { BEFORE_CUT, KIND_LABEL, PLAN_STATUSES, SPARE_LABEL, SPARE_MODES, thickLabel, type FabMachine, type PartKind } from "@/lib/parts";
 import { makeZip } from "@/lib/zip";
-import { STATUS_LABEL, type JobStatus } from "@/lib/tracker";
+import { STATUS_LABEL, STATUSES, type JobStatus } from "@/lib/tracker";
 import { layerName, placeLoop, svgPath, writeDxf, type Loop } from "@/lib/geom";
 import { nestSheets, nestSticks, zoneToNest, type SheetPlan, type StickPlan } from "@/lib/nest";
 import type { Level } from "@/lib/dfm";
@@ -21,6 +21,7 @@ export interface PlanPart {
   name: string;
   bot: string;
   kind: PartKind;
+  status: JobStatus;
   design_id: string | null;
   toCut: number;
   /** spares included in the count */
@@ -95,6 +96,8 @@ export function PartsPlan({
   const [off, setOff] = useState<Set<string>>(new Set()); // designs left out
   const [skip, setSkip] = useState<Set<string>>(new Set()); // parts left out
   const [useWarn, setUseWarn] = useState(true);
+  // statuses shown: everything waiting on stock; In Progress only when picked
+  const [shown, setShown] = useState<Set<JobStatus>>(new Set(BEFORE_CUT));
   const matById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
   const machineById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
   const locName = useMemo(() => new Map(locations.map((l) => [l.id, l.name])), [locations]);
@@ -102,7 +105,11 @@ export function PartsPlan({
   // where each rack piece is, so the plan says which cart to pull from
   const where = useMemo(() => new Map(pieces.map((p) => [p.id, p.location_id ? (locName.get(p.location_id) ?? "") : ""])), [pieces, locName]);
 
-  const inScope = parts.filter((p) => !(p.design_id && off.has(p.design_id)));
+  const byStatus = new Map<JobStatus, number>();
+  for (const p of parts) if (!(p.design_id && off.has(p.design_id))) byStatus.set(p.status, (byStatus.get(p.status) ?? 0) + p.toCut);
+  // workflow order, just the statuses that have parts
+  const statusChips = STATUSES.machining.filter((st) => PLAN_STATUSES.includes(st) && byStatus.has(st));
+  const inScope = parts.filter((p) => !(p.design_id && off.has(p.design_id)) && shown.has(p.status));
   const cantMake = inScope.filter((p) => p.dfm.level === "fail");
   const risky = inScope.filter((p) => p.dfm.level === "warn");
   const noMaterial = inScope.filter((p) => p.dfm.level !== "fail" && !p.material_id);
@@ -219,6 +226,27 @@ export function PartsPlan({
             </button>
           ))}
         </div>
+        {statusChips.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="label mb-0">Status</span>
+            {statusChips.map((st) => (
+              <button
+                key={st}
+                type="button"
+                className="tile tile-chip text-sm"
+                data-selected={shown.has(st)}
+                onClick={() => setShown((s) => toggle(s, st))}
+              >
+                {STATUS_LABEL[st]} <span className="mono" style={{ color: "var(--muted)" }}>{byStatus.get(st)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {shown.has("in_progress") && byStatus.has("in_progress") && (
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            In Progress parts count what the progress slider hasn&apos;t marked made yet. Their stock usually came off the rack when they moved there, so the plan may ask for more sheets than you need.
+          </p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Big label="Parts to cut" value={`${totalCopies}`} sub={`${planned.length} different`} />
           <Big label="From the rack" value={`${fromStock}`} sub="sheets / sticks" tone="good" />
@@ -465,7 +493,7 @@ function DxfsByThickness({ parts, materials }: { parts: PlanPart[]; materials: M
 
 const safeFile = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").trim() || "part";
 
-function toggle(s: Set<string>, id: string): Set<string> {
+function toggle<T>(s: Set<T>, id: T): Set<T> {
   const n = new Set(s);
   if (n.has(id)) n.delete(id);
   else n.add(id);

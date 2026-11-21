@@ -46,9 +46,9 @@ export default async function PlanPage() {
     // parts of archived designs are out; parts added by hand without a design are in
     if (p.design_id && !designById.has(p.design_id)) continue;
     const copies = p.design_id ? (designById.get(p.design_id)?.copies ?? 1) : 1;
-    // In Progress: moving there takes the stock off the rack (so the cut count is
-    // full), so what's left is what the progress slider hasn't marked made yet
-    const left = BEFORE_CUT.includes(p.status) ? toCut(p, copies) : Math.max(0, needed(p, copies) - p.done_qty);
+    // In Progress: still to cut is what hasn't had stock taken (moving there on
+    // the board takes it; the plan's "Mark in progress" doesn't) nor been made
+    const left = BEFORE_CUT.includes(p.status) ? toCut(p, copies) : Math.max(0, needed(p, copies) - Math.max(p.cut_qty, p.done_qty));
     if (!left) continue;
     const material = p.material_id ? (matById.get(p.material_id) ?? null) : null;
     const dfm = checkPart({ part: p, material, machines, processProp: settings.onshape_process_prop, units });

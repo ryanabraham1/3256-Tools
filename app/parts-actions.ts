@@ -1268,6 +1268,28 @@ async function markCut(counts: CommitCount[], what: string, advance = true) {
   }
 }
 
+/**
+ * From the cut plan: the parts on a planned sheet / stick go In Progress (being
+ * cut now). Only the status: no stock comes off the rack until "Mark cut", so
+ * they stay on the plan until then. Parts already past it are left alone.
+ */
+export async function markPlanInProgress(fd: FormData): Promise<FabResult<number>> {
+  return run(async () => {
+    const ids = [...new Set(str(fd, "ids").split(",").filter(Boolean))];
+    if (!ids.length) throw new Error("Nothing on this layout");
+    const { data, error } = await db().from("fab_parts").select("id, status").in("id", ids);
+    if (error) throw error;
+    const moving = (data ?? []).filter((r) => BEFORE_CUT.includes(r.status as JobStatus)).map((r) => r.id as string);
+    if (!moving.length) return 0;
+    const { error: e } = await db().from("fab_parts").update({ status: AFTER_CUT, status_changed_at: new Date().toISOString() }).in("id", moving);
+    if (e) throw e;
+    const by = (await requireWorkUser()).name;
+    const from = new Map((data ?? []).map((r) => [r.id as string, r.status as string]));
+    await Promise.all(moving.map((id) => logPart(id, "stage", { from: from.get(id), to: AFTER_CUT, by, from_plan: true })));
+    return moving.length;
+  });
+}
+
 /** Cut a planned sheet from the cut plan; the parts on it count as cut. */
 export async function commitSheet(fd: FormData): Promise<FabResult> {
   return run(async () => {

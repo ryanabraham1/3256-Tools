@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { commitSheet, commitStick, setNestGap, setSpares } from "@/app/parts-actions";
+import { commitSheet, commitStick, markPlanInProgress, setNestGap, setSpares } from "@/app/parts-actions";
 import { addOrder } from "@/app/fab-actions";
 import { isSheet, materialName, type FabLocation, type FabMaterial, type FabPiece } from "@/lib/fab";
 import { BEFORE_CUT, KIND_LABEL, PLAN_STATUSES, SPARE_LABEL, SPARE_MODES, thickLabel, type FabMachine, type PartKind } from "@/lib/parts";
@@ -96,8 +96,8 @@ export function PartsPlan({
   const [off, setOff] = useState<Set<string>>(new Set()); // designs left out
   const [skip, setSkip] = useState<Set<string>>(new Set()); // parts left out
   const [useWarn, setUseWarn] = useState(true);
-  // statuses shown: everything waiting on stock; In Progress only when picked
-  const [shown, setShown] = useState<Set<JobStatus>>(new Set(BEFORE_CUT));
+  // statuses shown: everything still waiting on stock (In Progress included)
+  const [shown, setShown] = useState<Set<JobStatus>>(new Set(PLAN_STATUSES));
   const matById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
   const machineById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
   const locName = useMemo(() => new Map(locations.map((l) => [l.id, l.name])), [locations]);
@@ -244,7 +244,7 @@ export function PartsPlan({
         )}
         {shown.has("in_progress") && byStatus.has("in_progress") && (
           <p className="text-xs" style={{ color: "var(--muted)" }}>
-            In Progress parts count what the progress slider hasn&apos;t marked made yet. Their stock usually came off the rack when they moved there, so the plan may ask for more sheets than you need.
+            In Progress parts show here until their stock comes off the rack (&ldquo;Mark cut&rdquo;). Moving one to In Progress on the board takes its stock right away, so it drops off.
           </p>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -537,6 +537,7 @@ function MaterialGroup({
   const tooBig = g.sheet?.tooBig ?? g.stick?.tooBig ?? [];
   const copies = g.parts.reduce((s, p) => s + p.toCut, 0);
   const geomById = new Map(g.parts.map((p) => [p.id, p.geometry]));
+  const statusById = new Map(g.parts.map((p) => [p.id, p.status]));
   const noSize = g.parts.filter((p) => (g.sheet ? !(p.geometry || (p.width && p.length)) : !p.length));
 
   return (
@@ -600,10 +601,10 @@ function MaterialGroup({
 
       <div className={g.sheet ? "grid gap-3 md:grid-cols-2 xl:grid-cols-3" : "flex flex-col gap-2"}>
         {g.sheet?.plans.map((s, i) => (
-          <SheetCard key={i} m={m} s={s} n={i + 1} geomById={geomById} units={units} where={where} project={project} margin={g.sheet!.margin} gap={g.sheet!.gap} />
+          <SheetCard key={i} m={m} s={s} n={i + 1} geomById={geomById} statusById={statusById} units={units} where={where} project={project} margin={g.sheet!.margin} gap={g.sheet!.gap} />
         ))}
         {g.stick?.plans.map((s, i) => (
-          <StickCard key={i} m={m} s={s} units={units} where={where} project={project} />
+          <StickCard key={i} m={m} s={s} statusById={statusById} units={units} where={where} project={project} />
         ))}
       </div>
 
@@ -712,6 +713,7 @@ function SheetCard({
   s,
   n,
   geomById,
+  statusById,
   units,
   where,
   project,
@@ -722,6 +724,7 @@ function SheetCard({
   s: SheetPlan;
   n: number;
   geomById: Map<string, PlanPart["geometry"]>;
+  statusById: Map<string, JobStatus>;
   units: Units;
   where: Map<string, string>;
   project: string;
@@ -838,9 +841,34 @@ function SheetCard({
             onConfirm={() => commit.call({ plan: JSON.stringify({ pieceId: s.pieceId, w: s.w, l: s.l, placements: s.placements, yield: s.yield, gap, project }) })}
           />
         )}
+        <MarkInProgress ids={ids} statusById={statusById} />
       </div>
       <ErrorText error={commit.error} />
     </div>
+  );
+}
+
+/**
+ * Move every part on a layout that hasn't started to In Progress (being cut
+ * now). Status only: the stock comes off with "Mark cut".
+ */
+function MarkInProgress({ ids, statusById }: { ids: string[]; statusById: Map<string, JobStatus> }) {
+  const todo = ids.filter((id) => BEFORE_CUT.includes(statusById.get(id) ?? "in_progress"));
+  const a = useFabAction(markPlanInProgress);
+  if (!todo.length) {
+    return (
+      <span className="text-xs self-center" style={{ color: "var(--muted)" }}>
+        All in progress
+      </span>
+    );
+  }
+  return (
+    <>
+      <button type="button" className="btn btn-ghost text-sm" disabled={a.pending} onClick={() => a.call({ ids: todo.join(",") })}>
+        {a.pending ? "Working…" : `Mark in progress${todo.length < ids.length ? ` (${todo.length})` : ""}`}
+      </button>
+      <ErrorText error={a.error} />
+    </>
   );
 }
 
@@ -855,7 +883,21 @@ function rect(x: number, y: number, w: number, h: number): Loop {
   };
 }
 
-function StickCard({ m, s, units, where, project }: { m: FabMaterial; s: StickPlan; units: Units; where: Map<string, string>; project: string }) {
+function StickCard({
+  m,
+  s,
+  statusById,
+  units,
+  where,
+  project,
+}: {
+  m: FabMaterial;
+  s: StickPlan;
+  statusById: Map<string, JobStatus>;
+  units: Units;
+  where: Map<string, string>;
+  project: string;
+}) {
   const commit = useFabAction(commitStick);
   const ids = [...new Set(s.cuts.map((c) => c.id))];
   const hue = (id: string) => HUES[ids.indexOf(id) % HUES.length];
@@ -879,6 +921,7 @@ function StickCard({ m, s, units, where, project }: { m: FabMaterial; s: StickPl
             onConfirm={() => commit.call({ plan: JSON.stringify({ pieceId: s.pieceId, len: s.len, cuts: s.cuts.map((c) => ({ partId: c.id, len: c.len })), project }) })}
           />
         )}
+        <MarkInProgress ids={ids} statusById={statusById} />
       </div>
       <div className="flex h-8 rounded overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--line)" }} aria-label={`${materialName(m)} cut layout`}>
         {s.cuts.map((c, i) => (

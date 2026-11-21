@@ -24,7 +24,7 @@ export async function TrackerPage({ tracker }: { tracker: Tracker }) {
   const stock = Object.fromEntries(
     summarize(materials, pieces).map((s) => [
       s.material.id,
-      { name: materialName(s.material), onHand: s.pieces.length ? `${s.pieces.length} on rack · ${fmtAmount(s.material, s.total, units)}` : "none on rack", low: s.low || !s.pieces.length },
+      { name: materialName(s.material), onHand: s.pieces.length ? `${s.pieces.length} on rack · ${fmtAmount(s.material, s.total, units)}` : "none on rack", low: s.low || !s.pieces.length, out: !s.pieces.length },
     ]),
   );
   const copies = Object.fromEntries(designs.map((d) => [d.id, d.copies]));

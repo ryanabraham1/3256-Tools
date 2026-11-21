@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { addPart, autoMatchParts, deletePart, importSheet, saveSubsystems, setPartStatus, updatePart } from "@/app/parts-actions";
-import { isLengthKind, isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
+import { BEFORE_CUT, isLengthKind, isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
 import {
   isDone,
   isUrl,
@@ -27,7 +27,7 @@ import { DeletePartSheet } from "./delete-part-sheet";
 import { ErrorText, Field, SubmitButton, useFabAction } from "./fab-ui";
 import { FabablePill, PersonChip } from "./parts-ui";
 
-type Stock = Record<string, { name: string; onHand: string; low: boolean }>;
+type Stock = Record<string, { name: string; onHand: string; low: boolean; out: boolean }>;
 type FabJob = FabPart;
 
 /** A part's sheet column by the sheet's name. */
@@ -43,7 +43,20 @@ function col(j: FabPart, k: string): string {
       return String((j as unknown as Record<string, unknown>)[k] ?? "");
   }
 }
-type StatusFilter = "open" | "all" | "missing" | JobStatus;
+type StatusFilter = "open" | "all" | "missing" | "nostock" | JobStatus;
+
+/**
+ * Why an uncut stock part can't be cut from what we have: nothing in the
+ * stock list matches it, or the stock it matches has none on the rack.
+ * Parts already cut (In Progress and on) or sent out don't need stock.
+ */
+function noStock(j: FabPart, stock: Stock): string | null {
+  if (!isStockKind(j.kind) || !BEFORE_CUT.includes(j.status)) return null;
+  if (!j.material_id) return "No matching stock in the stock list";
+  const s = stock[j.material_id];
+  if (!s) return "No matching stock in the stock list";
+  return s.out ? `None on the rack (${s.name})` : null;
+}
 const NO_SUBSYSTEM = "No subsystem";
 const JUST_ADDED = "__just_added__";
 
@@ -377,15 +390,16 @@ export function TrackerTable({
     for (const j of base) {
       c.set(j.status, (c.get(j.status) ?? 0) + 1);
       if (missing(j).length) c.set("missing", (c.get("missing") ?? 0) + 1);
+      if (!print && noStock(j, stock)) c.set("nostock", (c.get("nostock") ?? 0) + 1);
       if (!isDone(j.status)) c.set("open", c.get("open")! + 1);
     }
     return c;
-  }, [base]);
+  }, [base, stock, print]);
 
   const groups = useMemo(() => {
     // a row edited in place is placed by how it was before the edit
     const at = (j: FabJob) => stayed?.get(j.id) ?? j;
-    const shown = base.filter((j) => !justAdded.includes(j.id) && (stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : j.status === status)));
+    const shown = base.filter((j) => !justAdded.includes(j.id) && (stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : status === "nostock" ? !!noStock(j, stock) : j.status === status)));
     const order = STATUSES[tracker];
     shown.sort((x, y) => {
       const fx = freshIds.indexOf(x.id);
@@ -409,7 +423,7 @@ export function TrackerTable({
     // a subsystem filter with nothing in it yet still gets a row to add into
     if (subsystem && !map.size) map.set(subsystem, []);
     return [...map.entries()].sort(([a], [b]) => byOrder(teamSubsystems)(a, b));
-  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded, teamSubsystems]);
+  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded, teamSubsystems, stock]);
 
   const addTo = subsystem || addInto || groups[0]?.[0] || teamSubsystems[0] || NO_SUBSYSTEM;
 
@@ -602,13 +616,13 @@ export function TrackerTable({
 
       {/* status chips */}
       <div className="hscroll no-scrollbar flex gap-2 mb-3 -mx-4 px-4">
-        {(["open", "all", "missing", ...STATUSES[tracker]] as StatusFilter[]).map((s) => {
+        {(["open", "all", "missing", ...(print ? [] : ["nostock"]), ...STATUSES[tracker]] as StatusFilter[]).map((s) => {
           const n = counts.get(s) ?? 0;
           if (s !== "open" && s !== "all" && !n && status !== s) return null;
           return (
             <button key={s} type="button" className="tile tile-chip text-sm" data-selected={status === s} onClick={() => setStatus(s)}>
-              {s === "open" ? "Still to make" : s === "all" ? "All" : s === "missing" ? "Needs info" : STATUS_LABEL[s]}{" "}
-              <span className="font-semibold" style={{ color: s === "missing" ? "var(--warn)" : "var(--muted)" }}>{n}</span>
+              {s === "open" ? "Still to make" : s === "all" ? "All" : s === "missing" ? "Needs info" : s === "nostock" ? "Out of stock" : STATUS_LABEL[s]}{" "}
+              <span className="font-semibold" style={{ color: s === "missing" ? "var(--warn)" : s === "nostock" ? "var(--bad)" : "var(--muted)" }}>{n}</span>
             </button>
           );
         })}
@@ -1468,9 +1482,15 @@ function JobCard({ job: j, print, stock, need, onOpen, onMove, onDelete }: { job
 
 function StockNote({ job, stock }: { job: FabJob; stock: Stock }) {
   const s = job.material_id ? stock[job.material_id] : undefined;
-  if (!s) return null;
+  const short = noStock(job, stock);
+  if (!s)
+    return short ? (
+      <span className="block text-xs mt-0.5" style={{ color: "var(--bad)" }}>
+        No matching stock
+      </span>
+    ) : null;
   return (
-    <a href={`/stock/${job.material_id}`} className="block text-xs mt-0.5 underline" style={{ color: s.low ? "var(--warn)" : "var(--good)" }} onClick={(e) => e.stopPropagation()}>
+    <a href={`/stock/${job.material_id}`} className="block text-xs mt-0.5 underline" style={{ color: short ? "var(--bad)" : s.low ? "var(--warn)" : "var(--good)" }} onClick={(e) => e.stopPropagation()}>
       {s.onHand}
     </a>
   );

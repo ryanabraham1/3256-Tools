@@ -399,8 +399,11 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     const f = shape?.facts;
     const sizes = f ? { size_l_mm: round(f.l), size_w_mm: round(f.w), size_t_mm: round(f.t) } : {};
     let geometry: PartGeometry | null | undefined;
-    if (kind === "plate" && shape?.face && old?.geometry?.from !== "dxf") {
-      geometry = toPartGeometry(shape.face, "onshape", { approx: shape.approx });
+    if (kind === "plate" && shape?.face) {
+      const pocketed = !!shape.facts.pocketed;
+      if (old?.geometry?.from !== "dxf") geometry = toPartGeometry(shape.face, "onshape", { approx: shape.approx, pocketed });
+      // an uploaded DXF keeps its outline, but still learns about pockets from the model
+      else if (!!old.geometry.pocketed !== pocketed) geometry = { ...old.geometry, pocketed: pocketed || undefined };
     }
     const row: Record<string, unknown> = {
       design_id: designId,
@@ -422,11 +425,13 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     }
     // the sheet's Stock / Dims / Length / Machine, in its own words; never over something typed
     const rack = materials.find((m) => m.id === (row.material_id ?? old?.material_id)) ?? null;
-    const fill = sheetDefaults({ kind, material_text: material, size_l_mm: f?.l ?? null, size_w_mm: f?.w ?? null, size_t_mm: f?.t ?? null }, rack);
+    const fill = sheetDefaults({ kind, material_text: material, size_l_mm: f?.l ?? null, size_w_mm: f?.w ?? null, size_t_mm: f?.t ?? null, pocketed: f?.pocketed }, rack);
     const cur = (k: "material_text" | "stock_dims" | "length_text" | "machine") => (old ? old[k] : "");
     if (!cur("material_text") || (cur("material_text") === old?.properties?.Material && isRawMaterial(cur("material_text"), SUGGEST.material)) || cur("material_text") === material)
       row.material_text = kind === "print" ? material : (fill.material_text ?? material);
     for (const k of ["stock_dims", "length_text", "machine"] as const) if (!cur(k) && fill[k]) row[k] = fill[k];
+    // a half-pocketed plate can't go on the xTool, even if that's what was filled in before
+    if (kind === "plate" && f?.pocketed && /x\s*tool|metal\s*fab/i.test(cur("machine"))) row.machine = "CNC Router";
     // parts land in the assembly they came from, unless someone filed them elsewhere
     if (fromAssembly && !old?.subsystem.trim()) row.subsystem = fromAssembly;
     // tracker columns Onshape can carry as properties (Subsystem, Priority, Machine, Tapped)

@@ -363,6 +363,15 @@ function bodyShape(b: Body): BodyShape | null {
     Math.abs(dn - t) < 0.01 &&
     planes.some((f) => f !== big && Math.abs(dot(norm(f.surface!.normal!), n)) > 0.999 && Math.abs(Math.abs(dot(sub(f.surface!.origin!, O), n)) * 1000 - dn) < 0.05);
 
+  // half pockets / counterbores / steps: a face parallel to the big one, partway through
+  const pocketed =
+    flat &&
+    planes.some((f) => {
+      if (Math.abs(dot(norm(f.surface!.normal!), n)) < 0.999) return false;
+      const d = Math.abs(dot(sub(f.surface!.origin!, O), n)) * 1000;
+      return d > 0.05 && d < dn - 0.05;
+    });
+
   // Profile of a long part: the flat face whose normal runs along the length.
   let profile: ShapeFacts["profile"];
   let hollow: boolean | undefined;
@@ -422,7 +431,7 @@ function bodyShape(b: Body): BodyShape | null {
     partId: b.id,
     name: b.properties?.name ?? "",
     material: b.properties?.material?.displayName ?? b.properties?.material?.name ?? "",
-    facts: { l, w, t, flat, profile, hollow },
+    facts: { l, w, t, flat, profile, hollow, pocketed: pocketed || undefined },
     face,
     approx,
   };

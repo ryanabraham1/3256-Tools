@@ -108,6 +108,12 @@ export interface PartGeometry extends Geometry {
   /** Open ends / stray shapes the reader couldn't use. */
   open?: number;
   stray?: number;
+  /**
+   * The model has faces partway through the plate (half pockets, counterbores,
+   * steps): only a router can make those, not a laser or waterjet. From the
+   * Onshape sync; a DXF can't say.
+   */
+  pocketed?: boolean;
   stats: GeomStats;
 }
 
@@ -386,6 +392,8 @@ export interface ShapeFacts {
   /** cross-section of a long part, when the end face was found */
   profile?: "round" | "hex" | "rect" | "other";
   hollow?: boolean;
+  /** a flat part with a flat face partway through it: a half pocket, counterbore or step */
+  pocketed?: boolean;
 }
 
 /** Best guess at a part's kind when there's no Process property. */
@@ -572,7 +580,7 @@ const inchText = (mm: number | null) => (mm === null ? "" : `${+(mm / IN).toFixe
  * tell. Only ever used to fill empty cells.
  */
 export function sheetDefaults(
-  p: Pick<FabPart, "kind" | "material_text" | "size_l_mm" | "size_w_mm" | "size_t_mm">,
+  p: Pick<FabPart, "kind" | "material_text" | "size_l_mm" | "size_w_mm" | "size_t_mm"> & { pocketed?: boolean },
   rack: Pick<FabMaterial, "shape" | "dim_a_mm" | "dim_b_mm" | "wall_mm"> | null,
 ): { material_text?: string; stock_dims?: string; length_text?: string; machine?: string } {
   const m = p.material_text.toLowerCase();
@@ -594,8 +602,10 @@ export function sheetDefaults(
                 : "";
       out.stock_dims = thickLabel(rack?.wall_mm ?? p.size_t_mm);
       const t = rack?.wall_mm ?? p.size_t_mm;
-      out.machine =
-        out.material_text === "SRPP" || out.material_text === "Birch"
+      // half pockets need the router whatever the sheet
+      out.machine = p.pocketed
+        ? "CNC Router"
+        : out.material_text === "SRPP" || out.material_text === "Birch"
           ? "Laser Cutter"
           : out.material_text === "Aluminum Sheet" && t !== null && Math.abs(t - IN / 8) < 0.3
             ? "xTool MetalFab"

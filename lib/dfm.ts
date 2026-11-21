@@ -157,7 +157,7 @@ export function measure(outer: Loop, holes: Loop[]): GeomStats {
 }
 
 /** Normalise raw geometry (from DXF or Onshape) into what a part stores. */
-export function toPartGeometry(g: Geometry, from: PartGeometry["from"], extra: { approx?: boolean; open?: number } = {}): PartGeometry | null {
+export function toPartGeometry(g: Geometry, from: PartGeometry["from"], extra: { approx?: boolean; open?: number; pocketed?: boolean } = {}): PartGeometry | null {
   const o = outline(g);
   if (!o) return null;
   return {
@@ -169,6 +169,7 @@ export function toPartGeometry(g: Geometry, from: PartGeometry["from"], extra: {
     approx: extra.approx || undefined,
     open: extra.open || undefined,
     stray: o.stray.length || undefined,
+    pocketed: extra.pocketed || undefined,
     stats: measure(o.outer, o.holes),
   };
 }
@@ -271,6 +272,7 @@ export function checkPart({ part, material, machines, processProp, units }: DfmI
       if (g.approx) notes.push({ level: "info", text: "Curves were approximated with straight segments" });
       if (g.open) notes.push({ level: "warn", text: `${g.open} open end${g.open > 1 ? "s" : ""} in the drawing were ignored — check the DXF is closed` });
       if (g.stray) notes.push({ level: "warn", text: `${g.stray} shape${g.stray > 1 ? "s" : ""} outside the outline were ignored` });
+      if (g.pocketed) notes.push({ level: "info", text: "Half pocketed (pockets, counterbores or steps that don't go through) — router only, not the xTool" });
     }
     if (thick === null) notes.push({ level: "info", text: "Thickness unknown" });
     // the Standard Stock List says which sheet stock we fabricate
@@ -297,6 +299,8 @@ export function checkPart({ part, material, machines, processProp, units }: DfmI
       case "laser":
       case "waterjet": {
         const router = m.process === "router";
+        // a laser / waterjet only cuts all the way through
+        if (!router && g?.pocketed) issues.push({ level: "fail", text: `Half pocketed — the ${m.name} only cuts all the way through` });
         const lim = thicknessLimit(m, matName);
         if (lim.mm === null) unset(issues, "Thickest sheet");
         else if (thick !== null && thick > lim.mm + 0.01)

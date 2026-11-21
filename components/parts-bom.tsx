@@ -512,6 +512,9 @@ function BulkEdit({ ids, bots, onDone }: { ids: string[]; bots: string[]; onDone
       <p className="text-sm" style={{ color: "var(--muted)" }}>
         Blank fields stay as they are on each line. Whatever you fill in is set on all {ids.length}.
       </p>
+      <Field label="Link">
+        <input name="url" className="input" placeholder="Leave as is" inputMode="url" />
+      </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="Vendor">
           <input name="vendor" className="input" placeholder="Leave as is" />

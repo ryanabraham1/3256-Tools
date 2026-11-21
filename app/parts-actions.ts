@@ -859,6 +859,7 @@ export async function editCotsParts(fd: FormData): Promise<FabResult<number>> {
     if (!ids.length) throw new Error("Nothing picked");
     const patch: Record<string, unknown> = {};
     if (fd.has("vendor")) patch.vendor = str(fd, "vendor");
+    if (fd.has("url")) patch.url = str(fd, "url");
     if (fd.has("bot")) patch.bot = str(fd, "bot");
     if (fd.has("unit_price")) patch.unit_price = priceOf(fd);
     if (fd.has("pack_size")) patch.pack_size = packOf(fd);

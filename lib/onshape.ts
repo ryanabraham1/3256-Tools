@@ -31,7 +31,7 @@ async function call(keys: OnshapeKeys, path: string, init: RequestInit = {}): Pr
     cache: "no-store",
     signal: AbortSignal.timeout(60_000),
   });
-  if (!res.ok) {
+  if (!res.ok && !(init.redirect === "manual" && res.status >= 300 && res.status < 400)) {
     const body = (await res.text().catch(() => "")).slice(0, 300);
     if (res.status === 401) throw new Error("Onshape rejected your API keys (401) — re-enter them on the Designs page");
     if (res.status === 402) throw new OnshapeLimitError("Your Onshape account is out of API calls (402)");
@@ -450,6 +450,34 @@ function bulge3(a: Pt, m: Pt, b: Pt): number {
 }
 
 // ── File export ──────────────────────────────────────────────────────────────
+
+/**
+ * One part as a binary STL (mm), in a single API call: Onshape's direct STL
+ * download, not the translation service (which takes 3+ calls with polling).
+ * Onshape may answer with a redirect to the file; that hop is followed by hand
+ * so the key stays on it.
+ */
+export async function exportStl(keys: OnshapeKeys, src: PartSource): Promise<Uint8Array> {
+  if (src.wvm === "m") throw new Error("Can't export from a microversion link — use a workspace or version link");
+  const r: OnshapeRef = { did: src.did, wvm: src.wvm, wvmid: src.wvmid, eid: src.eid };
+  const path = `/partstudios${refPath(r)}/stl${q({ partIds: src.partId, configuration: src.configuration || undefined, mode: "binary", units: "millimeter", grouping: true })}`;
+  let res = await call(keys, path, { redirect: "manual", headers: { Accept: "application/octet-stream" } });
+  if (res.status >= 300 && res.status < 400) {
+    const to = res.headers.get("location");
+    if (!to) throw new Error("Onshape sent the STL somewhere it didn't say");
+    const url = new URL(to, BASE());
+    if (url.origin !== new URL(BASE()).origin) {
+      // a file host: a plain download, no Onshape key
+      res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(`Couldn't download the STL (${res.status})`);
+    } else {
+      res = await call(keys, url.pathname.replace(/^\/api\/v\d+/, "") + url.search, { headers: { Accept: "application/octet-stream" } });
+    }
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.byteLength < 84) throw new Error("Onshape sent back an empty STL");
+  return bytes;
+}
 
 /**
  * Export one part to STEP (or another format) through Onshape's translation

@@ -57,6 +57,7 @@ import {
   documentPartMetadata,
   OnshapeLimitError,
   exportPart,
+  exportStl,
   parseOnshapeUrl,
   studioMetadata,
   studioShapes,
@@ -1277,13 +1278,54 @@ export async function deleteFile(fd: FormData): Promise<FabResult> {
   });
 }
 
+/**
+ * A 3D-print part's STL, kept with the part so Onshape is asked once: the STL
+ * already saved (any source) comes straight back without an Onshape call;
+ * otherwise it's exported (one call when the direct download works) and saved.
+ * No page refresh here: the tracker calls this part by part and keeps count.
+ */
+export async function cacheStl(fd: FormData): Promise<FabResult<{ id: string; name: string; fresh: boolean }>> {
+  try {
+    await guard();
+    const part = await loadPart(str(fd, "part_id"));
+    const { data: have } = await db().from("fab_part_files").select("id, name").eq("part_id", part.id).eq("kind", "stl").order("created_at", { ascending: false }).limit(1);
+    if (have?.length) return { ok: true, data: { id: have[0].id as string, name: have[0].name as string, fresh: false } };
+    if (!part.source) throw new Error("Not from Onshape and no STL uploaded");
+    const keys = await myOnshapeKeys();
+    let bytes: Uint8Array;
+    try {
+      bytes = await exportStl(keys, part.source);
+    } catch (e) {
+      // out of calls: stop rather than spend more on the slower route
+      if (e instanceof OnshapeLimitError) throw e;
+      bytes = await exportPart(keys, part.source, "STL");
+    }
+    const file = `${safeName(part.name)}.stl`;
+    const path = `parts/${part.id}/onshape-${file}`;
+    const { error } = await db().storage.from(FILES_BUCKET).upload(path, new Blob([bytes as BlobPart]), { upsert: true, contentType: "model/stl" });
+    if (error) throw error;
+    const { data: row, error: e } = await db()
+      .from("fab_part_files")
+      .insert({ part_id: part.id, kind: "stl", name: file, path, size_bytes: bytes.byteLength, source: "onshape" })
+      .select("id")
+      .single();
+    if (e) throw e;
+    await logPart(part.id, "file", { name: file, kind: "stl", from: "Onshape" });
+    return { ok: true, data: { id: row.id as string, name: file, fresh: true } };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Export a part from Onshape (STEP by default) and keep it with the part. */
 export async function fetchOnshapeFile(fd: FormData): Promise<FabResult> {
   return run(async () => {
     const part = await loadPart(str(fd, "part_id"));
     if (!part.source) throw new Error("This part isn't from Onshape");
     const format = str(fd, "format") === "STL" ? "STL" : "STEP";
-    const bytes = await exportPart(await myOnshapeKeys(), part.source, format);
+    const keys = await myOnshapeKeys();
+    // STL: the one-call download first; the translation service if that fails
+    const bytes = format === "STL" ? await exportStl(keys, part.source).catch((e) => (e instanceof OnshapeLimitError ? Promise.reject(e) : exportPart(keys, part.source!, "STL"))) : await exportPart(keys, part.source, format);
     const ext = format === "STL" ? "stl" : "step";
     const file = `${safeName(part.name)}.${ext}`;
     const path = `parts/${part.id}/onshape-${file}`;

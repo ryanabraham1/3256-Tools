@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { addPart, autoMatchParts, deletePart, importSheet, saveSubsystems, setPartStatus, updatePart } from "@/app/parts-actions";
+import { addPart, autoMatchParts, cacheStl, deletePart, importSheet, saveSubsystems, setPartStatus, updatePart } from "@/app/parts-actions";
+import { makeZip } from "@/lib/zip";
 import { BEFORE_CUT, isLengthKind, isStockKind, KIND_LABEL, needed, PART_KINDS, type FabPart, type PartKind } from "@/lib/parts";
 import {
   isDone,
@@ -132,6 +133,7 @@ export function TrackerTable({
   person,
   members,
   subsystems: teamSubsystems,
+  stls = {},
 }: {
   tracker: Tracker;
   parts: FabPart[];
@@ -142,6 +144,8 @@ export function TrackerTable({
   members: string[];
   /** The team's subsystem list, in order. */
   subsystems: string[];
+  /** 3D-print tracker: each part's saved STL. */
+  stls?: Record<string, { id: string; name: string }>;
 }) {
   const print = tracker === "print";
   const destination = print ? "machining" : "print";
@@ -156,6 +160,10 @@ export function TrackerTable({
   const [moving, setMoving] = useState<FabJob | null>(null);
   const [moved, setMoved] = useState<{ name: string; to: Tracker | "cots" } | null>(null);
   const [importing, setImporting] = useState(false);
+  // 3D prints: rows picked for "Download selected", and STLs saved since the page loaded
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [gotStl, setGotStl] = useState<Record<string, { id: string; name: string }>>({});
+  const stlOf = (id: string) => gotStl[id] ?? stls[id];
 
   // edits waiting on (or just back from) the server, laid over the server's rows
   const [over, setOver] = useState<Record<string, Partial<FabPart>>>({});
@@ -283,16 +291,90 @@ export function TrackerTable({
     people: [...new Set([...members, ...jobs.map((j) => j.designer), person].map((p) => p.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
   };
 
+  const counts = useMemo(() => {
+    const c = new Map<StatusFilter, number>([
+      ["open", 0],
+      ["all", base.length],
+    ]);
+    for (const j of base) {
+      c.set(j.status, (c.get(j.status) ?? 0) + 1);
+      if (missing(j).length) c.set("missing", (c.get("missing") ?? 0) + 1);
+      if (!print && noStock(j, stock)) c.set("nostock", (c.get("nostock") ?? 0) + 1);
+      if (!isDone(j.status)) c.set("open", c.get("open")! + 1);
+    }
+    return c;
+  }, [base, stock, print]);
+
+  const groups = useMemo(() => {
+    // a row edited in place is placed by how it was before the edit
+    const at = (j: FabJob) => stayed?.get(j.id) ?? j;
+    const shown = base.filter((j) => !justAdded.includes(j.id) && (stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : status === "nostock" ? !!noStock(j, stock) : j.status === status)));
+    const order = STATUSES[tracker];
+    shown.sort((x, y) => {
+      const fx = freshIds.indexOf(x.id);
+      const fy = freshIds.indexOf(y.id);
+      if (fx >= 0 || fy >= 0) return fx < 0 ? -1 : fy < 0 ? 1 : fx - fy;
+      const a = at(x);
+      const b = at(y);
+      return (
+        Number(isDone(a.status)) - Number(isDone(b.status)) ||
+        (a.priority ?? 9) - (b.priority ?? 9) ||
+        order.indexOf(a.status) - order.indexOf(b.status) ||
+        a.bot.localeCompare(b.bot) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true })
+      );
+    });
+    const map = new Map<string, FabJob[]>();
+    for (const j of shown) {
+      const k = at(j).subsystem.trim() || NO_SUBSYSTEM;
+      map.set(k, [...(map.get(k) ?? []), j]);
+    }
+    // a subsystem filter with nothing in it yet still gets a row to add into
+    if (subsystem && !map.size) map.set(subsystem, []);
+    return [...map.entries()].sort(([a], [b]) => byOrder(teamSubsystems)(a, b));
+  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded, teamSubsystems, stock]);
+
+  const addTo = subsystem || addInto || groups[0]?.[0] || teamSubsystems[0] || NO_SUBSYSTEM;
+  const shownIds = groups.flatMap(([, rows]) => rows.map((j) => j.id));
+
   /** The sheet's columns, in its order. Status and Part stay put while the rest scrolls. */
-  const cols: { key: string; label: string; w: number; pin?: number; render: (j: FabPart) => React.ReactNode }[] = [
+  const cols: { key: string; label: React.ReactNode; w: number; pin?: number; render: (j: FabPart) => React.ReactNode }[] = [
     { key: "status", label: "Status", w: 150, pin: 0, render: (j) => <StatusSelect job={j} need={need(j)} /> },
     {
       key: "part",
-      label: "Part #_Name",
+      label: print ? (
+        <span className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={shownIds.length > 0 && shownIds.every((id) => picked.has(id))}
+            onChange={(e) => setPicked((p) => (e.target.checked ? new Set([...p, ...shownIds]) : new Set([...p].filter((id) => !shownIds.includes(id)))))}
+            aria-label="Pick every part shown"
+          />
+          Part #_Name
+        </span>
+      ) : (
+        "Part #_Name"
+      ),
       w: 300,
       pin: 150,
       render: (j) => (
         <span className="flex items-center gap-1 min-w-0 px-1">
+          {print && (
+            <input
+              type="checkbox"
+              className="shrink-0"
+              checked={picked.has(j.id)}
+              onChange={() =>
+                setPicked((p) => {
+                  const n = new Set(p);
+                  if (n.has(j.id)) n.delete(j.id);
+                  else n.add(j.id);
+                  return n;
+                })
+              }
+              aria-label={`Pick ${j.name}`}
+            />
+          )}
           <Link href={`/tracker/${j.id}`} className="font-medium hover:underline truncate" title={j.name}>
             {j.name}
           </Link>
@@ -376,56 +458,17 @@ export function TrackerTable({
               ↗
             </a>
           )}
+          {print && stlOf(j.id) && (
+            <a href={`/api/parts/files/${stlOf(j.id)!.id}`} className="chip text-xs shrink-0" title={`Saved STL: ${stlOf(j.id)!.name}`} aria-label={`Download the STL for ${j.name}`}>
+              STL ↓
+            </a>
+          )}
         </span>
       ),
     },
     { key: "notes", label: "Notes", w: 260, render: (j) => <Cell part={j} field="notes" value={j.notes} /> },
   ];
 
-  const counts = useMemo(() => {
-    const c = new Map<StatusFilter, number>([
-      ["open", 0],
-      ["all", base.length],
-    ]);
-    for (const j of base) {
-      c.set(j.status, (c.get(j.status) ?? 0) + 1);
-      if (missing(j).length) c.set("missing", (c.get("missing") ?? 0) + 1);
-      if (!print && noStock(j, stock)) c.set("nostock", (c.get("nostock") ?? 0) + 1);
-      if (!isDone(j.status)) c.set("open", c.get("open")! + 1);
-    }
-    return c;
-  }, [base, stock, print]);
-
-  const groups = useMemo(() => {
-    // a row edited in place is placed by how it was before the edit
-    const at = (j: FabJob) => stayed?.get(j.id) ?? j;
-    const shown = base.filter((j) => !justAdded.includes(j.id) && (stayed?.has(j.id) || freshIds.includes(j.id) || (status === "all" ? true : status === "open" ? !isDone(j.status) : status === "missing" ? missing(j).length > 0 : status === "nostock" ? !!noStock(j, stock) : j.status === status)));
-    const order = STATUSES[tracker];
-    shown.sort((x, y) => {
-      const fx = freshIds.indexOf(x.id);
-      const fy = freshIds.indexOf(y.id);
-      if (fx >= 0 || fy >= 0) return fx < 0 ? -1 : fy < 0 ? 1 : fx - fy;
-      const a = at(x);
-      const b = at(y);
-      return (
-        Number(isDone(a.status)) - Number(isDone(b.status)) ||
-        (a.priority ?? 9) - (b.priority ?? 9) ||
-        order.indexOf(a.status) - order.indexOf(b.status) ||
-        a.bot.localeCompare(b.bot) ||
-        a.name.localeCompare(b.name, undefined, { numeric: true })
-      );
-    });
-    const map = new Map<string, FabJob[]>();
-    for (const j of shown) {
-      const k = at(j).subsystem.trim() || NO_SUBSYSTEM;
-      map.set(k, [...(map.get(k) ?? []), j]);
-    }
-    // a subsystem filter with nothing in it yet still gets a row to add into
-    if (subsystem && !map.size) map.set(subsystem, []);
-    return [...map.entries()].sort(([a], [b]) => byOrder(teamSubsystems)(a, b));
-  }, [base, status, tracker, stayed, freshIds, subsystem, justAdded, teamSubsystems, stock]);
-
-  const addTo = subsystem || addInto || groups[0]?.[0] || teamSubsystems[0] || NO_SUBSYSTEM;
 
   /** Add parts by name into a group: they show at once, saved in the background, with the group's bot and subsystem. */
   function addNames(group: string, rows: FabJob[], names: string[], extra: Record<string, string> = {}, place = group) {
@@ -586,6 +629,16 @@ export function TrackerTable({
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           {!print && <AutoMatchButton />}
+          {print && (
+            <StlTools
+              parts={jobs.filter((j) => j.status !== "not_needed")}
+              picked={jobs.filter((j) => picked.has(j.id))}
+              stlOf={stlOf}
+              need={need}
+              onSaved={(id, f) => setGotStl((g) => ({ ...g, [id]: f }))}
+              onClear={() => setPicked(new Set())}
+            />
+          )}
           <button type="button" className="btn btn-ghost text-sm flex-1 sm:flex-none" aria-expanded={editingSubsystems} onClick={() => setEditingSubsystems((v) => !v)}>
             Subsystems
           </button>
@@ -850,6 +903,146 @@ function AutoMatchButton() {
  * then fill its other cells in place. Pasting a list of names adds each one;
  * pasting rows copied from the team sheet opens Import with them.
  */
+/**
+ * 3D prints: save every part's STL from Onshape (parts that already have one
+ * are skipped, so Onshape is asked once per part, ever), and download the
+ * picked parts' STLs as one zip, named with how many to print.
+ */
+function StlTools({
+  parts,
+  picked,
+  stlOf,
+  need,
+  onSaved,
+  onClear,
+}: {
+  parts: FabPart[];
+  picked: FabPart[];
+  stlOf: (id: string) => { id: string; name: string } | undefined;
+  need: (j: FabPart) => number;
+  onSaved: (id: string, f: { id: string; name: string }) => void;
+  onClear: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const missing = parts.filter((j) => j.source && !stlOf(j.id));
+  // saves made during a run, before the tracker's own state catches up
+  const savedNow = useRef(new Map<string, { id: string; name: string }>());
+
+  /** Save STLs for these parts, two at a time; stops on the first Onshape limit. */
+  async function fetchAll(list: FabPart[], label: (done: number) => string): Promise<{ saved: number; failed: string[]; stopped: string | null }> {
+    let saved = 0;
+    const failed: string[] = [];
+    let stopped: string | null = null;
+    let done = 0;
+    let next = 0;
+    const worker = async () => {
+      while (next < list.length && !stopped) {
+        const j = list[next++];
+        const fd = new FormData();
+        fd.set("part_id", j.id);
+        const r = await cacheStl(fd).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Couldn't reach the server" }));
+        if (r.ok) {
+          const f = { id: r.data!.id, name: r.data!.name };
+          savedNow.current.set(j.id, f);
+          onSaved(j.id, f);
+          saved++;
+        }
+        else if (/\(402\)|\(429\)|API keys|Connect your Onshape/.test(r.error)) stopped = r.error;
+        else failed.push(`${j.name}: ${r.error}`);
+        setBusy(label(++done));
+      }
+    };
+    setBusy(label(0));
+    await Promise.all([worker(), worker()]);
+    return { saved, failed, stopped };
+  }
+
+  async function importAll() {
+    setError(null);
+    setNote(null);
+    const list = missing;
+    const { saved, failed, stopped } = await fetchAll(list, (n) => `Getting STLs ${n}/${list.length}…`);
+    setBusy(null);
+    setNote(`Saved ${saved} STL${saved === 1 ? "" : "s"}`);
+    if (stopped) setError(`Saved ${saved}, then stopped: ${stopped}`);
+    else if (failed.length) setError(`Saved ${saved}; ${failed.length} couldn't be fetched — ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? "…" : ""}`);
+  }
+
+  async function downloadPicked() {
+    setError(null);
+    setNote(null);
+    // anything picked without a saved STL gets one first (once)
+    const fetchFirst = picked.filter((j) => !stlOf(j.id) && j.source);
+    const res = fetchFirst.length ? await fetchAll(fetchFirst, (n) => `Getting STLs ${n}/${fetchFirst.length}…`) : { saved: 0, failed: [], stopped: null };
+    if (res.stopped) {
+      setBusy(null);
+      setError(`Stopped: ${res.stopped}`);
+      return;
+    }
+    const files: { name: string; data: Uint8Array }[] = [];
+    const without: string[] = [];
+    let n = 0;
+    const ready = picked.map((j) => ({ j, f: stlOf(j.id) ?? savedNow.current.get(j.id) }));
+    for (const { j, f } of ready) {
+      setBusy(`Downloading ${++n}/${ready.length}…`);
+      if (!f) {
+        without.push(j.name);
+        continue;
+      }
+      try {
+        const r = await fetch(`/api/parts/files/${f.id}`);
+        if (!r.ok) throw new Error(String(r.status));
+        const count = need(j);
+        files.push({ name: `${safeFile(j.name)}${count > 1 ? ` x${count}` : ""}.stl`, data: new Uint8Array(await r.arrayBuffer()) });
+      } catch {
+        without.push(j.name);
+      }
+    }
+    setBusy(null);
+    if (files.length) {
+      const a = document.createElement("a");
+      // one part: the STL itself; more: a zip
+      a.href = URL.createObjectURL(files.length === 1 ? new Blob([files[0].data as BlobPart], { type: "model/stl" }) : new Blob([makeZip(files)], { type: "application/zip" }));
+      a.download = files.length === 1 ? files[0].name : `stls-${files.length}.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    if (without.length) setError(`No STL for ${without.length}: ${without.slice(0, 4).join(", ")}${without.length > 4 ? "…" : ""} — upload one on the part`);
+    else setNote(`Downloaded ${files.length} STL${files.length === 1 ? "" : "s"}`);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn-ghost text-sm flex-1 sm:flex-none"
+        disabled={!!busy || !missing.length}
+        onClick={importAll}
+        title={missing.length ? `Save the STL of ${missing.length} part${missing.length === 1 ? "" : "s"} from Onshape. Parts that already have one aren't fetched again.` : "Every Onshape part has its STL saved"}
+      >
+        {busy?.startsWith("Getting") ? busy : missing.length ? `Get STLs from Onshape (${missing.length})` : "STLs all saved"}
+      </button>
+      <button type="button" className="btn btn-ghost text-sm flex-1 sm:flex-none" disabled={!!busy || !picked.length} onClick={downloadPicked}>
+        {busy?.startsWith("Downloading") ? busy : `Download selected${picked.length ? ` (${picked.length})` : ""}`}
+      </button>
+      {picked.length > 0 && !busy && (
+        <button type="button" className="text-sm underline" onClick={onClear}>
+          clear
+        </button>
+      )}
+      {(note || error) && (
+        <span className="w-full text-sm" role="status" style={{ color: error ? "var(--bad)" : "var(--muted)" }}>
+          {error ?? note}
+        </span>
+      )}
+    </>
+  );
+}
+
+const safeFile = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").trim() || "part";
+
 function QuickAdd({ className, placeholder, onAdd, onSheet }: { className: string; placeholder: string; onAdd: (names: string[]) => void; onSheet: (text: string) => void }) {
   const [v, setV] = useState("");
   return (

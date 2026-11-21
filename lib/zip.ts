@@ -19,8 +19,8 @@ function crc32(b: Uint8Array): number {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-/** Files in, zip bytes out. Names may hold "/" for folders; duplicates get " (2)". */
-export function makeZip(files: { name: string; text: string }[]): Uint8Array<ArrayBuffer> {
+/** Files in (text, or raw bytes like an STL), zip bytes out. Names may hold "/" for folders; duplicates get " (2)". */
+export function makeZip(files: ({ name: string; text: string } | { name: string; data: Uint8Array })[]): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder();
   const seen = new Map<string, number>();
   const now = new Date();
@@ -35,7 +35,7 @@ export function makeZip(files: { name: string; text: string }[]): Uint8Array<Arr
     seen.set(f.name, n);
     if (n > 1) name = name.replace(/(\.[^./]+)?$/, (ext) => ` (${n})${ext}`);
     const nameB = enc.encode(name);
-    const data = enc.encode(f.text);
+    const data = "data" in f ? f.data : enc.encode(f.text);
     const crc = crc32(data);
     const head = new Uint8Array(30 + nameB.length);
     const h = new DataView(head.buffer);

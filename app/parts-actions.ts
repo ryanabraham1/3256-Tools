@@ -42,7 +42,7 @@ import {
   type PartSource,
 } from "@/lib/parts";
 import { toPartGeometry } from "@/lib/dfm";
-import { rematchParts, type RematchResult } from "@/lib/parts-match";
+import { rematchParts, rematchQuietly, type RematchResult } from "@/lib/parts-match";
 import { isJobStatus, jobKey, readSheet, SHEET_TO_PART, splitPeople, STATUSES, SUGGEST, TEXT_FIELDS, type ImportRow, type JobStatus } from "@/lib/tracker";
 import { checkPart } from "@/lib/dfm";
 import { findVendorLink } from "@/lib/vendors";
@@ -715,6 +715,11 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
     if (fd.has("part_number")) patch.part_number = str(fd, "part_number");
     if (fd.has("pack_size")) patch.pack_size = packOf(fd);
     if (fd.has("unit_price")) patch.unit_price = priceOf(fd);
+    if (fd.has("cots_status")) {
+      const cs = str(fd, "cots_status");
+      if (!COTS_STATUSES.includes(cs as CotsStatus)) throw new Error("Pick a buying status");
+      patch.cots_status = cs;
+    }
     if (["material_text", "stock_dims", "length_text", "kind"].some((k) => k in patch && patch[k] !== part[k as keyof FabPart])) await fillFromText(patch, part);
     const changed = Object.keys(patch).filter((k) => {
       const before = part[k as keyof FabPart];
@@ -840,6 +845,44 @@ export async function setSpares(fd: FormData): Promise<FabResult<number>> {
       }),
     );
     return changed;
+  });
+}
+
+/**
+ * Edit several COTS lines at once: only the fields the form sent change, the
+ * same value on every picked line. "kind" moves them to the tracker as parts
+ * to make (Not Started).
+ */
+export async function editCotsParts(fd: FormData): Promise<FabResult<number>> {
+  return run(async () => {
+    const ids = str(fd, "ids").split(",").filter(Boolean);
+    if (!ids.length) throw new Error("Nothing picked");
+    const patch: Record<string, unknown> = {};
+    if (fd.has("vendor")) patch.vendor = str(fd, "vendor");
+    if (fd.has("bot")) patch.bot = str(fd, "bot");
+    if (fd.has("unit_price")) patch.unit_price = priceOf(fd);
+    if (fd.has("pack_size")) patch.pack_size = packOf(fd);
+    if (fd.has("spare_qty")) {
+      const n = num(fd, "spare_qty");
+      if (n === null || n < 0) throw new Error("Spares should be 0 or more");
+      patch.spare_qty = Math.round(n);
+    }
+    if (fd.has("hardware")) patch.hardware = str(fd, "hardware") === "1";
+    if (fd.has("kind")) {
+      const kind = str(fd, "kind");
+      if (!isPartKind(kind) || kind === "cots") throw new Error("Pick what kind of part we make");
+      patch.kind = kind;
+      patch.status = "not_started";
+      patch.status_changed_at = new Date().toISOString();
+    }
+    if (!Object.keys(patch).length) throw new Error("Change at least one field");
+    const { data, error } = await db().from("fab_parts").update(patch).in("id", ids).eq("kind", "cots").select("id");
+    if (error) throw error;
+    const fields = Object.keys(patch).filter((k) => k !== "status_changed_at").join(", ");
+    await Promise.all((data ?? []).map((r) => logPart(r.id as string, "edit", { fields, bulk: true })));
+    // parts we make now get matched to stock on the rack
+    if (patch.kind) await rematchQuietly();
+    return (data ?? []).length;
   });
 }
 

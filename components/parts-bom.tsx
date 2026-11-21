@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { addCotsPart, findCotsLinks, setCotsStatus, setPartsSubsystem, setSpares, updatePart } from "@/app/parts-actions";
+import { addCotsPart, editCotsParts, findCotsLinks, setCotsStatus, setPartsSubsystem, setSpares, updatePart } from "@/app/parts-actions";
 import { COTS_LABEL, COTS_STATUSES, COTS_TONE, KIND_LABEL, multiplierOf, PART_KINDS, SPARE_LABEL, SPARE_MODES, type CotsStatus, type SpareMode } from "@/lib/parts";
 import { Empty } from "./ui";
 import { DeletePartSheet } from "./delete-part-sheet";
@@ -74,6 +74,7 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
   const [editing, setEditing] = useState<BomLine | null>(null);
   const [adding, setAdding] = useState<string | null>(null); // the mechanism a new line goes into
   const [deleting, setDeleting] = useState<BomLine | null>(null);
+  const [bulkEditing, setBulkEditing] = useState(false);
   const [findNote, setFindNote] = useState<string | null>(null);
   const find = useFabAction(findCotsLinks, (n) => setFindNote(n ?? null));
   const missing = lines.filter((l) => !l.url || l.unit_price === null).length;
@@ -229,6 +230,9 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
       {picked.size > 0 && (
         <div className="card p-3 flex flex-wrap items-center gap-2 text-sm" style={{ background: "var(--purple-soft)" }}>
           <span className="font-medium">{picked.size} picked</span>
+          <button type="button" className="btn btn-primary text-sm" onClick={() => setBulkEditing(true)}>
+            Edit picked…
+          </button>
           {COTS_STATUSES.map((s) => (
             <button key={s} type="button" className="btn btn-ghost text-sm" disabled={bulk.pending} onClick={() => bulk.call({ ids: [...picked].join(","), status: s })}>
               Mark {COTS_LABEL[s].toLowerCase()}
@@ -295,6 +299,26 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
       )}
 
       {shown.length === 0 && <Empty>Nothing here.</Empty>}
+      {shown.length > 0 && (
+        <label className="flex items-center gap-2 text-sm self-start px-3">
+          <input
+            type="checkbox"
+            checked={shown.every((l) => picked.has(l.id))}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setPicked((p) => {
+                const n = new Set(p);
+                for (const l of shown) {
+                  if (on) n.add(l.id);
+                  else n.delete(l.id);
+                }
+                return n;
+              });
+            }}
+          />
+          Pick all shown ({shown.length})
+        </label>
+      )}
 
       {sections.map(([title, rows]) =>
         rows.length ? (
@@ -327,6 +351,18 @@ export function PartsBom({ lines, subsystems }: { lines: BomLine[]; subsystems: 
         {editing && <EditLine key={editing.id} l={editing} mechs={mechs} onDone={() => setEditing(null)} />}
       </Sheet>
       {addSheet}
+      <Sheet open={bulkEditing} onClose={() => setBulkEditing(false)} eyebrow="COTS" title={`Edit ${picked.size} line${picked.size === 1 ? "" : "s"}`}>
+        {bulkEditing && (
+          <BulkEdit
+            ids={[...picked]}
+            bots={bots}
+            onDone={() => {
+              setBulkEditing(false);
+              setPicked(new Set());
+            }}
+          />
+        )}
+      </Sheet>
       {deleting && (
         <DeletePartSheet
           part={deleting}
@@ -451,6 +487,76 @@ function AddLine({ mechs, mech, bots, bot, onDone }: { mechs: string[]; mech: st
       </div>
       <ErrorText error={a.error} />
       <SubmitButton pending={a.pending} label="Add part" />
+    </form>
+  );
+}
+
+/**
+ * One edit for every picked line. Blank fields are left as they are on each
+ * line; anything filled in is set on all of them.
+ */
+function BulkEdit({ ids, bots, onDone }: { ids: string[]; bots: string[]; onDone: () => void }) {
+  const a = useFabAction(editCotsParts, onDone);
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        const out: Record<string, string> = { ids: ids.join(",") };
+        for (const [k, v] of fd.entries()) if (typeof v === "string" && v.trim()) out[k] = v.trim();
+        if (Object.keys(out).length === 1) return a.setError("Fill in at least one field — blank ones stay as they are.");
+        a.call(out);
+      }}
+    >
+      <p className="text-sm" style={{ color: "var(--muted)" }}>
+        Blank fields stay as they are on each line. Whatever you fill in is set on all {ids.length}.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Vendor">
+          <input name="vendor" className="input" placeholder="Leave as is" />
+        </Field>
+        <Field label="Bot">
+          <input name="bot" className="input" list="bom-bulk-bots" placeholder="Leave as is" />
+          <datalist id="bom-bulk-bots">
+            {bots.map((b) => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
+        </Field>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Unit price">
+          <input name="unit_price" className="input mono" placeholder="Leave as is" inputMode="decimal" />
+        </Field>
+        <Field label="Packs of">
+          <input name="pack_size" className="input mono" placeholder="Leave as is" inputMode="numeric" />
+        </Field>
+        <Field label="Spares">
+          <input name="spare_qty" type="number" min={0} className="input mono" placeholder="Leave as is" inputMode="numeric" />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Type">
+          <select name="hardware" className="input" defaultValue="">
+            <option value="">Leave as is</option>
+            <option value="0">Part</option>
+            <option value="1">Hardware (bolts, nuts…)</option>
+          </select>
+        </Field>
+        <Field label="We make these" hint="Moves them to the tracker">
+          <select name="kind" className="input" defaultValue="">
+            <option value="">No, keep on COTS</option>
+            {PART_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {KIND_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <ErrorText error={a.error} />
+      <SubmitButton pending={a.pending} label={`Save ${ids.length} line${ids.length === 1 ? "" : "s"}`} />
     </form>
   );
 }

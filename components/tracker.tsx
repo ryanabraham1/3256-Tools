@@ -154,7 +154,7 @@ export function TrackerTable({
   const [edit, setEdit] = useState<FabJob | "new" | null>(null);
   const [deleting, setDeleting] = useState<FabJob | null>(null);
   const [moving, setMoving] = useState<FabJob | null>(null);
-  const [moved, setMoved] = useState<string | null>(null);
+  const [moved, setMoved] = useState<{ name: string; to: Tracker | "cots" } | null>(null);
   const [importing, setImporting] = useState(false);
 
   // edits waiting on (or just back from) the server, laid over the server's rows
@@ -609,8 +609,13 @@ export function TrackerTable({
 
       {moved && (
         <p className="mb-3 text-sm" role="status">
-          Moved <strong>{moved}</strong> to{" "}
-          <Link className="underline" href={print ? "/tracker" : "/tracker/print"}>{TRACKER_LABEL[destination]}</Link>.
+          Moved <strong>{moved.name}</strong> to{" "}
+          {moved.to === "cots" ? (
+            <Link className="underline" href="/tracker/bom">COTS</Link>
+          ) : (
+            <Link className="underline" href={moved.to === "print" ? "/tracker/print" : "/tracker"}>{TRACKER_LABEL[moved.to]}</Link>
+          )}
+          .
         </p>
       )}
 
@@ -769,9 +774,9 @@ export function TrackerTable({
           destination={destination}
           person={person}
           onClose={() => setMoving(null)}
-          onMoved={() => {
+          onMoved={(to) => {
             forgetAddedPart(moving.id);
-            setMoved(moving.name);
+            setMoved({ name: moving.name, to });
             setMoving(null);
           }}
         />
@@ -1521,6 +1526,7 @@ function TextField({ name, label, value, list, placeholder }: { name: string; la
   );
 }
 
+/** Move a part to the other tracker, or to the COTS BOM when it turns out we buy it. */
 function MovePartSheet({
   job,
   destination,
@@ -1532,23 +1538,40 @@ function MovePartSheet({
   destination: Tracker;
   person: string;
   onClose: () => void;
-  onMoved: () => void;
+  onMoved: (to: Tracker | "cots") => void;
 }) {
-  const machining = destination === "machining";
+  const [to, setTo] = useState<Tracker | "cots">(destination);
+  const machining = to === "machining";
   const move = useFabAction(
     (fd) => updatePart(fd).catch(() => ({ ok: false, error: "Couldn't move the part. Check your connection and try again." })),
-    onMoved,
+    () => onMoved(to),
   );
   const cancel = () => {
     if (!move.pending) onClose();
   };
+  const where = to === "cots" ? "COTS BOM" : `${TRACKER_LABEL[to]} tracker`;
   return (
-    <Sheet open onClose={cancel} title={`Move to ${TRACKER_LABEL[destination]}?`}>
+    <Sheet open onClose={cancel} title={`Move ${job.name}`}>
       <form className="flex flex-col gap-3" onSubmit={move.submit}>
         <input type="hidden" name="id" value={job.id} />
         <input type="hidden" name="by" value={person} />
-        <p className="text-sm break-words"><strong>{job.name}</strong> will move to the {TRACKER_LABEL[destination]} tracker with its files and history.</p>
-        {machining ? (
+        <div className="flex gap-2" role="radiogroup" aria-label="Move to">
+          {([destination, "cots"] as const).map((d) => (
+            <button key={d} type="button" role="radio" aria-checked={to === d} className="tile tile-chip text-sm flex-1" data-selected={to === d} onClick={() => setTo(d)}>
+              {d === "cots" ? "COTS (we buy it)" : TRACKER_LABEL[d]}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm break-words">
+          <strong>{job.name}</strong> will move to the {where} with its files and history.
+        </p>
+        {to === "cots" ? (
+          <>
+            <input type="hidden" name="kind" value="cots" />
+            <input type="hidden" name="cots_status" value="needed" />
+            <p className="text-sm">It&apos;ll show as <strong>Need to buy</strong> and leave the tracker.</p>
+          </>
+        ) : machining ? (
           <Field label="Machining type">
             <select name="kind" className="input" defaultValue="" required>
               <option value="" disabled>Select a type</option>
@@ -1558,7 +1581,7 @@ function MovePartSheet({
             </select>
           </Field>
         ) : <input type="hidden" name="kind" value="print" />}
-        {!STATUSES[destination].includes(job.status) && (
+        {to !== "cots" && !STATUSES[to].includes(job.status) && (
           <p className="text-sm">Status will change to <strong>Not Started</strong>.</p>
         )}
         <ErrorText error={move.error} />

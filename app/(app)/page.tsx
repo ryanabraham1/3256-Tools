@@ -40,7 +40,7 @@ export default async function Home() {
     getFabEvents({ limit: 8 }),
     getUnits(),
     // null until the tracker tables are set up, so the dashboard still loads
-    getParts().catch(() => null),
+    getParts({ outlines: false }).catch(() => null),
     getWorkHome(),
     getWorkUser(),
     // null until the pit tables are set up

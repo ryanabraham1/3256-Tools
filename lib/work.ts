@@ -146,6 +146,12 @@ export type WorkSnapshot = {
     snoozed_until: string | null;
   }[];
   error?: string;
+  /**
+   * Set on a background refresh that sent only what changed since `since`: items updated then
+   * (and every event of those items), events created then, and who is inactive now.
+   * `mergeWorkDelta` folds it into the snapshot on screen.
+   */
+  delta?: { since: string; inactive: string[] };
 };
 export function uniqueStatuses(statuses: string[]) {
   return statuses.filter((s, index) => statuses.findIndex(v => v.toLowerCase() === s.toLowerCase()) === index);

@@ -10,7 +10,7 @@ import { PageHead } from "@/components/fab-ui";
 /** Shared by /tracker (machining) and /tracker/print: the team's tracker sheets, as parts. */
 export async function TrackerPage({ tracker }: { tracker: Tracker }) {
   const [parts, designs, materials, pieces, units, person, members, subsystems, files] = await Promise.all([
-    getParts(),
+    getParts({ outlines: false }),
     getDesigns({ includeArchived: true }),
     getMaterials(),
     getStockPieces(),

@@ -5,6 +5,10 @@ import type { PitProblem, ProblemStatus, RobotIssueInput } from "@/lib/pit";
 import type { WorkItem, WorkSnapshot } from "@/lib/work";
 import { applyChanges, createSaveQueue, mergeItems, type SaveReply, type SaveResult, type WorkChange } from "@/lib/work-store";
 import type { WorkUser, WorkAccess } from "@/lib/work-auth";
+import { mergeWorkDelta } from "@/lib/work-snapshot";
+
+/** A full re-read this often (while the tab is open and visible) backs up the changes-only refreshes. */
+const FULL_READ_MS = 30 * 60_000;
 
 type WorkContext = {
   snapshot: WorkSnapshot;
@@ -66,7 +70,11 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
   const base = useMemo(() => mergeItems(snapshot.items, saved), [snapshot.items, saved]);
   const items = useMemo(() => applyChanges(base, queued.flatMap((q) => q.changes), snapshot.now), [base, queued, snapshot.now]);
 
-  const reading = useRef({ busy: false, again: false });
+  // The newest snapshot this browser holds, for building on with a changes-only read.
+  const current = useRef(snapshot);
+  useEffect(() => { current.current = snapshot; }, [snapshot]);
+  // The page's own render was a full read, so the next full one is due 30 minutes after it.
+  const reading = useRef({ busy: false, again: false, fullAt: Date.parse(rendered.now) });
   const refresh = useCallback(async () => {
     // One read at a time; a request made meanwhile runs once more afterwards so nothing is missed.
     const state = reading.current;
@@ -78,10 +86,21 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
     do {
       state.again = false;
       try {
-        const response = await fetch("/api/work/snapshot", { cache: "no-store" });
+        // Only what changed since the snapshot on screen (Supabase bills every byte it sends),
+        // with an occasional full read in case anything slipped past.
+        const have = current.current;
+        const full = have.error || Date.now() - state.fullAt > FULL_READ_MS;
+        const url = full ? "/api/work/snapshot" : `/api/work/snapshot?since=${encodeURIComponent(have.now)}`;
+        const response = await fetch(url, { cache: "no-store" });
         const next: WorkSnapshot | null = response.ok ? await response.json() : null;
         // A failed read keeps what is on screen rather than blanking the workspace.
-        if (next && !next.error) setFetched((have) => (have && have.now >= next.now ? have : next));
+        if (next && !next.error) {
+          if (full) state.fullAt = Date.now();
+          // Merged onto the snapshot it was asked against; a newer page render in the meantime wins.
+          const merged = mergeWorkDelta(have, next);
+          current.current = merged.now > current.current.now ? merged : current.current;
+          setFetched((had) => (had && had.now >= merged.now ? had : merged));
+        }
       } catch {
         // Offline: the next focus, ping or timer tries again.
       }
@@ -91,8 +110,17 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
   useEffect(() => {
     // Stay in step with teammates: re-read on the database's "changed" ping (Work tables only),
     // when the tab comes back, and on a slow fallback timer.
+    // A tab in the background doesn't read at all: it remembers it missed something and reads
+    // once when it's looked at again.
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let missed = false;
+    let readAt = Date.now();
     const soon = () => {
+      if (document.visibilityState === "hidden") {
+        missed = true;
+        return;
+      }
+      readAt = Date.now();
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => { if (navigator.onLine) refresh(); }, 250);
     };
@@ -104,14 +132,20 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
         if (!table || table.startsWith("work_") || table === "pit_problems") soon();
       })
       .subscribe();
-    const onVisible = () => { if (document.visibilityState === "visible") soon(); };
+    // Coming back reads once if a ping arrived meanwhile or the last read is over a minute old.
+    const back = () => {
+      if (document.visibilityState !== "visible" || (!missed && Date.now() - readAt < 60_000)) return;
+      missed = false;
+      soon();
+    };
+    const onVisible = back;
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", soon);
+    window.addEventListener("focus", back);
     const interval = setInterval(soon, 60_000);
     return () => {
       if (channel) sb?.removeChannel(channel);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", soon);
+      window.removeEventListener("focus", back);
       clearInterval(interval);
       if (timer) clearTimeout(timer);
     };

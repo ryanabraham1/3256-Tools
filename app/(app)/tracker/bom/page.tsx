@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** The COTS BOM: bought parts and hardware from the designs being built — what to buy and whether it's here. */
 export default async function BomPage() {
-  const [parts, designs, subsystems] = await Promise.all([getParts(), getDesigns({ includeArchived: true }), getSubsystems()]);
+  const [parts, designs, subsystems] = await Promise.all([getParts({ outlines: false }), getDesigns({ includeArchived: true }), getSubsystems()]);
   const design = new Map(designs.map((d) => [d.id, d]));
   const lines: BomLine[] = parts
     .filter((p) => p.kind === "cots" && !(p.design_id && design.get(p.design_id)?.archived))

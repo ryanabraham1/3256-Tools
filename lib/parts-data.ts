@@ -82,13 +82,28 @@ export async function getDesigns(opts: { includeArchived?: boolean } = {}): Prom
   return (data ?? []) as FabDesign[];
 }
 
-export async function getParts(opts: { designId?: string; includeMissing?: boolean } = {}): Promise<FabPart[]> {
-  let q = supabaseAdmin().from("fab_parts").select("*").order("name");
+/**
+ * Every fab_parts column except `geometry`. The outline is over half of each row, and only the
+ * board, the cut plan and a part's own page draw it; the other pages read this list instead so
+ * Supabase doesn't send it (egress). Add new columns here too: a test checks it against the migrations.
+ */
+export const PART_COLUMNS_WITHOUT_GEOMETRY =
+  "id,design_id,onshape_key,source,name,part_number,description,kind,status,status_changed_at,quantity,cut_qty," +
+  "material_id,material_locked,material_text,size_l_mm,size_w_mm,size_t_mm,properties,assignees,notes,missing," +
+  "created_at,updated_at,bot,subsystem,priority,spare_qty,stock_dims,length_text,tapped,machine,infill,designer," +
+  "file,linear_url,cots_status,vendor,url,hardware,unit_price,pack_size,length_spec,done_qty";
+
+/** `outlines: false` leaves out each part's geometry (it comes back null) for pages that never draw it. */
+export async function getParts(opts: { designId?: string; includeMissing?: boolean; outlines?: boolean } = {}): Promise<FabPart[]> {
+  let q = supabaseAdmin()
+    .from("fab_parts")
+    .select(opts.outlines === false ? PART_COLUMNS_WITHOUT_GEOMETRY : "*")
+    .order("name");
   if (opts.designId) q = q.eq("design_id", opts.designId);
   if (!opts.includeMissing) q = q.eq("missing", false);
   const { data, error } = await q.limit(2000);
   if (error) throw error;
-  return (data ?? []).map(toPart);
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => toPart(opts.outlines === false ? { ...r, geometry: null } : r));
 }
 
 export async function getPart(id: string): Promise<FabPart | null> {

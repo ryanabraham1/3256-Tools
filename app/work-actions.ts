@@ -254,11 +254,15 @@ export async function addWorkComment(
     return { ok: false, error: message(e) };
   }
 }
+/** Edited and deleted updates reach teammates through their item: a changes-only refresh resends a touched item's events. */
+async function touchItem(itemId: string) {
+  await supabaseAdmin().from("work_items").update({ updated_at: new Date().toISOString() }).eq("id", itemId);
+}
 async function ownUpdate(eventId: string) {
   const user = await guard();
   const { data: event } = await supabaseAdmin()
     .from("work_events")
-    .select("id,actor_id,type")
+    .select("id,item_id,actor_id,type")
     .eq("id", eventId)
     .single();
   if (!event || event.type !== "update")
@@ -271,12 +275,13 @@ export async function editWorkUpdate(eventId: string, body: string) {
   try {
     if (typeof body !== "string" || !body.trim() || body.length > 20000)
       throw new Error("Enter an update of 1–20,000 characters.");
-    await ownUpdate(eventId);
+    const event = await ownUpdate(eventId);
     const { error } = await supabaseAdmin()
       .from("work_events")
       .update({ body: body.trim() })
       .eq("id", eventId);
     if (error) throw error;
+    await touchItem(event.item_id);
     revalidatePath("/work", "layout");
     return { ok: true };
   } catch (e) {
@@ -285,12 +290,13 @@ export async function editWorkUpdate(eventId: string, body: string) {
 }
 export async function deleteWorkUpdate(eventId: string) {
   try {
-    await ownUpdate(eventId);
+    const event = await ownUpdate(eventId);
     const { error } = await supabaseAdmin()
       .from("work_events")
       .delete()
       .eq("id", eventId);
     if (error) throw error;
+    await touchItem(event.item_id);
     revalidatePath("/work", "layout");
     return { ok: true };
   } catch (e) {

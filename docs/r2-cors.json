@@ -1,9 +1,0 @@
-[
-  {
-    "AllowedOrigins": ["https://www.warriorb.org", "https://warriorb.org", "http://localhost:3000"],
-    "AllowedMethods": ["GET", "HEAD", "PUT"],
-    "AllowedHeaders": ["content-type"],
-    "ExposeHeaders": ["content-length", "etag"],
-    "MaxAgeSeconds": 3600
-  }
-]

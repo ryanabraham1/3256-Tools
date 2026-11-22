@@ -17,9 +17,6 @@ function load(file, imports, extra = {}) {
     exports: loadedModule.exports,
     require: (name) => {
       if (name in imports) return imports[name];
-      // lib/storage.ts has the same shape as the Supabase storage these tests mock
-      if (name === "@/lib/storage" && imports["@/lib/supabase"])
-        return { bucket: (b) => imports["@/lib/supabase"].supabaseAdmin().storage.from(b) };
       throw new Error(`Unexpected import ${name}`);
     },
     Request,

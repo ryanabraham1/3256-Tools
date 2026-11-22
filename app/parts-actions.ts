@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { bucket } from "@/lib/storage";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireWorkUser } from "@/lib/work-auth";
 import { getFabSettings, getMaterial, getMaterials, getStockPieces } from "@/lib/fab-data";
@@ -219,7 +218,7 @@ async function removeStoredFiles(partIds: string[]) {
   if (!partIds.length) return;
   const { data: files } = await db().from("fab_part_files").select("path").in("part_id", partIds);
   const paths = (files ?? []).map((f) => f.path as string);
-  for (let i = 0; i < paths.length; i += 100) await bucket(FILES_BUCKET).remove(paths.slice(i, i + 100));
+  for (let i = 0; i < paths.length; i += 100) await db().storage.from(FILES_BUCKET).remove(paths.slice(i, i + 100));
 }
 
 const studioKey = (s: Pick<PartSource, "did" | "wvm" | "wvmid" | "eid" | "configuration">) => `${s.did}/${s.wvm}/${s.wvmid}/${s.eid}/${s.configuration ?? ""}`;
@@ -593,7 +592,7 @@ async function storeDxf(partId: string, name: string, g: PartGeometry) {
   ]);
   const file = `${safeName(name)}.dxf`;
   const path = `parts/${partId}/onshape-${file}`;
-  const { error } = await bucket(FILES_BUCKET).upload(path, new Blob([text], { type: "application/dxf" }), { upsert: true, contentType: "application/dxf" });
+  const { error } = await db().storage.from(FILES_BUCKET).upload(path, new Blob([text], { type: "application/dxf" }), { upsert: true, contentType: "application/dxf" });
   if (error) throw error;
   await db().from("fab_part_files").delete().eq("part_id", partId).eq("source", "onshape").eq("kind", "dxf");
   const { error: e } = await db().from("fab_part_files").insert({ part_id: partId, kind: "dxf", name: file, path, size_bytes: text.length, source: "onshape" });
@@ -1210,14 +1209,14 @@ export async function deletePart(fd: FormData): Promise<FabResult> {
 // ── Files ────────────────────────────────────────────────────────────────────
 
 /** A one-time URL the browser uploads straight to storage with (no size limit through the app). */
-export async function fileUploadUrl(fd: FormData): Promise<FabResult<{ path: string; url: string }>> {
+export async function fileUploadUrl(fd: FormData): Promise<FabResult<{ path: string; token: string }>> {
   return run(async () => {
     const part = await loadPart(str(fd, "part_id"));
     const name = safeName(str(fd, "name"));
     const path = `parts/${part.id}/${Date.now().toString(36)}-${name}`;
-    const { data, error } = await bucket(FILES_BUCKET).createSignedUploadUrl(path);
+    const { data, error } = await db().storage.from(FILES_BUCKET).createSignedUploadUrl(path);
     if (error) throw error;
-    return { path: data.path, url: data.signedUrl };
+    return { path: data.path, token: data.token };
   });
 }
 
@@ -1238,7 +1237,7 @@ export async function recordFile(fd: FormData): Promise<FabResult<string>> {
     if (error) throw error;
     await logPart(part.id, "file", { name, kind });
     if (kind !== "dxf" || str(fd, "outline") === "0") return "";
-    const { data: blob, error: de } = await bucket(FILES_BUCKET).download(path);
+    const { data: blob, error: de } = await db().storage.from(FILES_BUCKET).download(path);
     if (de || !blob) throw new Error("Uploaded, but couldn't read the DXF back");
     return applyDxf(part, await blob.text(), str(fd, "units"));
   });
@@ -1275,7 +1274,7 @@ export async function deleteFile(fd: FormData): Promise<FabResult> {
   return run(async () => {
     const { data: f, error } = await db().from("fab_part_files").select("*").eq("id", str(fd, "id")).single();
     if (error || !f) throw new Error("File not found");
-    await bucket(FILES_BUCKET).remove([f.path as string]);
+    await db().storage.from(FILES_BUCKET).remove([f.path as string]);
     const { error: e } = await db().from("fab_part_files").delete().eq("id", f.id);
     if (e) throw e;
     await logPart(f.part_id as string, "file", { name: f.name, removed: true });
@@ -1306,7 +1305,7 @@ export async function cacheStl(fd: FormData): Promise<FabResult<{ id: string; na
     }
     const file = `${safeName(part.name)}.stl`;
     const path = `parts/${part.id}/onshape-${file}`;
-    const { error } = await bucket(FILES_BUCKET).upload(path, new Blob([bytes as BlobPart]), { upsert: true, contentType: "model/stl" });
+    const { error } = await db().storage.from(FILES_BUCKET).upload(path, new Blob([bytes as BlobPart]), { upsert: true, contentType: "model/stl" });
     if (error) throw error;
     const { data: row, error: e } = await db()
       .from("fab_part_files")
@@ -1333,7 +1332,8 @@ export async function fetchOnshapeFile(fd: FormData): Promise<FabResult> {
     const ext = format === "STL" ? "stl" : "step";
     const file = `${safeName(part.name)}.${ext}`;
     const path = `parts/${part.id}/onshape-${file}`;
-    const { error } = await bucket(FILES_BUCKET)
+    const { error } = await db()
+      .storage.from(FILES_BUCKET)
       .upload(path, new Blob([bytes as BlobPart]), { upsert: true, contentType: "application/octet-stream" });
     if (error) throw error;
     await db().from("fab_part_files").delete().eq("part_id", part.id).eq("source", "onshape").eq("kind", fileKind(file));

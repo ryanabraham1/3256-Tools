@@ -11,6 +11,7 @@ import { sheetFabability } from "@/lib/fabable";
 import { materialName, type FabMaterial } from "@/lib/fab";
 import { fmtArea, fmtLength, type Units } from "@/lib/units";
 import { fmtDateTime, timeAgo } from "@/lib/format";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 import { Sheet } from "./sheet";
 import { DfmPill, FabablePill, IssueList, Outline, PersonChip } from "./parts-ui";
 import { ErrorText, Field, LengthInput, SubmitButton, UnitsToggle, useFabAction } from "./fab-ui";
@@ -350,6 +351,11 @@ function Files({ part, files }: { part: FabPart; files: FabPartFile[] }) {
     if (!list?.length) return;
     setErr(null);
     setMsg(null);
+    const sb = supabaseBrowser();
+    if (!sb) {
+      setErr("File storage isn't configured");
+      return;
+    }
     for (const file of Array.from(list)) {
       setBusy(`Uploading ${file.name}…`);
       const fd = new FormData();
@@ -360,13 +366,9 @@ function Files({ part, files }: { part: FabPart; files: FabPartFile[] }) {
         setErr(u.ok ? "Upload failed" : u.error);
         break;
       }
-      const up = await fetch(u.data.url, {
-        method: "PUT",
-        headers: { "content-type": file.type || "application/octet-stream" },
-        body: file,
-      }).catch(() => null);
-      if (!up?.ok) {
-        setErr(`Upload failed${up ? ` (${up.status})` : ""}`);
+      const up = await sb.storage.from("fab-files").uploadToSignedUrl(u.data.path, u.data.token, file);
+      if (up.error) {
+        setErr(up.error.message);
         break;
       }
       const rec = new FormData();

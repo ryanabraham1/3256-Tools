@@ -34,7 +34,7 @@ function load(file, imports = {}, globals = {}) {
     fileName: file,
     compilerOptions: { target: ts.ScriptTarget.ES2017, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
-  vm.runInNewContext(js, { module: loadedModule, exports: loadedModule.exports, require: name => imports[name] ?? importDependency(name), ...globals });
+  vm.runInNewContext(js, { module: loadedModule, exports: loadedModule.exports, require: name => imports[name] ?? (name === '@/lib/storage' && imports['@/lib/supabase'] ? { bucket: b => imports['@/lib/supabase'].supabaseAdmin().storage.from(b) } : importDependency(name)), ...globals });
   return loadedModule.exports;
 }
 test('calendar dates retain their day in Los Angeles', () => {

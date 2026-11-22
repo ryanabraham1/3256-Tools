@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { bucket } from "@/lib/storage";
 import { LOG_BUCKET, logPath, readAuth, validHash } from "@/lib/robot-logs/access";
 export async function GET(
   request: Request,
@@ -19,8 +20,7 @@ export async function GET(
       .maybeSingle();
     if (!row)
       return Response.json({ error: "Recording not found" }, { status: 404 });
-    const { data, error } = await db.storage
-      .from(LOG_BUCKET)
+    const { data, error } = await bucket(LOG_BUCKET)
       .createSignedUrl(logPath(id), 120);
     if (error || !data)
       return Response.json({ error: "Recording unavailable" }, { status: 503 });

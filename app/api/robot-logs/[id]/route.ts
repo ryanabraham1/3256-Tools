@@ -1,4 +1,5 @@
 import { getWorkUser } from "@/lib/work-auth";
+import { bucket } from "@/lib/storage";
 import { supabaseAdmin } from "@/lib/supabase";
 import { LOG_BUCKET, logPath, validHash } from "@/lib/robot-logs/access";
 export const runtime = "nodejs";
@@ -25,7 +26,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (rowError) return json({ error: "Log library is unavailable" }, 503);
     if (!row) return json({ error: "Recording not found" }, 404);
     // Remove the file first: a leftover row for a missing file is visible and retryable, an orphaned file is not.
-    const { error: storageError } = await db.storage.from(LOG_BUCKET).remove([logPath(id)]);
+    const { error: storageError } = await bucket(LOG_BUCKET).remove([logPath(id)]);
     if (storageError) return json({ error: "Could not delete the stored recording" }, 503);
     const { error } = await db.from("robot_logs").delete().eq("sha256", id);
     if (error) return json({ error: "The file was deleted but the library entry remains. Try again." }, 503);

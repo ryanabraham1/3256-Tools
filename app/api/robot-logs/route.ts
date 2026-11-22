@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { bucket } from "@/lib/storage";
 import {
   LOG_BUCKET,
   MAX_LOG_BYTES,
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
     );
   try {
     const db = supabaseAdmin(),
-      storage = db.storage.from(LOG_BUCKET);
+      storage = bucket(LOG_BUCKET);
     if (body.complete === true) {
       const { data: row, error: rowError } = await db
         .from("robot_logs")

@@ -395,9 +395,10 @@ export function WorkWorkspace() {
   function comment(item: WorkItem, body: string, type?: string) {
     return new Promise<boolean>((resolve) =>
       startTransition(async () => {
-        // The action re-reads the workspace itself, so the new comment arrives with its response.
         const result = await addWorkComment(item.id, body, type ?? (item.kind === "issue" ? "comment" : "update")).catch(() => ({ ok: false, error: undefined }));
         if (!result.ok) setError(result.error ?? "Couldn't post.");
+        // A changes-only read brings the new comment in (a few KB, not the whole workspace).
+        else await refresh();
         resolve(result.ok);
       }),
     );
@@ -408,7 +409,7 @@ export function WorkWorkspace() {
     if (!result.ok) {
       setReadNow((now) => now.filter((id) => !ids.includes(id)));
       setError(result.error ?? "Couldn't update notifications.");
-    }
+    } else refresh();
   }
   const issueActions: IssueActions = { onPatch: patch, onArchive: archiveItem, onTrash: trashItem, onOpen: open, onBulk: bulk, disabled: readOnly };
   /** Adds a milestone from the project's own card; the row shows once the server returns it. */

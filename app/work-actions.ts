@@ -248,7 +248,6 @@ export async function addWorkComment(
     if (error) throw error;
     if (type === "update")
       await postDiscordUpdate(String(item.title ?? ""), user.name, body.trim());
-    revalidatePath("/work", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: message(e) };
@@ -282,7 +281,6 @@ export async function editWorkUpdate(eventId: string, body: string) {
       .eq("id", eventId);
     if (error) throw error;
     await touchItem(event.item_id);
-    revalidatePath("/work", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: message(e) };
@@ -297,7 +295,6 @@ export async function deleteWorkUpdate(eventId: string) {
       .eq("id", eventId);
     if (error) throw error;
     await touchItem(event.item_id);
-    revalidatePath("/work", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: message(e) };
@@ -352,7 +349,6 @@ export async function markWorkRead(
         );
       if (error) throw error;
     }
-    revalidatePath("/work", "layout");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: message(e) };

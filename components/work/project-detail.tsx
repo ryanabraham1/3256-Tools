@@ -44,7 +44,7 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
   const menuFor = useItemMenuShow();
   const [composer, setComposer] = useState(false);
   const [addingMilestone, setAddingMilestone] = useState(false);
-  const { user } = useWork();
+  const { user, refresh } = useWork();
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState("");
@@ -52,7 +52,8 @@ export function ProjectDetail({ item, items, events, readOnly, posting, onEdit, 
     setUpdateError("");
     const r = await fn();
     if (!r.ok) { setUpdateError(r.error ?? "Couldn't save. Please try again."); return; }
-    // The action re-reads the workspace itself; no second refresh needed.
+    // A changes-only read brings the edit in: the action touches the update's item, so its updates are resent.
+    await refresh();
     setEditing(null); setDeleting(null);
   }
   const [body, setBody] = useState("");

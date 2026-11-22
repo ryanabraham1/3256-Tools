@@ -22,8 +22,8 @@ type WorkContext = {
    */
   save: (changes: WorkChange[], optimistic?: boolean) => Promise<SaveResult>;
   saving: boolean;
-  /** Re-reads the workspace in the background. */
-  refresh: () => void;
+  /** Re-reads what changed in the workspace, in the background. */
+  refresh: () => Promise<void>;
   /** Robot issues (the shared pit problem log) with this browser's saves applied. */
   problems: PitProblem[];
   /** Reports a robot issue, at the active competition when `atEvent`. */

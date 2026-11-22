@@ -116,3 +116,16 @@ test("pages that never draw outlines read every fab_parts column but geometry", 
   cols.delete("geometry");
   assert.deepEqual([...list].sort(), [...cols].sort());
 });
+
+test("pages only re-read for pings from tables they show", async () => {
+  const { pageShowsTable } = await import("../lib/refresh-scope.ts");
+  const cases = [
+    ["/tracker", "fab_parts", true], ["/tracker/board", "fab_part_files", true], ["/tracker", "battery_events", false],
+    ["/tracker/print", "work_items", false], ["/stock/abc", "fab_pieces", true], ["/stock", "pit_runs", false],
+    ["/battery", "batteries", true], ["/battery/log", "settings", true], ["/battery", "fab_parts", false],
+    ["/pit/run/1", "pit_checks", true], ["/pit", "work_events", false], ["/pitstop", "work_items", false],
+    ["/", "work_items", true], ["/", "fab_parts", true], ["/admin", "work_items", false], ["/admin", "batteries", true],
+    ["/tracker", undefined, true],
+  ];
+  for (const [path, table, want] of cases) assert.equal(pageShowsTable(path, table), want, `${path} ← ${table}`);
+});

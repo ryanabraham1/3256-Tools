@@ -26,6 +26,7 @@ import {
   isStockKind,
   kindFromMaterial,
   matchMaterial,
+  stockDimsForModel,
   needed,
   sheetDefaults,
   isRawMaterial,
@@ -449,8 +450,15 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
       ...sizes,
       ...(geometry !== undefined ? { geometry } : {}),
     };
+    // a thickness typed in Stock / dims ('1/8" thick') stays over the model's, unless it
+    // only ever repeated the model and the model's thickness changed
+    let stockDims = old?.stock_dims ?? "";
+    if (old && kind === "plate" && f) {
+      stockDims = stockDimsForModel(old, f.t);
+      if (stockDims !== old.stock_dims) row.stock_dims = stockDims;
+    }
     if (!old?.material_locked) {
-      row.material_id = matchMaterial({ kind, material_text: material, size_l_mm: f?.l ?? null, size_w_mm: f?.w ?? null, size_t_mm: f?.t ?? null }, materials)?.id ?? null;
+      row.material_id = matchMaterial({ kind, material_text: material, stock_dims: stockDims, size_l_mm: f?.l ?? null, size_w_mm: f?.w ?? null, size_t_mm: f?.t ?? null }, materials)?.id ?? null;
     }
     // the sheet's Stock / Dims / Length / Machine, in its own words; never over something typed
     const rack = materials.find((m) => m.id === (row.material_id ?? old?.material_id)) ?? null;
@@ -623,18 +631,21 @@ function sheetFields(fd: FormData): Record<string, unknown> {
 }
 
 /**
- * Sizes and stock for a part without an Onshape model: read them from the
- * sheet's Stock / dims / Length text, then match the rack (unless someone
- * picked the stock by hand).
+ * Sizes and stock from the sheet's Stock / dims / Length text (Onshape parts
+ * keep the model's sizes), then match the rack (unless someone picked the
+ * stock by hand).
  */
 async function fillFromText(row: Record<string, unknown>, part: Partial<FabPart>) {
   const merged = { ...part, ...row } as FabPart;
-  if (merged.source) return;
-  const t = sizesFromText(merged.material_text ?? "", merged.stock_dims ?? "", merged.length_text ?? "");
-  // hand-entered sizes win over what the text implies
-  if (!("size_l_mm" in row) && t.l !== null) row.size_l_mm = t.l;
-  if (!("size_w_mm" in row) && t.w !== null) row.size_w_mm = t.w;
-  if (!("size_t_mm" in row) && t.t !== null) row.size_t_mm = t.t;
+  // Onshape parts keep the model's sizes, but still re-match the rack (a plate's
+  // Stock / dims thickness picks its sheet)
+  if (!merged.source) {
+    const t = sizesFromText(merged.material_text ?? "", merged.stock_dims ?? "", merged.length_text ?? "");
+    // hand-entered sizes win over what the text implies
+    if (!("size_l_mm" in row) && t.l !== null) row.size_l_mm = t.l;
+    if (!("size_w_mm" in row) && t.w !== null) row.size_w_mm = t.w;
+    if (!("size_t_mm" in row) && t.t !== null) row.size_t_mm = t.t;
+  }
   if (!merged.material_locked && !("material_id" in row)) {
     const m = matchMaterial({ ...merged, ...(row as Partial<FabPart>) } as FabPart, await getMaterials());
     row.material_id = m?.id ?? null;

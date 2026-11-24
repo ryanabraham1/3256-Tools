@@ -463,13 +463,14 @@ const KIND_SHAPES: Partial<Record<PartKind, FabShape[]>> = {
  * smallest rod/hex that covers the part.
  */
 export function matchMaterial(
-  part: Pick<FabPart, "kind" | "material_text" | "size_l_mm" | "size_w_mm" | "size_t_mm">,
+  part: Pick<FabPart, "kind" | "material_text" | "size_l_mm" | "size_w_mm" | "size_t_mm"> & { stock_dims?: string },
   materials: FabMaterial[],
 ): FabMaterial | null {
   const shapes = KIND_SHAPES[part.kind];
   if (!shapes) return null;
   const w = part.size_w_mm;
-  const t = part.size_t_mm;
+  // a plate's thickness typed in the tracker ('1/8" thick') beats the model's
+  const t = (part.kind === "plate" ? typedThickness(part.stock_dims ?? "") : null) ?? part.size_t_mm;
   let best: { m: FabMaterial; score: number; slack: number } | null = null;
   for (const m of materials) {
     if (m.archived || !shapes.includes(m.shape)) continue;
@@ -671,6 +672,22 @@ export function kindFromMaterial(material: string, tracker: Tracker = "machining
   return "machined";
 }
 
+/** The thickness in a Stock / dims cell ('1/8" thick' → 3.175), or null when it doesn't give one. */
+export function typedThickness(stockDims: string): number | null {
+  const m = /([\d./\s-]+)\s*(?:"|in|mm)?\s*(?:thick|thk)/i.exec(stockDims);
+  return m ? parseLength(m[1].replace(/["”]/g, "").trim(), "in") : null;
+}
+
+/**
+ * A plate's Stock / dims for a new import of its model: what's there stays,
+ * unless it only ever said the model's old thickness and the model changed.
+ */
+export function stockDimsForModel(old: { stock_dims: string; size_t_mm: number | null }, modelT: number | null): string {
+  const typed = typedThickness(old.stock_dims);
+  const wasModel = typed !== null && old.size_t_mm !== null && Math.abs(typed - old.size_t_mm) <= 0.3;
+  return wasModel && modelT !== null && Math.abs(modelT - typed) > 0.3 ? thickLabel(modelT) : old.stock_dims;
+}
+
 /**
  * Sizes a sheet row implies, in mm: thickness from '1/8" thick', a diameter
  * from '1/2 diam shaft', a profile from "Box Tube 2x1", length from the
@@ -679,9 +696,8 @@ export function kindFromMaterial(material: string, tracker: Tracker = "machining
 export function sizesFromText(material: string, stockDims: string, lengthText: string): { l: number | null; w: number | null; t: number | null } {
   const inch = (s: string) => parseLength(s.replace(/["”]/g, "").trim(), "in");
   let w: number | null = null;
-  let t: number | null = null;
-  const thick = /([\d./\s-]+)\s*(?:"|in|mm)?\s*(?:thick|thk)/i.exec(stockDims);
-  if (thick) t = inch(thick[1]);
+  let t = typedThickness(stockDims);
+  const thick = t !== null;
   const dia = /([\d./\s-]+)\s*(?:"|in)?\s*(?:diam|dia|od)\b/i.exec(stockDims);
   if (dia) w = t = inch(dia[1]);
   const prof = /(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i.exec(material) ?? /(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i.exec(stockDims);

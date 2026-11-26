@@ -47,7 +47,7 @@ import { foldTwins, twinKey } from "@/lib/part-twins";
 import { rematchParts, rematchQuietly, type RematchResult } from "@/lib/parts-match";
 import { isJobStatus, jobKey, readSheet, SHEET_TO_PART, splitPeople, STATUSES, SUGGEST, TEXT_FIELDS, type ImportRow, type JobStatus } from "@/lib/tracker";
 import { checkPart } from "@/lib/dfm";
-import { findVendorLink } from "@/lib/vendors";
+import { cotsMaterial, findVendorLink } from "@/lib/vendors";
 import { isSheet } from "@/lib/fab";
 import { nestSheets, nestSticks, placementZones, zoneToNest, type Placement } from "@/lib/nest";
 import { readDxf, scaleGeom, writeDxf } from "@/lib/geom";
@@ -404,7 +404,7 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     const shape = shapes.get(studioKey(line.source))?.get(line.source.partId) ?? null;
     const props = trimProps({ ...line.props, ...(meta?.props ?? {}) });
     const name = line.name || meta?.name || shape?.name || "Unnamed part";
-    const material = line.material || meta?.material || shape?.material || "";
+    const sourceMaterial = line.material || meta?.material || shape?.material || "";
     if (isReferenceBody(name) || isUnnamedBody(name)) {
       skippedRef++;
       return;
@@ -423,9 +423,14 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     const guess: PartKind = line.standard
       ? "cots"
       : (fromProp ??
-        (!settings.onshape_require_prop && (hasPartNumber(name) || isPrintedMaterial(material)) ? guessKind(name, material, shape?.facts ?? null) : "cots"));
+        (!settings.onshape_require_prop && (hasPartNumber(name) || isPrintedMaterial(sourceMaterial)) ? guessKind(name, sourceMaterial, shape?.facts ?? null) : "cots"));
     // a kind someone changed by hand sticks until the Process property itself changes
     const kind: PartKind = old && oldProcess === processVal ? old.kind : guess;
+    const vendor = findProp(props, "Vendor") || findProp(props, "Supplier") || findProp(props, "Manufacturer");
+    const partNumber = line.partNumber || meta?.partNumber || old?.part_number || "";
+    const material = kind === "cots" && line.standard
+      ? cotsMaterial({ name, part_number: partNumber }, sourceMaterial)
+      : sourceMaterial;
     const f = shape?.facts;
     const sizes = f ? { size_l_mm: round(f.l), size_w_mm: round(f.w), size_t_mm: round(f.t) } : {};
     let geometry: PartGeometry | null | undefined;
@@ -441,7 +446,7 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
       source: line.source,
       name,
       // a part # / description typed on the site stays when Onshape has none
-      part_number: line.partNumber || meta?.partNumber || old?.part_number || "",
+      part_number: partNumber,
       description: line.description || meta?.description || old?.description || "",
       quantity: line.quantity,
       properties: props,
@@ -464,7 +469,9 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     const rack = materials.find((m) => m.id === (row.material_id ?? old?.material_id)) ?? null;
     const fill = sheetDefaults({ kind, material_text: material, size_l_mm: f?.l ?? null, size_w_mm: f?.w ?? null, size_t_mm: f?.t ?? null, pocketed: f?.pocketed }, rack);
     const cur = (k: "material_text" | "stock_dims" | "length_text" | "machine") => (old ? old[k] : "");
-    if (!cur("material_text") || (cur("material_text") === old?.properties?.Material && isRawMaterial(cur("material_text"), SUGGEST.material)) || cur("material_text") === material)
+    if ((material === sourceMaterial || !old?.material_locked) && (
+      !cur("material_text") || (cur("material_text") === old?.properties?.Material && isRawMaterial(cur("material_text"), SUGGEST.material)) ||
+      cur("material_text") === material || (material !== sourceMaterial && cur("material_text") === sourceMaterial)))
       row.material_text = kind === "print" ? material : (fill.material_text ?? material);
     for (const k of ["stock_dims", "length_text", "machine"] as const) if (!cur(k) && fill[k]) row[k] = fill[k];
     // a half-pocketed plate can't go on the xTool, even if that's what was filled in before
@@ -475,7 +482,6 @@ async function sync(keys: OnshapeKeys, designId: string): Promise<string> {
     Object.assign(row, sheetFromProps(props));
     if (kind === "cots") {
       row.hardware = !!line.standard;
-      const vendor = findProp(props, "Vendor") || findProp(props, "Supplier") || findProp(props, "Manufacturer");
       const url = [findProp(props, "Product URL"), findProp(props, "URL"), findProp(props, "Link"), findProp(props, "Vendor URL")].find((u) => /^https?:\/\//i.test(u));
       const priceOf = (pr: Record<string, string>) => Number((findProp(pr, "Price") || findProp(pr, "Unit price") || findProp(pr, "Cost")).replace(/[$,\s]/g, ""));
       const price = priceOf(props);
@@ -817,8 +823,8 @@ export async function updatePart(fd: FormData): Promise<FabResult<string>> {
 }
 
 /**
- * Fill in where to buy each COTS line and what it costs, from its vendor +
- * part number (lib/vendors.ts). Only blanks are filled — a link or price
+ * Fill in where to buy each COTS line and what it costs, using catalog SKUs
+ * and part descriptions (lib/vendors.ts). Only blanks are filled — a link or price
  * someone typed is kept. "-Mirrored" copies share their original's.
  */
 export async function findCotsLinks(fd: FormData): Promise<FabResult<string>> {
@@ -831,43 +837,61 @@ async function fillCotsLinks(designId: string | null): Promise<string> {
   const { data, error } = await q;
   if (error) throw error;
   const lines = (data ?? []).map(toPart);
-  const todo = lines.filter((p) => !p.url || p.unit_price === null);
+  const todo = lines.map((p) => ({
+    p,
+    material: p.onshape_key && p.hardware && !p.material_locked && p.material_text === findProp(p.properties, "Material")
+      ? cotsMaterial(p, p.material_text) : p.material_text,
+  })).filter(({ p, material }) => !p.url || p.unit_price === null || material !== p.material_text);
   let found = 0;
   let priced = 0;
+  let corrected = 0;
   let misses = 0;
   const failed = new Set<string>();
-  await pool(todo, 4, async (p) => {
+  await pool(todo, 4, async ({ p, material }) => {
+    const patch: Record<string, string | number> = {};
+    if (material !== p.material_text) patch.material_text = material;
     let hit: Awaited<ReturnType<typeof findVendorLink>> = null;
     const base = p.name.replace(/[\s-]*mirrored$/i, "");
-    const twin = base !== p.name ? lines.find((o) => o.name === base) : undefined;
-    try {
-      hit = await findVendorLink(twin && !p.part_number ? twin : p);
-    } catch (e) {
-      failed.add(e instanceof Error ? e.message : String(e));
+    if (!p.url || p.unit_price === null) {
+      const twin = base !== p.name ? lines.find((o) => o.name === base && o.design_id === p.design_id) : undefined;
+      try {
+        hit = await findVendorLink({ ...p, name: base, vendor: p.vendor || twin?.vendor || "",
+          part_number: p.part_number || twin?.part_number || "", material_text: material });
+      } catch (e) {
+        failed.add(e instanceof Error ? e.message : String(e));
+      }
+      if (!hit && twin?.url && !p.part_number && (!p.vendor || p.vendor === twin.vendor) &&
+        (!material || material.toLowerCase() === twin.material_text.toLowerCase()))
+        hit = { url: twin.url, price: twin.unit_price, pack: twin.pack_size, vendor: twin.vendor, title: twin.name };
+      // A manually saved link can point to another seller or package size.
+      if (hit && (!p.url || p.url === hit.url)) {
+        if (!p.url && hit.url) patch.url = hit.url;
+        if (p.unit_price === null && hit.price !== null) patch.unit_price = hit.price;
+        if (p.pack_size === null && hit.pack) patch.pack_size = hit.pack;
+        if (!p.vendor && hit.vendor) patch.vendor = hit.vendor;
+        if (!p.part_number && hit.sku) patch.part_number = hit.sku;
+      }
+      if ((!p.url && !patch.url) || (p.unit_price === null && patch.unit_price === undefined)) misses++;
     }
-    if (!hit && twin?.url) hit = { url: twin.url, price: twin.unit_price, pack: twin.pack_size, vendor: twin.vendor, title: twin.name };
-    if (!hit) {
-      misses++;
-      return;
-    }
-    const patch: Record<string, unknown> = {};
-    if (!p.url && hit.url) {
-      patch.url = hit.url;
-      found++;
-    }
-    if (p.unit_price === null && hit.price !== null) {
-      patch.unit_price = hit.price;
-      priced++;
-    }
-    if (p.pack_size === null && hit.pack) patch.pack_size = hit.pack;
-    if (!p.vendor && hit.vendor) patch.vendor = hit.vendor;
     if (Object.keys(patch).length) {
-      const { error: e } = await db().from("fab_parts").update(patch).eq("id", p.id);
+      // A lookup can take a while. Keep edits made while the catalog loaded.
+      let update = db().from("fab_parts").update(patch).eq("id", p.id)
+        .eq("kind", "cots").eq("missing", false).eq("name", p.name).eq("vendor", p.vendor).eq("part_number", p.part_number)
+        .eq("material_text", p.material_text).eq("url", p.url);
+      if ("material_text" in patch) update = update.eq("material_locked", false);
+      if ("unit_price" in patch) update = update.is("unit_price", null);
+      if ("pack_size" in patch) update = update.is("pack_size", null);
+      const { data: saved, error: e } = await update.select("id");
       if (e) throw e;
+      if (!saved?.length) return;
+      if ("url" in patch) found++;
+      if ("unit_price" in patch) priced++;
+      if ("material_text" in patch) corrected++;
     }
   });
   const parts = [`${found} link${found === 1 ? "" : "s"}`, `${priced} price${priced === 1 ? "" : "s"} found`];
-  if (misses) parts.push(`${misses} with no part number to look up — add a link by hand`);
+  if (corrected) parts.push(`${corrected} material label${corrected === 1 ? "" : "s"} corrected`);
+  if (misses) parts.push(`${misses} still missing a link or price`);
   if (failed.size) parts.push(`a store didn't answer: ${[...failed][0]}`);
   return todo.length ? parts.join(" · ") : "Every line already has a link and price.";
 }

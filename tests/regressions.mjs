@@ -37,6 +37,41 @@ function load(file, imports = {}, globals = {}) {
   vm.runInNewContext(js, { module: loadedModule, exports: loadedModule.exports, require: name => imports[name] ?? importDependency(name), ...globals });
   return loadedModule.exports;
 }
+test('COTS catalog matches screw and bearing dimensions and rejects conflicting hardware SKUs', async () => {
+  const product = (sku, title, price, reference = true) => ({
+    handle: sku.toLowerCase(), title, body_html: reference ? 'This Page is for Reference Only' : '',
+    variants: [{ id: 1, sku, price, title: 'Default Title' }],
+  });
+  const products = [
+    product('WCP-0906', '0.750" ID x 1.000" OD x 0.375" WD (Needle Bearing)', '3.49'),
+    product('WCP-0100', '0.750" ID x 1.000" OD x 0.375" WD (Radial Bearing)', '4.00'),
+    product('WCP-2243', '#10-32 x 1.250" L SHCS (Steel, Black Oxide) (50-Pack)', '5.99'),
+    product('WCP-2249', '#8-32 x 1.000" L SHCS (Steel, Black Oxide) (50-Pack)', '5.99'),
+    product('WCP-0102', '#8-32 x 1.500" L BHCS (Steel, Black Oxide) (50-Pack)', '7.00'),
+    product('WCP-0103', '#8-32 x 1.500" L SHCS (Stainless Steel) (50-Pack)', '8.00', false),
+  ];
+  const { findVendorLink, cotsMaterial } = load('lib/vendors.ts', { 'server-only': {} }, {
+    AbortSignal, fetch: async () => ({ ok: true, json: async () => ({ products }) }),
+  });
+  const lookup = (name, part_number = '', material_text = 'Steel') =>
+    findVendorLink({ name, part_number, material_text, vendor: 'West Coast Products' });
+  const bearing = await lookup('0.75" ID Needle Bearing (1" OD, 0.375" WD)');
+  assert.equal(bearing.sku, 'WCP-0906');
+  assert.equal(bearing.url, 'https://wcproducts.com/products/specialty-bearings');
+  assert.equal(bearing.price, 3.49);
+  assert.equal(await lookup('0.75" ID Needle Bearing (0.375" OD, 1" WD)'), null);
+  const screwName = 'Socket head cap screw #10-32 × 1-1/4';
+  const screw = await lookup(screwName + '-Mirrored');
+  assert.equal(screw.sku, 'WCP-2243');
+  assert.equal(screw.pack, 50);
+  assert.equal(screw.url, 'https://wcproducts.com/products/socket-head-bolts');
+  assert.equal(await lookup(screwName, 'WCP-2249'), null);
+  assert.equal(await lookup('Socket head cap screw #8-32 × 1.5', 'WCP-2249'), null);
+  assert.equal((await lookup('Socket head cap screw #8-32 × 1.5', '', 'Stainless Steel')).sku, 'WCP-0103');
+  assert.equal(cotsMaterial({ name: screwName, part_number: 'WCP-2243' }, 'Stainless Steel'), 'Steel');
+  assert.equal(cotsMaterial({ name: screwName, part_number: '' }, 'Stainless Steel'), 'Stainless Steel');
+  assert.equal(cotsMaterial({ name: screwName, part_number: 'WCP-2249' }, 'Stainless Steel'), 'Stainless Steel');
+});
 test('calendar dates retain their day in Los Angeles', () => {
   const previous = process.env.TZ;
   process.env.TZ = 'America/Los_Angeles';
@@ -371,7 +406,7 @@ test('the Work save endpoint only accepts same-origin requests and passes change
   assert.equal(seen[0][0].data.status, 'Done');
 });
 
-function fabActionFixture({ design, parts = [], respond }) {
+function fabActionFixture({ design, parts = [], respond, vendors }) {
   const paths = [];
   const writes = [];
   const json = (body, status = 200) => Response.json(body, { status });
@@ -384,7 +419,7 @@ function fabActionFixture({ design, parts = [], respond }) {
     },
   });
   const data = {
-    fab_designs: [design],
+    fab_designs: [{ name: "Fixture assembly", ...design }],
     fab_parts: parts,
     fab_part_events: [],
   };
@@ -396,6 +431,7 @@ function fabActionFixture({ design, parts = [], respond }) {
       return {
         select() { return this; },
         eq(key, value) { matches.push((row) => row[key] === value); return this; },
+        is(key, value) { return this.eq(key, value); },
         single() { return this.then(({ data }) => ({ data: data[0], error: null })); },
         update(row) { patch = row; return this; },
         insert(row) { insert = row; return this; },
@@ -431,7 +467,8 @@ function fabActionFixture({ design, parts = [], respond }) {
     '@/lib/onshape-keys': { getOnshapeKeys: async () => ({ access: 'fixture', secret: 'fixture' }) },
     '@/lib/dfm': {},
     '@/lib/parts-match': {},
-    '@/lib/vendors': {},
+    '@/lib/part-twins': load('lib/part-twins.ts', { './tracker': tracker }),
+    '@/lib/vendors': vendors ?? load('lib/vendors.ts', { 'server-only': {} }),
     '@/lib/fab': {},
     '@/lib/nest': {},
     '@/lib/geom': {},
@@ -445,6 +482,23 @@ const fabForm = (fields) => {
   for (const [key, value] of Object.entries(fields)) fd.set(key, value);
   return fd;
 };
+
+test('COTS lookup fills missing ordering details only for the saved product link', async () => {
+  const url = 'https://wcproducts.com/products/specialty-bearings';
+  const hit = { url, vendor: 'West Coast Products', sku: 'WCP-0906', price: 3.49, pack: 1 };
+  const parts = ['', url, 'https://another.example/part'].map((savedURL, i) => ({
+    id: String(i), kind: 'cots', missing: false, name: 'Needle Bearing', url: savedURL,
+    vendor: '', part_number: '', material_text: '', unit_price: null, pack_size: null,
+  }));
+  const { actions } = fabActionFixture({ parts, vendors: { findVendorLink: async () => hit } });
+  const result = await actions.findCotsLinks(fabForm({}));
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(parts.map((p) => [p.url, p.part_number, p.unit_price]), [
+    [url, 'WCP-0906', 3.49],
+    [url, 'WCP-0906', 3.49],
+    ['https://another.example/part', '', null],
+  ]);
+});
 
 test('Onshape sync batches default studios, falls back for missing metadata, and reads geometry only where needed', async () => {
   const design = { id: 'design', document_id: 'doc', wvm: 'w', wvm_id: 'workspace', element_id: 'assembly', element_type: 'assembly' };

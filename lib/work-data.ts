@@ -1,5 +1,5 @@
 import "server-only";
-import { getWorkUser, requireWorkUser } from "./work-auth";
+import { getWorkUser, type WorkUser } from "./work-auth";
 import { supabaseAdmin } from "./supabase";
 import type { PitProblem } from "./pit";
 import type { WorkSnapshot } from "./work";
@@ -62,7 +62,7 @@ const DELTA_OVERLAP_MS = 2 * 60_000;
  * of their events, events created since then, plus the small per-person tables. A background
  * refresh of an idle workspace is a few KB instead of the whole ~2 MB workspace (Supabase egress).
  */
-async function getWorkSince(user: Awaited<ReturnType<typeof requireWorkUser>>, since: string): Promise<WorkSnapshot> {
+async function getWorkSince(user: WorkUser, since: string): Promise<WorkSnapshot> {
   const db = supabaseAdmin();
   const t = await workSource();
   const now = new Date().toISOString();
@@ -105,8 +105,8 @@ async function getWorkSince(user: Awaited<ReturnType<typeof requireWorkUser>>, s
   return compactWorkSnapshot({ now, items, events, receipts, ...robot, delta: { since, inactive } });
 }
 
-export async function getWork(full = false, since?: string): Promise<WorkSnapshot> {
-  const user = await requireWorkUser();
+/** Read Work for a user already verified by the page or route. */
+export async function getWork(user: WorkUser, { full = false, since }: { full?: boolean; since?: string } = {}): Promise<WorkSnapshot> {
   try {
     if (!full && since && Number.isFinite(Date.parse(since))) return await getWorkSince(user, since);
     const db = supabaseAdmin();

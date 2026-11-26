@@ -10,7 +10,7 @@ import { mergeWorkDelta } from "@/lib/work-snapshot";
 /** A full re-read this often (while the tab is open and visible) backs up the changes-only refreshes. */
 const FULL_READ_MS = 30 * 60_000;
 const FALLBACK_READ_MS = 60_000;
-const LIVE_READ_MS = 5 * FALLBACK_READ_MS;
+const LIVE_READ_MS = 15 * FALLBACK_READ_MS;
 
 type WorkContext = {
   snapshot: WorkSnapshot;

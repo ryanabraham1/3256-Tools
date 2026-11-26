@@ -394,7 +394,7 @@ export function TrackerTable({
               aria-label={`Pick ${j.name}`}
             />
           )}
-          <Link href={`/tracker/${j.id}`} className="font-medium hover:underline truncate" title={j.name}>
+          <Link prefetch={false} href={`/tracker/${j.id}`} className="font-medium hover:underline truncate" title={j.name}>
             {j.name}
           </Link>
           <button type="button" className="text-xs px-1 shrink-0" style={{ color: "var(--muted)" }} onClick={() => setEdit(j)} aria-label={`Edit everything for ${j.name}`} title="All fields">
@@ -1678,7 +1678,7 @@ function JobCard({ job: j, print, stock, need, onOpen, onMove, onDelete }: { job
       )}
       <div className="flex flex-wrap items-center gap-2 text-xs min-w-0">
         <FileCell file={j.file} />
-        <Link href={`/tracker/${j.id}`} className="ml-auto underline shrink-0" style={{ color: "var(--purple)" }}>
+        <Link prefetch={false} href={`/tracker/${j.id}`} className="ml-auto underline shrink-0" style={{ color: "var(--purple)" }}>
           Files &amp; checks →
         </Link>
         <button type="button" className="btn btn-ghost text-xs shrink-0" aria-label={`Move ${j.name}`} onClick={onMove}>
@@ -1936,7 +1936,7 @@ function JobForm({
           <SubmitButton pending={a.pending} label={j ? "Save" : "Add to tracker"} />
         )}
         {j && (
-          <Link href={`/tracker/${j.id}`} className="btn btn-ghost">
+          <Link prefetch={false} href={`/tracker/${j.id}`} className="btn btn-ghost">
             Files, DFM checks &amp; history <span aria-hidden>→</span>
           </Link>
         )}

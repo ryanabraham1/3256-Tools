@@ -1,6 +1,11 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { WORK_COOKIE_OPTIONS } from "./work-cookie";
+
+// Match the storage key used by the pinned Supabase client. Larger sessions
+// are split into numbered cookies, starting at .0.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const sessionCookie = supabaseUrl ? `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token` : null;
+
 export async function refreshWorkSession(request: NextRequest) {
   // Supabase sends the OAuth code to the Site URL when the callback isn't on its
   // Redirect URLs allow-list; hand it to the callback instead of losing the sign-in.
@@ -11,33 +16,38 @@ export async function refreshWorkSession(request: NextRequest) {
     return NextResponse.redirect(callback);
   }
   let response = NextResponse.next({ request });
-  const client = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookieOptions: WORK_COOKIE_OPTIONS,
-      cookies: {
-        getAll: () => request.cookies.getAll(),
-        setAll: (cookies) => {
-          for (const c of cookies) request.cookies.set(c.name, c.value);
-          response = NextResponse.next({ request });
-          for (const c of cookies)
-            response.cookies.set(c.name, c.value, {
-              ...c.options,
-              // @supabase/ssr overrides cookieOptions.maxAge with its 400-day default.
-              maxAge: c.options.maxAge === 0 ? 0 : WORK_COOKIE_OPTIONS.maxAge,
-            });
+  let signedIn = false;
+  if (sessionCookie && (request.cookies.has(sessionCookie) || request.cookies.has(`${sessionCookie}.0`))) {
+    const { createServerClient } = await import("@supabase/ssr");
+    const client = createServerClient(
+      supabaseUrl!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookieOptions: WORK_COOKIE_OPTIONS,
+        cookies: {
+          getAll: () => request.cookies.getAll(),
+          setAll: (cookies) => {
+            for (const c of cookies) request.cookies.set(c.name, c.value);
+            response = NextResponse.next({ request });
+            for (const c of cookies)
+              response.cookies.set(c.name, c.value, {
+                ...c.options,
+                // @supabase/ssr overrides cookieOptions.maxAge with its 400-day default.
+                maxAge: c.options.maxAge === 0 ? 0 : WORK_COOKIE_OPTIONS.maxAge,
+              });
+          },
         },
       },
-    },
-  );
-  const { data, error } = await client.auth.getClaims();
+    );
+    const { data, error } = await client.auth.getClaims();
+    signedIn = !!data?.claims && !error;
+  }
   const { pathname } = request.nextUrl;
   // Log routes check upload-only device tokens or Google account access themselves.
   // Still refresh browser sessions here so log browsing keeps users signed in.
   const routeHandlesAuth = pathname === "/api/robot-logs" || pathname.startsWith("/api/robot-logs/");
   if (
-    (!data?.claims || error) &&
+    !signedIn &&
     !routeHandlesAuth &&
     request.nextUrl.pathname !== "/login" &&
     request.nextUrl.pathname !== "/work/login" &&

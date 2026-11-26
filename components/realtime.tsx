@@ -6,7 +6,7 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 import { pageShowsTable } from "@/lib/refresh-scope";
 
 const FALLBACK_REFRESH_MS = 60_000;
-const LIVE_REFRESH_MS = 5 * FALLBACK_REFRESH_MS;
+const LIVE_REFRESH_MS = 15 * FALLBACK_REFRESH_MS;
 
 /**
  * Keeps every phone in the pit in sync: refreshes server data when the DB
@@ -94,7 +94,7 @@ export function Realtime({ renderedAt }: { renderedAt: string }) {
     document.addEventListener("visibilitychange", back);
     window.addEventListener("focus", back);
     window.addEventListener("online", back);
-    // Every minute without live pings; every 5 minutes as a backstop with them.
+    // Every minute without live pings; every 15 minutes as a backstop with them.
     const interval = setInterval(() => {
       if (document.visibilityState === "visible" && (!live || Date.now() - readAt >= LIVE_REFRESH_MS)) refresh();
     }, FALLBACK_REFRESH_MS);

@@ -13,7 +13,7 @@ export default async function WorkLayout({
 }) {
   const user = await getWorkUser();
   if (!user) redirect("/work/login");
-  const [snapshot, access] = await Promise.all([getWork(), getWorkAccess()]);
+  const [snapshot, access] = await Promise.all([getWork(user), getWorkAccess()]);
   return (
     <CompModeProvider>
       <Suspense fallback={null}>

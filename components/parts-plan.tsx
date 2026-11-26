@@ -272,7 +272,7 @@ export function PartsPlan({
             {cantMake.map((p) => (
               <li key={p.id} className="plan-attention-row flex gap-2">
                 <span className="pill pill-bad shrink-0">Can&apos;t make</span>
-                <Link href={`/tracker/${p.id}`} className="underline font-medium">
+                <Link prefetch={false} href={`/tracker/${p.id}`} className="underline font-medium">
                   {p.name}
                 </Link>
                 <span style={{ color: "var(--muted)" }}>{p.dfm.why}</span>
@@ -281,7 +281,7 @@ export function PartsPlan({
             {noMaterial.map((p) => (
               <li key={p.id} className="plan-attention-row flex gap-2">
                 <span className="pill pill-warn shrink-0">No stock</span>
-                <Link href={`/tracker/${p.id}`} className="underline font-medium">
+                <Link prefetch={false} href={`/tracker/${p.id}`} className="underline font-medium">
                   {p.name}
                 </Link>
                 <span style={{ color: "var(--muted)" }}>
@@ -618,7 +618,7 @@ function MaterialGroup({
               <span className="mono w-8 text-right" title={p.spare ? `incl. ${p.spare} spare` : undefined}>
                 ×{p.toCut}
               </span>
-              <Link href={`/tracker/${p.id}`} className="underline min-w-0 truncate">
+              <Link prefetch={false} href={`/tracker/${p.id}`} className="underline min-w-0 truncate">
                 {p.name}
               </Link>
               {p.dfm.warns > 0 && <span className="pill pill-warn">check</span>}

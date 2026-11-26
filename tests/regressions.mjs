@@ -153,50 +153,82 @@ test('Google sessions refresh on every tool and preserve rotated cookies', async
   assert.equal(WORK_COOKIE_OPTIONS.maxAge, 30 * 24 * 60 * 60);
   assert.equal(WORK_COOKIE_OPTIONS.httpOnly, true);
   assert.equal(WORK_COOKIE_OPTIONS.path, '/');
-  for (const path of ['/', '/battery', '/stock', '/tracker', '/work', '/api/export/full']) {
-    const request = new NextRequest(`https://tools.example${path}`, { headers: { cookie: 'sb-session=expired' } });
+  const paths = ['/', '/battery', '/stock', '/tracker', '/work', '/api/export/full'];
+  for (const [i, path] of paths.entries()) {
+    const cookie = 'sb-test-auth-token' + (i % 2 ? '.0' : '');
+    const request = new NextRequest(`https://tools.example${path}`, { headers: { cookie: `${cookie}=expired` } });
     const { refreshWorkSession } = load('lib/work-session.ts', {
       'next/server': { NextResponse },
       './work-cookie': { WORK_COOKIE_OPTIONS },
       '@supabase/ssr': { createServerClient: (_url, _key, options) => ({ auth: {
         getClaims: async () => {
           assert.equal(options.cookies.getAll()[0].value, 'expired');
-          options.cookies.setAll([{ name: 'sb-session', value: 'rotated-refresh-token', options: { ...WORK_COOKIE_OPTIONS, maxAge: 400 * 24 * 60 * 60 } }]);
+          options.cookies.setAll([{ name: cookie, value: 'rotated-refresh-token', options: { ...WORK_COOKIE_OPTIONS, maxAge: 400 * 24 * 60 * 60 } }]);
           return { data: { claims: { sub: 'google-user' } }, error: null };
         },
       } }) },
-    }, { process });
+    }, { process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://test.supabase.co' } }, URL });
     const response = await refreshWorkSession(request);
     assert.equal(response.status, 200, path);
-    assert.equal(request.cookies.get('sb-session').value, 'rotated-refresh-token');
-    assert.equal(response.cookies.get('sb-session').value, 'rotated-refresh-token');
-    assert.equal(response.cookies.get('sb-session').maxAge, 30 * 24 * 60 * 60);
+    assert.equal(request.cookies.get(cookie).value, 'rotated-refresh-token');
+    assert.equal(response.cookies.get(cookie).value, 'rotated-refresh-token');
+    assert.equal(response.cookies.get(cookie).maxAge, 30 * 24 * 60 * 60);
     assert.match(response.headers.get('Cache-Control'), /private, no-store/);
   }
 });
 
-test('signed-out requests preserve destinations, reject API calls, and ignore team-code cookies', async () => {
+test('signed-out requests reject private routes without creating a Supabase client', async () => {
   const { NextRequest, NextResponse } = importDependency('next/server');
+  let claimsReads = 0;
   const { refreshWorkSession } = load('lib/work-session.ts', {
     'next/server': { NextResponse },
     './work-cookie': { WORK_COOKIE_OPTIONS: {} },
     '@supabase/ssr': { createServerClient: (_url, _key, options) => ({ auth: {
       getClaims: async () => {
-        options.cookies.setAll([{ name: 'sb-session', value: '', options: { maxAge: 0, path: '/' } }]);
+        claimsReads++;
+        options.cookies.setAll([{ name: 'sb-test-auth-token', value: '', options: { maxAge: 0, path: '/' } }]);
         return { data: null, error: new Error('Expired session') };
       },
     } }) },
-  }, { process, URL });
+  }, { process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://test.supabase.co' } }, URL });
   const response = await refreshWorkSession(new NextRequest('https://tools.example/stock?pit=1', { headers: { cookie: 'bt_session=old-team-code' } }));
   assert.equal(response.status, 307);
   assert.equal(new URL(response.headers.get('Location')).searchParams.get('next'), '/stock?pit=1');
-  assert.equal(response.cookies.get('sb-session').maxAge, 0);
-  const api = await refreshWorkSession(new NextRequest('https://tools.example/api/export/full'));
-  assert.equal(api.status, 401);
-  assert.equal(api.cookies.get('sb-session').maxAge, 0);
+  assert.equal((await refreshWorkSession(new NextRequest('https://tools.example/api/export/full'))).status, 401);
   for (const path of ['/login', '/work/login', '/auth/work/callback', '/api/robot-logs', '/api/robot-logs/devices']) {
     assert.equal((await refreshWorkSession(new NextRequest(`https://tools.example${path}`))).status, 200);
   }
+  const fallback = await refreshWorkSession(new NextRequest('https://tools.example/?code=oauth'));
+  assert.equal(fallback.headers.get('Location'), 'https://tools.example/auth/work/callback?code=oauth');
+  assert.equal(claimsReads, 0);
+  const expired = await refreshWorkSession(new NextRequest('https://tools.example/api/export/full', { headers: { cookie: 'sb-test-auth-token=expired' } }));
+  assert.equal(expired.status, 401);
+  assert.equal(expired.cookies.get('sb-test-auth-token').maxAge, 0);
+  assert.equal(claimsReads, 1);
+});
+
+test('Work snapshot passes its checked user into the read and denies signed-out requests', async () => {
+  const user = { memberId: 'verified-user' };
+  let signedIn = true, checks = 0;
+  const seen = [];
+  const { GET } = load('app/api/work/snapshot/route.ts', {
+    '@/lib/work-auth': { requireWorkUser: async () => {
+      checks++;
+      if (!signedIn) throw new Error('Signed out');
+      return user;
+    } },
+    '@/lib/work-data': { getWork: async (user, { since }) => {
+      seen.push([user, since]);
+      return { items: [] };
+    } },
+  }, { URL, Response });
+  const request = new Request('https://tools.example/api/work/snapshot?since=2026-11-01');
+  assert.equal((await GET(request)).status, 200);
+  assert.deepEqual(seen, [[user, '2026-11-01']]);
+  signedIn = false;
+  assert.equal((await GET(request)).status, 401);
+  assert.equal(checks, 2);
+  assert.equal(seen.length, 1);
 });
 
 test('tool access requires an enabled linked Google account and viewers cannot write', async () => {
@@ -311,6 +343,7 @@ test('Google callback returns to the selected tool and denies unapproved account
       'next/server': { NextResponse },
       'next/headers': { cookies: async () => ({ get: () => ({ value: destination }), delete: name => removed.push(name) }) },
       '@/lib/navigation': { safeReturnPath },
+      '@/lib/work-names': load('lib/work-names.ts'),
       '@/lib/work-auth': { workAuthClient: async () => ({ auth: {
         exchangeCodeForSession: async code => { assert.equal(code, 'google-code'); return { error: null }; },
         getUser: async () => ({ data: { user: { id: 'google-id', email_confirmed_at: '2026-11-11', identities: [{ provider: 'google' }] } } }),

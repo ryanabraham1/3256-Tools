@@ -135,7 +135,7 @@ export function FabRack({
               byLoc.set(k, (byLoc.get(k) ?? 0) + 1);
             }
             return (
-              <Link key={m.id} href={`/stock/${m.id}`} className="card p-4 flex flex-col gap-2 hover:border-[var(--purple)] transition-colors">
+              <Link prefetch={false} key={m.id} href={`/stock/${m.id}`} className="card p-4 flex flex-col gap-2 hover:border-[var(--purple)] transition-colors">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="eyebrow" style={{ color: "var(--muted)" }}>
@@ -185,7 +185,7 @@ export function FabRack({
               </div>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {empty.map((r) => (
-                  <Link key={r.material.id} href={`/stock/${r.material.id}`} className="card flex items-center gap-3 px-4 min-h-[52px] hover:border-[var(--purple)] transition-colors" style={{ boxShadow: "none" }}>
+                  <Link prefetch={false} key={r.material.id} href={`/stock/${r.material.id}`} className="card flex items-center gap-3 px-4 min-h-[52px] hover:border-[var(--purple)] transition-colors" style={{ boxShadow: "none" }}>
                     <span className="pill pill-muted shrink-0">{SHAPE_LABEL[r.material.shape]}</span>
                     <span className="min-w-0 truncate text-[15px] font-medium">
                       {r.material.material} {sizeLabel(r.material)}

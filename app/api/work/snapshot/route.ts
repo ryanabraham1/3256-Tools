@@ -6,11 +6,10 @@ const headers = { "Cache-Control": "private, no-store" };
  * `?since=<an earlier snapshot's now>` sends only what changed (see mergeWorkDelta).
  */
 export async function GET(request: Request) {
-  try {
-    await requireWorkUser();
-  } catch {
+  const user = await requireWorkUser().catch(() => null);
+  if (!user) {
     return Response.json({ error: "Sign in with Google to open Work." }, { status: 401, headers });
   }
   const since = new URL(request.url).searchParams.get("since") ?? undefined;
-  return Response.json(await getWork(false, since), { headers });
+  return Response.json(await getWork(user, { since }), { headers });
 }

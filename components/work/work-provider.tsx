@@ -9,6 +9,8 @@ import { mergeWorkDelta } from "@/lib/work-snapshot";
 
 /** A full re-read this often (while the tab is open and visible) backs up the changes-only refreshes. */
 const FULL_READ_MS = 30 * 60_000;
+const FALLBACK_READ_MS = 60_000;
+const LIVE_READ_MS = 5 * FALLBACK_READ_MS;
 
 type WorkContext = {
   snapshot: WorkSnapshot;
@@ -115,14 +117,25 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
     let timer: ReturnType<typeof setTimeout> | null = null;
     let missed = false;
     let readAt = Date.now();
+    let live = false;
+    let wasConnected = false;
+    const readInterval = () => live ? LIVE_READ_MS : FALLBACK_READ_MS;
     const soon = () => {
-      if (document.visibilityState === "hidden") {
+      if (document.visibilityState === "hidden" || !navigator.onLine) {
         missed = true;
         return;
       }
-      readAt = Date.now();
+      const scheduledAt = Date.now();
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { if (navigator.onLine) refresh(); }, 250);
+      timer = setTimeout(() => {
+        if (document.visibilityState === "hidden" || !navigator.onLine) {
+          missed = true;
+          return;
+        }
+        missed = false;
+        readAt = scheduledAt;
+        void refresh();
+      }, 250);
     };
     const sb = supabaseBrowser();
     const channel = sb
@@ -131,21 +144,28 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
         const table = (message.payload as { table?: string } | undefined)?.table;
         if (!table || table.startsWith("work_") || table === "pit_problems") soon();
       })
-      .subscribe();
-    // Coming back reads once if a ping arrived meanwhile or the last read is over a minute old.
+      .subscribe((status) => {
+        const connected = status === "SUBSCRIBED";
+        const reconnected = connected && !live && wasConnected;
+        live = connected;
+        wasConnected ||= connected;
+        if (reconnected) soon();
+      });
+    // Catch up on missed changes or once the snapshot is due for its fallback read.
     const back = () => {
-      if (document.visibilityState !== "visible" || (!missed && Date.now() - readAt < 60_000)) return;
-      missed = false;
-      soon();
+      if (missed || Date.now() - readAt >= readInterval()) soon();
     };
-    const onVisible = back;
-    document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("visibilitychange", back);
     window.addEventListener("focus", back);
-    const interval = setInterval(soon, 60_000);
+    window.addEventListener("online", back);
+    const interval = setInterval(() => {
+      if (!live || Date.now() - readAt >= LIVE_READ_MS) soon();
+    }, FALLBACK_READ_MS);
     return () => {
       if (channel) sb?.removeChannel(channel);
-      document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("visibilitychange", back);
       window.removeEventListener("focus", back);
+      window.removeEventListener("online", back);
       clearInterval(interval);
       if (timer) clearTimeout(timer);
     };
@@ -153,7 +173,7 @@ export function WorkProvider({ children, snapshot: rendered, user, access }: Pic
 
   useEffect(() => {
     // A page restored from the browser's back/forward cache can carry an old snapshot.
-    if (Date.now() - Date.parse(rendered.now) <= 30_000) return;
+    if (document.visibilityState === "hidden" || Date.now() - Date.parse(rendered.now) <= 30_000) return;
     const id = setTimeout(refresh, 0);
     return () => clearTimeout(id);
   }, [rendered.now, refresh]);

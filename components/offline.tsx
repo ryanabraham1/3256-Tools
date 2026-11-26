@@ -9,7 +9,7 @@ import type { BatteryState } from "@/lib/types";
  * Offline support for a pit with bad Wi-Fi.
  *
  *  - `offline` flips on from the browser's offline event, a failed action, or
- *    a failed ping; a 3 s HEAD poll to /api/ping flips it back.
+ *    a failed ping; a HEAD probe with backoff flips it back.
  *  - While offline, forms drop their action into a localStorage outbox instead
  *    of calling the server. The outbox replays in order on reconnect.
  *  - `pendingState(batteryId)` gives the board the state a queued action will
@@ -18,6 +18,8 @@ import type { BatteryState } from "@/lib/types";
 
 const KEY = "bt_outbox";
 const PING = "/api/ping";
+const FIRST_RETRY_MS = 3000;
+const MAX_RETRY_MS = 60_000;
 
 interface OfflineCtx {
   offline: boolean;
@@ -121,27 +123,36 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       return;
     }
     let cancelled = false;
+    let retryMs = FIRST_RETRY_MS;
+    let activeProbe: AbortController | null = null;
     const ping = async () => {
+      const controller = new AbortController();
+      activeProbe = controller;
+      const timeout = setTimeout(() => controller.abort(), 2500);
       try {
-        const ctl = new AbortController();
-        const t = setTimeout(() => ctl.abort(), 2500);
         const res = await fetch(PING, {
           method: "HEAD",
           cache: "no-store",
-          signal: ctl.signal,
+          signal: controller.signal,
         });
-        clearTimeout(t);
         if (res.ok && !cancelled) {
           setOffline(false);
           return;
         }
-      } catch {}
-      if (!cancelled) pollTimer.current = setTimeout(ping, 3000);
+      } catch {
+        // The network can stay down after the browser reports it is online.
+      } finally {
+        clearTimeout(timeout);
+        activeProbe = null;
+      }
+      if (!cancelled) pollTimer.current = setTimeout(ping, retryMs);
+      retryMs = Math.min(retryMs * 2, MAX_RETRY_MS);
     };
     pollTimer.current = setTimeout(ping, 1000);
     return () => {
       cancelled = true;
       if (pollTimer.current) clearTimeout(pollTimer.current);
+      activeProbe?.abort();
     };
   }, [offline, drain]);
 

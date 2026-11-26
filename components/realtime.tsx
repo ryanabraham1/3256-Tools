@@ -5,6 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { pageShowsTable } from "@/lib/refresh-scope";
 
+const FALLBACK_REFRESH_MS = 60_000;
+const LIVE_REFRESH_MS = 5 * FALLBACK_REFRESH_MS;
+
 /**
  * Keeps every phone in the pit in sync: refreshes server data when the DB
  * broadcasts a change, when the tab comes back, and on a slow fallback timer.
@@ -40,17 +43,24 @@ export function Realtime({ renderedAt }: { renderedAt: string }) {
     let missed = false;
     let readAt = Date.now();
     let live = false;
+    let wasConnected = false;
+    const refreshInterval = () => live ? LIVE_REFRESH_MS : FALLBACK_REFRESH_MS;
     const refresh = (delay = 250) => {
       if (document.visibilityState === "hidden") {
         missed = true;
         return;
       }
-      readAt = Date.now();
+      const scheduledAt = Date.now();
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
+        if (document.visibilityState === "hidden" || !navigator.onLine) {
+          missed = true;
+          return;
+        }
+        missed = false;
+        readAt = scheduledAt;
         pendingAt.current = null;
-        // A refresh with no network just errors; the offline poller refreshes on reconnect.
-        if (navigator.onLine) router.refresh();
+        router.refresh();
       }, delay);
     };
 
@@ -69,26 +79,31 @@ export function Realtime({ renderedAt }: { renderedAt: string }) {
         refresh(1500);
       })
       .subscribe((status) => {
-        live = status === "SUBSCRIBED";
+        const connected = status === "SUBSCRIBED";
+        const reconnected = connected && !live && wasConnected;
+        live = connected;
+        wasConnected ||= connected;
+        if (reconnected) refresh();
       });
 
-    // Coming back refreshes once if a ping arrived meanwhile or the page is over a minute old.
+    // Coming back refreshes once for missed changes or a due fallback read.
     const back = () => {
-      if (document.visibilityState !== "visible" || (!missed && Date.now() - readAt < 60_000)) return;
-      missed = false;
+      if (document.visibilityState !== "visible" || (!missed && Date.now() - readAt < refreshInterval())) return;
       refresh();
     };
     document.addEventListener("visibilitychange", back);
     window.addEventListener("focus", back);
+    window.addEventListener("online", back);
     // Every minute without live pings; every 5 minutes as a backstop with them.
     const interval = setInterval(() => {
-      if (!live || Date.now() - readAt >= 5 * 60_000) refresh();
-    }, 60_000);
+      if (document.visibilityState === "visible" && (!live || Date.now() - readAt >= LIVE_REFRESH_MS)) refresh();
+    }, FALLBACK_REFRESH_MS);
 
     return () => {
       if (channel) sb?.removeChannel(channel);
       document.removeEventListener("visibilitychange", back);
       window.removeEventListener("focus", back);
+      window.removeEventListener("online", back);
       clearInterval(interval);
       if (timer.current) clearTimeout(timer.current);
     };

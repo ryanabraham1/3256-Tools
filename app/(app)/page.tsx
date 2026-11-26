@@ -139,7 +139,8 @@ export default async function Home() {
 
       {user && <AccountCard user={user} />}
 
-      <Link href="/logs" className="block rounded-xl border p-4 mb-4" style={{ borderColor: "var(--line)", background: "var(--surface)" }}><strong>Robot logs</strong><span className="ml-3 text-sm" style={{ color: "var(--muted)" }}>Open recordings, replay signals, and inspect power analysis →</span></Link>
+      {/* The dashboard links to many dynamic pages. Fetch them on navigation. */}
+      <Link prefetch={false} href="/logs" className="block rounded-xl border p-4 mb-4" style={{ borderColor: "var(--line)", background: "var(--surface)" }}><strong>Robot logs</strong><span className="ml-3 text-sm" style={{ color: "var(--muted)" }}>Open recordings, replay signals, and inspect power analysis →</span></Link>
       <div className="grid gap-4 lg:grid-cols-2 items-stretch">
         <ToolCard href="/work" name="Work" tagline="Issues and project planning" icon={<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 5h16M4 12h16M4 19h16" /></svg>} links={[["/work/issues", "Issues"], ["/work/projects", "Projects"], ["/work/initiatives", "Initiatives"]]} open="Open workspace">
           <div className="rounded-lg p-4" style={{ background: "var(--purple-soft)" }}>
@@ -147,7 +148,7 @@ export default async function Home() {
               {work.state === "ready" ? "Pick up next" : "Your workspace"}
             </p>
             {nextIssue ? (
-              <Link href={`/work/issues/${nextIssue.id}`} className="block mt-1 hover:underline">
+              <Link prefetch={false} href={`/work/issues/${nextIssue.id}`} className="block mt-1 hover:underline">
                 <span className="mono text-xs" style={{ color: "var(--purple-dark)" }}>{issueCode(nextIssue, work.items)}</span>
                 <span className="block text-xl font-semibold leading-snug mt-1 break-words">{nextIssue.title}</span>
               </Link>
@@ -161,10 +162,10 @@ export default async function Home() {
           </div>
           {work.state === "ready" && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <Link href="/work/my-issues" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="My open issues" value={myIssues.length} tone={myIssues.length ? "info" : undefined} /></Link>
-              <Link href="/work/issues" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="Open issues" value={workIssues.length} /></Link>
-              <Link href="/work/issues" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="In progress" value={inProgress.length} tone={inProgress.length ? "info" : undefined} /></Link>
-              <Link href="/work/projects" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="Projects" value={workProjects.length} /></Link>
+              <Link prefetch={false} href="/work/my-issues" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="My open issues" value={myIssues.length} tone={myIssues.length ? "info" : undefined} /></Link>
+              <Link prefetch={false} href="/work/issues" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="Open issues" value={workIssues.length} /></Link>
+              <Link prefetch={false} href="/work/issues" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="In progress" value={inProgress.length} tone={inProgress.length ? "info" : undefined} /></Link>
+              <Link prefetch={false} href="/work/projects" className="rounded-lg hover:bg-[var(--paper)]"><Stat label="Projects" value={workProjects.length} /></Link>
             </div>
           )}
           <div className="grid grid-cols-3 gap-2">
@@ -173,7 +174,7 @@ export default async function Home() {
               ["/work/inbox", "Inbox", "Updates & mentions"],
               ["/work/documents", "Documents", "Team notes & plans"],
             ].map(([href, label, description]) => (
-              <Link key={href} href={href} className="rounded-lg p-3 min-w-0 hover:bg-[var(--paper)]" style={{ border: "1px solid var(--line)" }}>
+              <Link prefetch={false} key={href} href={href} className="rounded-lg p-3 min-w-0 hover:bg-[var(--paper)]" style={{ border: "1px solid var(--line)" }}>
                 <span className="flex items-center justify-between gap-1 text-sm font-semibold">{label}<span aria-hidden className="hidden sm:inline">→</span></span>
                 <span className="block text-xs mt-1" style={{ color: "var(--muted)" }}>{description}</span>
               </Link>
@@ -212,7 +213,7 @@ export default async function Home() {
             </p>
             {grab ? (
               <div className="flex items-end justify-between gap-3 flex-wrap mt-1">
-                <Link href={`/battery/batteries/${encodeURIComponent(grab.battery.name)}`} className="display text-3xl hover:underline break-all">
+                <Link prefetch={false} href={`/battery/batteries/${encodeURIComponent(grab.battery.name)}`} className="display text-3xl hover:underline break-all">
                   {grab.battery.name}
                 </Link>
                 <div className="flex gap-1.5 flex-wrap">
@@ -375,7 +376,7 @@ export default async function Home() {
               {pit?.event ? pit.event.name : "Practice"}
             </p>
             {pitRunning.length ? (
-              <Link href={`/pit/run/${pitRunning[0].id}`} className="block text-xl font-semibold mt-1 hover:underline">
+              <Link prefetch={false} href={`/pit/run/${pitRunning[0].id}`} className="block text-xl font-semibold mt-1 hover:underline">
                 {runTitle(pitRunning[0])} in progress
               </Link>
             ) : (
@@ -431,7 +432,7 @@ export default async function Home() {
                   </span>
                 </div>
                 <p className="text-sm min-w-0 flex-1 mt-1.5 sm:mt-0 break-words" style={r.undone ? { opacity: 0.55, textDecoration: "line-through" } : undefined}>
-                  <Link href={r.href} className="font-semibold hover:underline mr-1.5">
+                  <Link prefetch={false} href={r.href} className="font-semibold hover:underline mr-1.5">
                     {r.who}
                   </Link>
                   {r.text}
@@ -464,7 +465,7 @@ function ToolCard({
 }) {
   return (
     <section className="card p-4 sm:p-5 flex flex-col gap-4">
-      <Link href={href} className="flex items-center gap-3 group">
+      <Link prefetch={false} href={href} className="flex items-center gap-3 group">
         <span className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--plum)", color: "var(--plum-text)" }}>
           {icon}
         </span>
@@ -477,11 +478,11 @@ function ToolCard({
       </Link>
       {children}
       <div className="mt-auto flex gap-2 flex-wrap pt-1">
-        <Link href={href} className="btn btn-primary text-sm w-full sm:w-auto">
+        <Link prefetch={false} href={href} className="btn btn-primary text-sm w-full sm:w-auto">
           {open} <span aria-hidden>→</span>
         </Link>
         {links.map(([h, label]) => (
-          <Link key={h} href={h} className="btn btn-ghost text-sm flex-1 sm:flex-none">
+          <Link prefetch={false} key={h} href={h} className="btn btn-ghost text-sm flex-1 sm:flex-none">
             {label}
           </Link>
         ))}
@@ -528,7 +529,7 @@ function AlertList({
           <span className="w-1.5 h-1.5 rounded-full shrink-0 translate-y-[-2px]" style={{ background: r.bad ? "var(--bad)" : "var(--warn)" }} />
           <span className="min-w-0">
             {r.href ? (
-              <Link href={r.href} className="font-semibold hover:underline">
+              <Link prefetch={false} href={r.href} className="font-semibold hover:underline">
                 {r.strong}
               </Link>
             ) : (
@@ -540,7 +541,7 @@ function AlertList({
       ))}
       {more > 0 && (
         <li>
-          <Link href={moreHref} className="text-xs underline" style={{ color: "var(--muted)" }}>
+          <Link prefetch={false} href={moreHref} className="text-xs underline" style={{ color: "var(--muted)" }}>
             +{more} more
           </Link>
         </li>
